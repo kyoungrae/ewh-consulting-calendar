@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -24,6 +25,7 @@ export default function UsersPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterRole, setFilterRole] = useState('');
     const [filterStatus, setFilterStatus] = useState('');
+    const { openSidebar } = useOutletContext();
 
     const { users, loading, updateUser, deleteUser } = useUsers();
     const { registerUser } = useAuth();
@@ -144,7 +146,7 @@ export default function UsersPage() {
     if (loading) {
         return (
             <>
-                <Header title="회원 관리" />
+                <Header title="회원 관리" onMenuClick={openSidebar} />
                 <div className="page-content">
                     <LoadingSpinner message="회원 정보를 불러오는 중..." />
                 </div>
@@ -154,7 +156,7 @@ export default function UsersPage() {
 
     return (
         <>
-            <Header title="회원 관리" />
+            <Header title="회원 관리" onMenuClick={openSidebar} />
             <div className="page-content">
                 <div className="page-header flex justify-between items-start">
                     <div>
