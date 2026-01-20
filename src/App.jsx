@@ -2,7 +2,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute, AdminRoute } from './routes/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/auth/LoginPage';
+import ConsultantSelectionPage from './pages/auth/ConsultantSelectionPage';
 import CalendarPage from './pages/calendar/CalendarPage';
 import SchedulesPage from './pages/schedules/SchedulesPage';
 import CodesPage from './pages/codes/CodesPage';
@@ -15,26 +17,24 @@ function App() {
       <AuthProvider>
         <Routes>
           {/* Public Routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/select-consultant" element={<ConsultantSelectionPage />} />
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Protected Routes */}
+          {/* Protected Area Layout */}
           <Route
-            path="/"
             element={
               <ProtectedRoute>
                 <MainLayout />
               </ProtectedRoute>
             }
           >
-            {/* Default redirect */}
-            <Route index element={<Navigate to="/calendar" replace />} />
-
             {/* Calendar - accessible by all authenticated users */}
-            <Route path="calendar" element={<CalendarPage />} />
+            <Route path="/calendar" element={<CalendarPage />} />
 
             {/* Admin only routes */}
             <Route
-              path="schedules"
+              path="/schedules"
               element={
                 <AdminRoute>
                   <SchedulesPage />
@@ -42,7 +42,7 @@ function App() {
               }
             />
             <Route
-              path="codes"
+              path="/codes"
               element={
                 <AdminRoute>
                   <CodesPage />
@@ -50,7 +50,7 @@ function App() {
               }
             />
             <Route
-              path="users"
+              path="/users"
               element={
                 <AdminRoute>
                   <UsersPage />
@@ -59,8 +59,9 @@ function App() {
             />
           </Route>
 
-          {/* Catch all - redirect to calendar */}
-          <Route path="*" element={<Navigate to="/calendar" replace />} />
+          {/* Catch all - redirect based on auth status is handled by ProtectedRoute, 
+              but for simplified UX we point to root */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

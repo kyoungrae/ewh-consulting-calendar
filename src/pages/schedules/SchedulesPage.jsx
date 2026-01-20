@@ -6,18 +6,16 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import {
     Plus,
-    Search,
     Edit2,
     Trash2,
     Calendar,
-    Filter
+    Clock,
+    MapPin
 } from 'lucide-react';
 
 export default function SchedulesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState('');
     const { openSidebar } = useOutletContext();
 
     const {
@@ -32,7 +30,6 @@ export default function SchedulesPage() {
 
     // 폼 상태
     const [formData, setFormData] = useState({
-        studentName: '',
         date: '',
         endDate: '',
         location: '',
@@ -44,20 +41,11 @@ export default function SchedulesPage() {
     // 컨설턴트 목록 (role이 consultant인 사용자)
     const consultants = users.filter(u => u.role === 'consultant' || u.role === 'admin');
 
-    // 검색 및 필터링
-    const filteredSchedules = schedules.filter(schedule => {
-        const matchSearch = schedule.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            schedule.location?.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchFilter = !filterType || schedule.typeCode === filterType;
-        return matchSearch && matchFilter;
-    });
-
     // 모달 열기 (등록/수정)
     const openModal = (schedule = null) => {
         if (schedule) {
             setEditingSchedule(schedule);
             setFormData({
-                studentName: schedule.studentName || '',
                 date: schedule.date || '',
                 endDate: schedule.endDate || '',
                 location: schedule.location || '',
@@ -68,7 +56,6 @@ export default function SchedulesPage() {
         } else {
             setEditingSchedule(null);
             setFormData({
-                studentName: '',
                 date: '',
                 endDate: '',
                 location: '',
@@ -137,124 +124,93 @@ export default function SchedulesPage() {
         <>
             <Header title="일정 관리" onMenuClick={openSidebar} />
             <div className="page-content">
-                <div className="page-header flex justify-between items-start">
+                <div className="page-header flex justify-between items-center mb-8">
                     <div>
-                        <h1 className="page-title">일정 등록</h1>
-                        <p className="page-description">컨설팅 일정을 등록하고 관리합니다</p>
+                        <h1 className="page-title">일정 관리</h1>
+                        <p className="page-description">컨설팅 일정을 통합 관리합니다</p>
                     </div>
                     <button
                         onClick={() => openModal()}
-                        className="btn btn-primary"
+                        className="btn btn-primary shadow-md"
                     >
                         <Plus size={18} />
                         새 일정 등록
                     </button>
                 </div>
 
-                {/* Search & Filter */}
-                <div className="card mb-6">
-                    <div className="card-body">
-                        <div className="flex flex-wrap gap-4">
-                            <div className="flex-1 min-w-[200px]">
-                                <div className="relative">
-                                    <Search
-                                        size={18}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="학생 이름 또는 장소로 검색..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="form-input pl-10"
-                                    />
-                                </div>
-                            </div>
-                            <div className="w-48">
-                                <div className="relative">
-                                    <Filter
-                                        size={18}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    />
-                                    <select
-                                        value={filterType}
-                                        onChange={(e) => setFilterType(e.target.value)}
-                                        className="form-select pl-10"
-                                    >
-                                        <option value="">전체 구분</option>
-                                        {codes.map(code => (
-                                            <option key={code.id} value={code.code}>
-                                                {code.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 {/* Schedules Table */}
-                <div className="card">
-                    <div className="card-header flex justify-between items-center">
-                        <h3 className="font-semibold text-gray-900">일정 목록</h3>
-                        <span className="text-sm text-gray-500">
-                            총 {filteredSchedules.length}건
-                        </span>
+                <div className="card w-full shadow-sm">
+                    <div className="card-header border-b border-gray-100 bg-gray-50/30 flex justify-between items-center">
+                        <h3 className="font-semibold text-gray-900">전체 일정 목록 ({schedules.length}건)</h3>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="data-table">
                             <thead>
                                 <tr>
-                                    <th>날짜</th>
-                                    <th>학생 이름</th>
-                                    <th>컨설팅 구분</th>
+                                    <th>일시</th>
+                                    <th>구분</th>
                                     <th>담당 컨설턴트</th>
                                     <th>장소</th>
-                                    <th>관리</th>
+                                    <th className="text-right">관리</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredSchedules.length === 0 ? (
+                                {schedules.length === 0 ? (
                                     <tr>
-                                        <td colSpan="6">
-                                            <div className="empty-state">
-                                                <Calendar size={48} className="empty-state-icon mx-auto" />
-                                                <h3>등록된 일정이 없습니다</h3>
-                                                <p>새 일정을 등록해주세요</p>
+                                        <td colSpan="5">
+                                            <div className="empty-state py-20">
+                                                <Calendar size={48} className="empty-state-icon mx-auto opacity-20" />
+                                                <h3 className="mt-4 text-gray-400">등록된 일정이 없습니다</h3>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredSchedules.map(schedule => (
+                                    schedules.map(schedule => (
                                         <tr key={schedule.id}>
-                                            <td>
-                                                <div className="flex items-center gap-2">
-                                                    <Calendar size={16} className="text-gray-400" />
-                                                    {schedule.date ? new Date(schedule.date).toLocaleDateString('ko-KR') : '-'}
+                                            <td className="whitespace-nowrap">
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2 text-gray-900 font-medium">
+                                                        <Calendar size={14} className="text-gray-400" />
+                                                        {schedule.date ? new Date(schedule.date).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' }) : '-'}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                                        <Clock size={12} />
+                                                        {schedule.date ? new Date(schedule.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                                    </div>
                                                 </div>
                                             </td>
-                                            <td className="font-medium text-gray-900">
-                                                {schedule.studentName}
-                                            </td>
                                             <td>
-                                                <span className="badge badge-green">
+                                                <span className="badge badge-green font-semibold">
                                                     {getTypeName(schedule.typeCode)}
                                                 </span>
                                             </td>
-                                            <td>{getConsultantName(schedule.consultantId)}</td>
-                                            <td>{schedule.location || '-'}</td>
                                             <td>
                                                 <div className="flex items-center gap-2">
+                                                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
+                                                        {getConsultantName(schedule.consultantId).charAt(0)}
+                                                    </div>
+                                                    <span className="text-gray-700">{getConsultantName(schedule.consultantId)}</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className="flex items-center gap-1.5 text-gray-600 text-sm">
+                                                    <MapPin size={14} className="text-gray-400" />
+                                                    {schedule.location || '-'}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className="flex items-center justify-end gap-2">
                                                     <button
                                                         onClick={() => openModal(schedule)}
-                                                        className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                        title="수정"
                                                     >
                                                         <Edit2 size={16} />
                                                     </button>
                                                     <button
                                                         onClick={() => handleDelete(schedule.id)}
-                                                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="삭제"
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -279,22 +235,10 @@ export default function SchedulesPage() {
                     size="lg"
                 >
                     <form onSubmit={handleSubmit}>
-                        <div className="space-y-4">
-                            <div className="form-group">
-                                <label className="form-label">학생 이름 *</label>
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    placeholder="학생 이름을 입력하세요"
-                                    value={formData.studentName}
-                                    onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
-                                    required
-                                />
-                            </div>
-
+                        <div className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group">
-                                    <label className="form-label">시작일 *</label>
+                                    <label className="form-label">시작 일시 *</label>
                                     <input
                                         type="datetime-local"
                                         className="form-input"
@@ -304,7 +248,7 @@ export default function SchedulesPage() {
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">종료일</label>
+                                    <label className="form-label">종료 일시</label>
                                     <input
                                         type="datetime-local"
                                         className="form-input"
@@ -314,49 +258,54 @@ export default function SchedulesPage() {
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">컨설팅 구분 *</label>
-                                <select
-                                    className="form-select"
-                                    value={formData.typeCode}
-                                    onChange={(e) => setFormData({ ...formData, typeCode: e.target.value })}
-                                    required
-                                >
-                                    <option value="">선택하세요</option>
-                                    {codes.map(code => (
-                                        <option key={code.id} value={code.code}>
-                                            {code.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="form-group">
+                                    <label className="form-label">컨설팅 구분 *</label>
+                                    <select
+                                        className="form-select"
+                                        value={formData.typeCode}
+                                        onChange={(e) => setFormData({ ...formData, typeCode: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">선택하세요</option>
+                                        {codes.map(code => (
+                                            <option key={code.id} value={code.code}>
+                                                {code.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                            <div className="form-group">
-                                <label className="form-label">담당 컨설턴트 *</label>
-                                <select
-                                    className="form-select"
-                                    value={formData.consultantId}
-                                    onChange={(e) => setFormData({ ...formData, consultantId: e.target.value })}
-                                    required
-                                >
-                                    <option value="">선택하세요</option>
-                                    {consultants.map(consultant => (
-                                        <option key={consultant.id} value={consultant.uid}>
-                                            {consultant.name} ({consultant.role === 'admin' ? '관리자' : '컨설턴트'})
-                                        </option>
-                                    ))}
-                                </select>
+                                <div className="form-group">
+                                    <label className="form-label">담당 컨설턴트 *</label>
+                                    <select
+                                        className="form-select"
+                                        value={formData.consultantId}
+                                        onChange={(e) => setFormData({ ...formData, consultantId: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">선택하세요</option>
+                                        {consultants.map(consultant => (
+                                            <option key={consultant.id} value={consultant.uid}>
+                                                {consultant.name} ({consultant.role === 'admin' ? '관리자' : '컨설턴트'})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
 
                             <div className="form-group">
                                 <label className="form-label">장소</label>
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    placeholder="컨설팅 장소를 입력하세요"
-                                    value={formData.location}
-                                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                                />
+                                <div className="relative">
+                                    <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        className="form-input pl-10"
+                                        placeholder="컨설팅 장소를 입력하세요"
+                                        value={formData.location}
+                                        onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                                    />
+                                </div>
                             </div>
 
                             <div className="form-group">
@@ -364,14 +313,14 @@ export default function SchedulesPage() {
                                 <textarea
                                     className="form-input"
                                     rows={3}
-                                    placeholder="추가 메모를 입력하세요"
+                                    placeholder="상세 내용을 입력하세요 (자유 양식)"
                                     value={formData.memo}
                                     onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
                                 />
                             </div>
                         </div>
 
-                        <div className="modal-footer mt-6 -mx-6 -mb-6 px-6 py-4 bg-gray-50 rounded-b-lg">
+                        <div className="modal-footer mt-8 -mx-6 -mb-6 px-6 py-4 bg-gray-50 rounded-b-lg">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -382,8 +331,8 @@ export default function SchedulesPage() {
                             >
                                 취소
                             </button>
-                            <button type="submit" className="btn btn-primary">
-                                {editingSchedule ? '수정' : '등록'}
+                            <button type="submit" className="btn btn-primary px-8">
+                                {editingSchedule ? '수정 완료' : '일정 등록'}
                             </button>
                         </div>
                     </form>

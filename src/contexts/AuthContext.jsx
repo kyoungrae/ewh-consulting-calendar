@@ -1,37 +1,16 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { initializeApp, deleteApp } from 'firebase/app';
 import {
     signInWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
+    getAuth,
     createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { auth, db, firebaseConfig } from '../firebase/config';
 
 const AuthContext = createContext();
-
-// 데모 모드 활성화 여부 (Firebase 설정 전에는 true로 설정)
-const DEMO_MODE = true;
-
-// 데모용 사용자 데이터
-const DEMO_USERS = {
-    admin: {
-        uid: 'demo-admin-001',
-        email: 'admin@ewha.ac.kr',
-        name: '관리자',
-        tel: '02-3277-0000',
-        role: 'admin',
-        status: 'approved'
-    },
-    consultant: {
-        uid: 'demo-consultant-001',
-        email: 'consultant@ewha.ac.kr',
-        name: '김컨설턴트',
-        tel: '010-1234-5678',
-        role: 'consultant',
-        status: 'approved'
-    }
-};
 
 export function useAuth() {
     return useContext(AuthContext);
@@ -41,29 +20,9 @@ export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [isDemoMode, setIsDemoMode] = useState(DEMO_MODE);
-
-    // 데모 로그인
-    async function demoLogin(role = 'admin') {
-        const demoUser = DEMO_USERS[role];
-        setCurrentUser({ uid: demoUser.uid, email: demoUser.email });
-        setUserProfile(demoUser);
-        localStorage.setItem('demoUser', JSON.stringify(demoUser));
-        return demoUser;
-    }
 
     // 로그인
     async function login(email, password) {
-        // 데모 모드일 경우
-        if (isDemoMode) {
-            // admin@ewha.ac.kr 또는 'admin' 입력 시 관리자로 로그인
-            if (email.includes('admin')) {
-                return demoLogin('admin');
-            }
-            // 그 외에는 컨설턴트로 로그인
-            return demoLogin('consultant');
-        }
-
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
         // 사용자 프로필 조회
@@ -87,32 +46,42 @@ export function AuthProvider({ children }) {
 
     // 로그아웃
     function logout() {
-        if (isDemoMode) {
-            setCurrentUser(null);
-            setUserProfile(null);
-            localStorage.removeItem('demoUser');
-            return Promise.resolve();
-        }
         return signOut(auth);
     }
 
     // 회원가입 (관리자만 사용 가능)
+    // 보조 Firebase 앱을 사용하여 현재 관리자 세션이 변경되지 않도록 함
     async function registerUser(email, password, userData) {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        // 임시 보조 앱 초기화
+        const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+        const secondaryAuth = getAuth(secondaryApp);
 
-        // Firestore에 사용자 정보 저장
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-            uid: userCredential.user.uid,
-            email: email,
-            name: userData.name,
-            tel: userData.tel || '',
-            role: userData.role || 'consultant',
-            status: userData.status || 'pending',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
+        try {
+            const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+            const uid = userCredential.user.uid;
 
-        return userCredential;
+            // Firestore에 사용자 정보 저장 (기본 db 인스턴스 사용)
+            await setDoc(doc(db, 'users', uid), {
+                uid: uid,
+                email: email,
+                name: userData.name,
+                tel: userData.tel || '',
+                role: userData.role || 'consultant',
+                status: userData.status || 'approved',
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+
+            // 보조 앱의 로그아웃 및 삭제
+            await signOut(secondaryAuth);
+            await deleteApp(secondaryApp);
+
+            return userCredential;
+        } catch (error) {
+            // 에러 발생 시에도 보조 앱 정리
+            await deleteApp(secondaryApp);
+            throw error;
+        }
     }
 
     // 사용자 프로필 조회
@@ -125,33 +94,28 @@ export function AuthProvider({ children }) {
     }
 
     useEffect(() => {
-        // 데모 모드일 경우
-        if (isDemoMode) {
-            const savedDemoUser = localStorage.getItem('demoUser');
-            if (savedDemoUser) {
-                const demoUser = JSON.parse(savedDemoUser);
-                setCurrentUser({ uid: demoUser.uid, email: demoUser.email });
-                setUserProfile(demoUser);
-            }
-            setLoading(false);
-            return;
-        }
-
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             setCurrentUser(user);
 
             if (user) {
-                const profile = await fetchUserProfile(user.uid);
-                setUserProfile(profile);
+                try {
+                    const profile = await fetchUserProfile(user.uid);
+                    setUserProfile(profile);
+                } catch (err) {
+                    console.error('Failed to fetch user profile:', err);
+                }
             } else {
                 setUserProfile(null);
             }
 
             setLoading(false);
+        }, (error) => {
+            console.error('Firebase Auth Error:', error);
+            setLoading(false);
         });
 
-        return unsubscribe;
-    }, [isDemoMode]);
+        return () => unsubscribe();
+    }, []);
 
     const value = {
         currentUser,

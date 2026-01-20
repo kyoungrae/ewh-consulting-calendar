@@ -107,31 +107,6 @@ export default function Sidebar({ isOpen, onClose }) {
                     </ul>
                 </nav>
 
-                {/* Footer - User Info */}
-                <div className="sidebar-footer">
-                    <div className="flex items-center gap-3 mb-3 sidebar-footer-info">
-                        <div
-                            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
-                            style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
-                        >
-                            {userProfile?.name?.charAt(0) || 'U'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{userProfile?.name}</p>
-                            <p className="text-xs opacity-70">
-                                {userProfile?.role === 'admin' ? '관리자' : '컨설턴트'}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors hover:bg-white/10"
-                        style={{ color: 'rgba(255,255,255,0.8)' }}
-                    >
-                        <LogOut size={18} />
-                        <span className="sidebar-footer-info">로그아웃</span>
-                    </button>
-                </div>
             </aside>
 
             {/* Overlay for mobile */}

@@ -7,13 +7,9 @@ import { useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
-    Search,
     Edit2,
     Trash2,
     Users,
-    UserCheck,
-    UserX,
-    Shield,
     Phone,
     Mail
 } from 'lucide-react';
@@ -22,9 +18,6 @@ export default function UsersPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterRole, setFilterRole] = useState('');
-    const [filterStatus, setFilterStatus] = useState('');
     const { openSidebar } = useOutletContext();
 
     const { users, loading, updateUser, deleteUser } = useUsers();
@@ -46,23 +39,6 @@ export default function UsersPage() {
         role: '',
         status: ''
     });
-
-    // 검색 및 필터링
-    const filteredUsers = users.filter(user => {
-        const matchSearch = user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.email?.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchRole = !filterRole || user.role === filterRole;
-        const matchStatus = !filterStatus || user.status === filterStatus;
-        return matchSearch && matchRole && matchStatus;
-    });
-
-    // 통계
-    const stats = {
-        total: users.length,
-        admin: users.filter(u => u.role === 'admin').length,
-        consultant: users.filter(u => u.role === 'consultant').length,
-        pending: users.filter(u => u.status === 'pending').length
-    };
 
     // 수정 모달 열기
     const openEditModal = (user) => {
@@ -123,23 +99,14 @@ export default function UsersPage() {
 
     // 사용자 삭제
     const handleDelete = async (id) => {
-        if (window.confirm('정말 이 사용자를 삭제하시겠습니까?\n(Firebase Authentication에서는 별도로 삭제해야 합니다)')) {
+        if (window.confirm('정말 이 사용자를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.')) {
             try {
                 await deleteUser(id);
+                alert('사용자가 삭제되었습니다.');
             } catch (error) {
                 console.error('사용자 삭제 실패:', error);
                 alert('사용자 삭제에 실패했습니다.');
             }
-        }
-    };
-
-    // 사용자 승인
-    const handleApprove = async (user) => {
-        try {
-            await updateUser(user.id, { status: 'approved' });
-        } catch (error) {
-            console.error('승인 실패:', error);
-            alert('승인 처리에 실패했습니다.');
         }
     };
 
@@ -158,10 +125,10 @@ export default function UsersPage() {
         <>
             <Header title="회원 관리" onMenuClick={openSidebar} />
             <div className="page-content">
-                <div className="page-header flex justify-between items-start">
+                <div className="page-header flex justify-between items-center mb-8">
                     <div>
                         <h1 className="page-title">회원 관리</h1>
-                        <p className="page-description">컨설턴트와 관리자 계정을 관리합니다</p>
+                        <p className="page-description">등록된 모든 사용자 목록입니다</p>
                     </div>
                     <button
                         onClick={() => setIsAddModalOpen(true)}
@@ -172,98 +139,10 @@ export default function UsersPage() {
                     </button>
                 </div>
 
-                {/* Stats Cards */}
-                <div className="stats-grid">
-                    <div className="stat-card">
-                        <div className="stat-icon green">
-                            <Users size={24} />
-                        </div>
-                        <div className="stat-info">
-                            <h3>전체 사용자</h3>
-                            <p>{stats.total}</p>
-                        </div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-icon blue">
-                            <Shield size={24} />
-                        </div>
-                        <div className="stat-info">
-                            <h3>관리자</h3>
-                            <p>{stats.admin}</p>
-                        </div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-icon purple">
-                            <UserCheck size={24} />
-                        </div>
-                        <div className="stat-info">
-                            <h3>컨설턴트</h3>
-                            <p>{stats.consultant}</p>
-                        </div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-icon orange">
-                            <UserX size={24} />
-                        </div>
-                        <div className="stat-info">
-                            <h3>승인 대기</h3>
-                            <p>{stats.pending}</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Search & Filter */}
-                <div className="card mb-6">
-                    <div className="card-body">
-                        <div className="flex flex-wrap gap-4">
-                            <div className="flex-1 min-w-[200px]">
-                                <div className="relative">
-                                    <Search
-                                        size={18}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="이름 또는 이메일로 검색..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="form-input pl-10"
-                                    />
-                                </div>
-                            </div>
-                            <div className="w-40">
-                                <select
-                                    value={filterRole}
-                                    onChange={(e) => setFilterRole(e.target.value)}
-                                    className="form-select"
-                                >
-                                    <option value="">전체 권한</option>
-                                    <option value="admin">관리자</option>
-                                    <option value="consultant">컨설턴트</option>
-                                </select>
-                            </div>
-                            <div className="w-40">
-                                <select
-                                    value={filterStatus}
-                                    onChange={(e) => setFilterStatus(e.target.value)}
-                                    className="form-select"
-                                >
-                                    <option value="">전체 상태</option>
-                                    <option value="approved">승인됨</option>
-                                    <option value="pending">대기중</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 {/* Users Table */}
-                <div className="card">
-                    <div className="card-header flex justify-between items-center">
-                        <h3 className="font-semibold text-gray-900">사용자 목록</h3>
-                        <span className="text-sm text-gray-500">
-                            총 {filteredUsers.length}명
-                        </span>
+                <div className="card w-full">
+                    <div className="card-header border-b border-gray-100 bg-gray-50/30">
+                        <h3 className="font-semibold text-gray-900">사용자 목록 ({users.length}명)</h3>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="data-table">
@@ -274,40 +153,39 @@ export default function UsersPage() {
                                     <th>권한</th>
                                     <th>상태</th>
                                     <th>가입일</th>
-                                    <th>관리</th>
+                                    <th className="text-right">관리</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredUsers.length === 0 ? (
+                                {users.length === 0 ? (
                                     <tr>
                                         <td colSpan="6">
-                                            <div className="empty-state">
-                                                <Users size={48} className="empty-state-icon mx-auto" />
-                                                <h3>등록된 사용자가 없습니다</h3>
-                                                <p>새 사용자를 등록해주세요</p>
+                                            <div className="empty-state py-20">
+                                                <Users size={48} className="empty-state-icon mx-auto opacity-20" />
+                                                <h3 className="mt-4 text-gray-400">등록된 사용자가 없습니다</h3>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredUsers.map(user => (
+                                    users.map(user => (
                                         <tr key={user.id}>
                                             <td>
                                                 <div className="flex items-center gap-3">
                                                     <div
-                                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm"
+                                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-sm"
                                                         style={{ backgroundColor: user.role === 'admin' ? '#00462A' : '#3b82f6' }}
                                                     >
                                                         {user.name?.charAt(0) || 'U'}
                                                     </div>
                                                     <div>
                                                         <p className="font-medium text-gray-900">{user.name}</p>
-                                                        <p className="text-sm text-gray-500">{user.email}</p>
+                                                        <p className="text-xs text-gray-500">{user.email}</p>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td>
-                                                <div className="flex items-center gap-2 text-gray-600">
-                                                    <Phone size={14} />
+                                                <div className="flex items-center gap-2 text-gray-600 text-sm">
+                                                    <Phone size={14} className="text-gray-400" />
                                                     {user.tel || '-'}
                                                 </div>
                                             </td>
@@ -329,25 +207,18 @@ export default function UsersPage() {
                                                     : '-'}
                                             </td>
                                             <td>
-                                                <div className="flex items-center gap-2">
-                                                    {user.status === 'pending' && (
-                                                        <button
-                                                            onClick={() => handleApprove(user)}
-                                                            className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                                            title="승인"
-                                                        >
-                                                            <UserCheck size={16} />
-                                                        </button>
-                                                    )}
+                                                <div className="flex items-center justify-end gap-2">
                                                     <button
                                                         onClick={() => openEditModal(user)}
-                                                        className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                        title="수정"
                                                     >
                                                         <Edit2 size={16} />
                                                     </button>
                                                     <button
                                                         onClick={() => handleDelete(user.id)}
-                                                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="삭제"
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -374,7 +245,7 @@ export default function UsersPage() {
                         <div className="space-y-4">
                             <div className="p-3 bg-gray-50 rounded-lg flex items-center gap-3">
                                 <Mail size={18} className="text-gray-400" />
-                                <span className="text-gray-600">{editingUser?.email}</span>
+                                <span className="text-gray-600 font-medium">{editingUser?.email}</span>
                             </div>
 
                             <div className="form-group">
@@ -440,7 +311,7 @@ export default function UsersPage() {
                                 취소
                             </button>
                             <button type="submit" className="btn btn-primary">
-                                수정
+                                수정 완료
                             </button>
                         </div>
                     </form>
@@ -485,7 +356,7 @@ export default function UsersPage() {
                                 <input
                                     type="text"
                                     className="form-input"
-                                    placeholder="홍길동"
+                                    placeholder="이름을 입력하세요"
                                     value={newUserForm.name}
                                     onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
                                     required
@@ -526,7 +397,7 @@ export default function UsersPage() {
                                 취소
                             </button>
                             <button type="submit" className="btn btn-primary">
-                                등록
+                                사용자 등록
                             </button>
                         </div>
                     </form>

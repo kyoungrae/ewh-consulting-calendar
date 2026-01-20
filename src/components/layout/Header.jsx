@@ -1,55 +1,55 @@
 import { useAuth } from '../../contexts/AuthContext';
-import { Bell, Search, Menu } from 'lucide-react';
+import { Menu, LogOut } from 'lucide-react';
 
 export default function Header({ title, onMenuClick }) {
-    const { userProfile } = useAuth();
+    const { userProfile, isAdmin, logout } = useAuth();
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+        } catch (error) {
+            console.error('로그아웃 실패:', error);
+        }
+    };
 
     return (
         <header className="top-header">
             <div className="flex items-center gap-3">
-                {/* Mobile menu button */}
-                <button
-                    onClick={onMenuClick}
-                    className="mobile-menu-btn"
-                    aria-label="메뉴 열기"
-                >
-                    <Menu size={24} />
-                </button>
+                {/* Mobile menu button - Admin only */}
+                {isAdmin && (
+                    <button
+                        onClick={onMenuClick}
+                        className="mobile-menu-btn"
+                        aria-label="메뉴 열기"
+                    >
+                        <Menu size={24} />
+                    </button>
+                )}
                 <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
             </div>
 
             <div className="flex items-center gap-4">
-                {/* Search (hidden on mobile) */}
-                <div className="relative header-search hidden md:block">
-                    <Search
-                        size={18}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                    />
-                    <input
-                        type="text"
-                        placeholder="검색..."
-                        className="pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 w-64"
-                    />
-                </div>
-
-                {/* Notifications */}
-                <button className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                    <Bell size={20} />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
-                </button>
-
-                {/* User Avatar */}
-                <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+                {/* User Avatar & Info */}
+                <div className="flex items-center gap-3">
+                    <div className="header-user-info flex flex-col items-end mr-1">
+                        <p className="text-sm font-semibold text-gray-900 leading-none mb-1">{userProfile?.name}</p>
+                        <p className="text-[11px] text-gray-500 leading-none">{userProfile?.email}</p>
+                    </div>
                     <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold header-user-avatar"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white text-base font-bold shadow-sm"
                         style={{ backgroundColor: '#00462A' }}
                     >
                         {userProfile?.name?.charAt(0) || 'U'}
                     </div>
-                    <div className="header-user-info hidden sm:block">
-                        <p className="text-sm font-medium text-gray-900">{userProfile?.name}</p>
-                        <p className="text-xs text-gray-500">{userProfile?.email}</p>
-                    </div>
+
+                    {/* Logout Button */}
+                    <button
+                        onClick={handleLogout}
+                        className="ml-2 p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-300"
+                        title="로그아웃"
+                    >
+                        <LogOut size={20} />
+                    </button>
                 </div>
             </div>
         </header>
