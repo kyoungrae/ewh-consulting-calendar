@@ -8,8 +8,10 @@ import {
     updateDoc,
     deleteDoc,
     doc,
+    getDocs,
     serverTimestamp,
-    where
+    where,
+    writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -70,13 +72,47 @@ export function useSchedules() {
         return await deleteDoc(scheduleRef);
     };
 
+    // 일괄 추가 (엑셀 업로드용)
+    const batchAddSchedules = async (schedulesArray) => {
+        const batch = writeBatch(db);
+        const schedulesRef = collection(db, 'schedules');
+
+        schedulesArray.forEach(scheduleData => {
+            const newDocRef = doc(schedulesRef);
+            batch.set(newDocRef, {
+                ...scheduleData,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+        });
+
+        return await batch.commit();
+    };
+
+    // 모든 일정 삭제 (초기화용)
+    const clearAllSchedules = async () => {
+        const schedulesRef = collection(db, 'schedules');
+        const snapshot = await getDocs(schedulesRef);
+
+        if (snapshot.empty) return;
+
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+
+        return await batch.commit();
+    };
+
     return {
         schedules,
         loading,
         error,
         addSchedule,
         updateSchedule,
-        deleteSchedule
+        deleteSchedule,
+        batchAddSchedules,
+        clearAllSchedules
     };
 }
 

@@ -36,11 +36,16 @@ export default function CalendarPage() {
             const typeCode = codes.find(c => c.code === schedule.typeCode);
             const consultant = users.find(u => u.uid === schedule.consultantId);
 
-            // 컨설팅 구분에 따른 색상
+            // 컨설팅 구분에 따른 색상 (새로운 코드 C01-C08 대응)
             const colorMap = {
-                '01': '#00462A', // 진로 - 그린
-                '02': '#3b82f6', // 취업 - 블루
-                '03': '#8b5cf6', // 학업 - 퍼플
+                'C01': '#00462A', // 공기업 - 진한 초록
+                'C02': '#3b82f6', // 서류면접 - 블루
+                'C03': '#8b5cf6', // 콘텐츠엔터 - 퍼플
+                'C04': '#f59e0b', // 진로취업 - 오렌지
+                'C05': '#10b981', // 외국계 - 그린
+                'C06': '#ef4444', // 이공계 - 레드
+                'C07': '#6366f1', // 임원면접 - 인디고
+                'C08': '#ec4899', // 진로개발 - 핑크
             };
 
             return {
@@ -116,7 +121,7 @@ export default function CalendarPage() {
                             <Calendar size={24} />
                         </div>
                         <div className="stat-info">
-                            <h3>오늘 비정된 일정</h3>
+                            <h3>오늘 배정된 일정</h3>
                             <p>{todayStats.total}</p>
                         </div>
                     </div>
@@ -151,13 +156,14 @@ export default function CalendarPage() {
                                 plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                                 initialView="dayGridMonth"
                                 headerToolbar={{
-                                    left: 'prev,next today',
-                                    center: 'title',
-                                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                                    left: '',
+                                    center: 'prev title next',
+                                    right: 'dayGridMonth,timeGridWeek,timeGridDay,today'
                                 }}
                                 locale="ko"
                                 events={calendarEvents}
-                                eventClick={handleEventClick}
+                                // eventClick={handleEventClick} // 개별 일정 클릭 비활성화 (날짜 선택만 사용)
+                                eventClassNames="pointer-events-none" // 마우스 오버 효과 및 클릭 방지
                                 dateClick={handleDateClick}
                                 height="100%"
                                 dayMaxEvents={3}
@@ -193,42 +199,71 @@ export default function CalendarPage() {
                             </div>
                             <div className="card-body p-0 overflow-y-auto flex-1 h-0">
                                 {selectedDateSchedules.length > 0 ? (
-                                    <div className="divide-y divide-gray-50">
+                                    <div className="p-4 space-y-6">
                                         {selectedDateSchedules.map(schedule => {
                                             const typeCode = codes.find(c => c.code === schedule.typeCode);
                                             const consultant = users.find(u => u.uid === schedule.consultantId);
+
+                                            // 요약 카드용 색상
+                                            const cardColor = {
+                                                'C01': '#00462A', 'C02': '#3b82f6', 'C03': '#8b5cf6', 'C04': '#f59e0b',
+                                                'C05': '#10b981', 'C06': '#ef4444', 'C07': '#6366f1', 'C08': '#ec4899',
+                                            }[schedule.typeCode] || '#00462A';
+
                                             return (
                                                 <div
                                                     key={schedule.id}
-                                                    onClick={() => {
-                                                        setSelectedEvent({
-                                                            ...schedule,
-                                                            typeName: typeCode?.name,
-                                                            consultantName: consultant?.name
-                                                        });
-                                                        setIsModalOpen(true);
-                                                    }}
-                                                    className="p-4 hover:bg-gray-50 cursor-pointer transition-all duration-200 group border-l-4 border-transparent hover:border-[#00462A]"
+                                                    className="group bg-white rounded-lg border border-gray-200 hover:border-gray-300 shadow-sm hover:shadow-md transition-all duration-200" style={{ margin: '0px 0px 5px' }}
                                                 >
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <span className="text-sm font-bold text-gray-800 group-hover:text-[#00462A] transition-colors">
-                                                            {typeCode?.name}
-                                                        </span>
-                                                        <span className="text-[10px] text-gray-400 font-medium">상세보기</span>
-                                                    </div>
-                                                    <div className="flex flex-col gap-1.5">
-                                                        <div className="flex items-center gap-2 text-xs text-gray-500">
-                                                            <Clock size={14} className="text-gray-400" />
-                                                            <span>
-                                                                {new Date(schedule.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                                                            </span>
-                                                        </div>
-                                                        {isAdmin && (
-                                                            <div className="flex items-center gap-2 text-xs text-gray-400">
-                                                                <Users size={14} />
-                                                                <span>{consultant?.name || '관리자'}</span>
+                                                    <div className="flex">
+                                                        {/* Left Color Bar */}
+                                                        <div
+                                                            className="w-1.5 rounded-l-lg shrink-0"
+                                                            style={{ backgroundColor: cardColor }}
+                                                        />
+
+                                                        <div className="flex-1 p-2.5 min-w-0" style={{ padding: '10px' }}>
+                                                            {/* Header */}
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <h3
+                                                                    className="font-bold text-sm tracking-tight truncate pr-2"
+                                                                    style={{ color: cardColor }}
+                                                                >
+                                                                    {typeCode?.name}
+                                                                </h3>
+                                                                <span className="text-[10px] text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 truncate max-w-[60px] shrink-0">
+                                                                    {schedule.location || '미정'}
+                                                                </span>
                                                             </div>
-                                                        )}
+
+                                                            {/* Content */}
+                                                            <div className="space-y-1">
+                                                                <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                                                                    <Clock size={12} className="text-gray-400 shrink-0" />
+                                                                    <span className="font-medium truncate">
+                                                                        {new Date(schedule.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                </div>
+
+                                                                {isAdmin && (
+                                                                    <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                                                                        <Users size={12} className="text-gray-400 shrink-0" />
+                                                                        <span className="truncate">
+                                                                            {consultant?.name || '관리자'}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Footer Memo */}
+                                                            {schedule.memo && (
+                                                                <div className="mt-2 pt-2 border-t border-gray-50">
+                                                                    <p className="text-[11px] text-gray-400 line-clamp-1">
+                                                                        {schedule.memo}
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             );

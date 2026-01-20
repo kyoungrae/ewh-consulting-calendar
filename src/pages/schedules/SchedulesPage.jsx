@@ -1,32 +1,42 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
+import * as XLSX from 'xlsx';
 import {
     Plus,
     Edit2,
     Trash2,
     Calendar,
     Clock,
-    MapPin
+    MapPin,
+    Upload,
+    FileText,
+    Loader2
 } from 'lucide-react';
 
 export default function SchedulesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef(null);
     const { openSidebar } = useOutletContext();
 
     const {
         schedules,
-        loading,
+        loading: schedulesLoading,
         addSchedule,
         updateSchedule,
-        deleteSchedule
+        deleteSchedule,
+        batchAddSchedules,
+        clearAllSchedules
     } = useSchedules();
-    const { codes } = useCommonCodes();
-    const { users } = useUsers();
+    const { codes, loading: codesLoading } = useCommonCodes();
+    const { users, loading: usersLoading } = useUsers();
+
+    const loading = schedulesLoading || codesLoading || usersLoading;
 
     // 폼 상태
     const [formData, setFormData] = useState({
@@ -85,6 +95,178 @@ export default function SchedulesPage() {
         }
     };
 
+    // 엑셀 날짜 변환 헬퍼 (스크린샷 형식 대응)
+    const parseExcelDate = (dateVal, timeVal) => {
+        let date;
+
+        // 1. 날짜 처리
+        if (typeof dateVal === 'number') {
+            // 엑셀 시리얼 넘버
+            date = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+        } else if (typeof dateVal === 'string') {
+            // '2025년 11월 15일 토요일' 형식 처리
+            const match = dateVal.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+            if (match) {
+                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+            } else {
+                date = new Date(dateVal);
+            }
+        }
+
+        if (!date || isNaN(date.getTime())) return '';
+
+        // 2. 시간 처리
+        if (timeVal !== undefined && timeVal !== null) {
+            if (typeof timeVal === 'number') {
+                // 엑셀 시간 시리얼 (0 ~ 1 사이의 소수)
+                const totalSeconds = Math.round(timeVal * 86400);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                date.setHours(hours, minutes, 0, 0);
+            } else if (typeof timeVal === 'string') {
+                // '9:30' 또는 '09:30' 형식 처리
+                const timeMatch = timeVal.match(/(\d{1,2}):(\d{1,2})/);
+                if (timeMatch) {
+                    date.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
+                }
+            }
+        } else {
+            date.setHours(9, 0, 0, 0);
+        }
+
+        // 로컬 시간 기준으로 ISO 포맷 생성 (YYYY-MM-DDTHH:mm)
+        const offset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    };
+
+    // 엑셀 업로드 처리
+    const handleExcelUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const confirmClear = window.confirm('새로운 일정을 업로드하기 전에 기존 일정을 모두 삭제하시겠습니까?');
+
+        setIsUploading(true);
+        const reader = new FileReader();
+
+        reader.onload = async (event) => {
+            try {
+                if (confirmClear) {
+                    await clearAllSchedules();
+                }
+
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                const allSchedules = [];
+                const missingConsultants = new Set();
+                const missingTypes = new Set();
+                let totalAttempted = 0;
+
+                // 이름 정규화 함수 (심영섭 T -> 심영섭 매칭용)
+                const normalize = (str) => {
+                    if (!str) return '';
+                    return str.toString().trim()
+                        .split(' ')[0] // 첫 공백 전까지만 (심영섭 T -> 심영섭)
+                        .replace(/\(취소\)$/, '') // '(취소)' 제거
+                        .replace(/컨설턴트$/, ''); // '컨설턴트' 제거
+                };
+
+                console.log('--- Database Status ---');
+                console.log('Codes:', codes.map(c => c.name));
+                console.log('Consultants:', users.map(u => u.name));
+
+                workbook.SheetNames.forEach(sheetName => {
+                    const worksheet = workbook.Sheets[sheetName];
+                    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    if (rawRows.length === 0) return;
+
+                    let headerIndex = -1;
+                    for (let i = 0; i < Math.min(15, rawRows.length); i++) {
+                        const row = rawRows[i];
+                        if (row && (row.includes('컨설턴트명') || row.includes('구분') || row.includes('일자'))) {
+                            headerIndex = i;
+                            break;
+                        }
+                    }
+
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                        range: headerIndex >= 0 ? headerIndex : 0
+                    });
+
+                    jsonData.forEach((row, idx) => {
+                        const rowDate = row['일자'];
+                        const rowTypeName = (row['구분'] || '').toString().trim();
+                        const rowConsultantName = (row['컨설턴트명'] || '').toString().trim();
+
+                        if (!rowDate && !rowTypeName && !rowConsultantName) return;
+                        totalAttempted++;
+
+                        const fullDateStr = parseExcelDate(rowDate, row['시간']);
+                        if (!fullDateStr) return;
+
+                        // 정규화 매칭
+                        const normType = normalize(rowTypeName);
+                        const normUser = normalize(rowConsultantName);
+
+                        const typeCodeObj = codes.find(c =>
+                            normalize(c.name) === normType || normalize(c.name).includes(normType)
+                        );
+
+                        const consultantObj = users.find(u =>
+                            normalize(u.name) === normUser || normalize(u.name).includes(normUser)
+                        );
+
+                        if (typeCodeObj && consultantObj) {
+                            allSchedules.push({
+                                date: fullDateStr,
+                                typeCode: typeCodeObj.code,
+                                consultantId: consultantObj.uid,
+                                location: (row['방식'] || '').toString().trim(),
+                                memo: (row['비고'] || row['메모'] || '').toString().trim()
+                            });
+                        } else {
+                            if (!typeCodeObj && rowTypeName) missingTypes.add(rowTypeName);
+                            if (!consultantObj && rowConsultantName) missingConsultants.add(rowConsultantName);
+                        }
+                    });
+                });
+
+                if (allSchedules.length > 0) {
+                    const chunks = [];
+                    for (let i = 0; i < allSchedules.length; i += 500) {
+                        chunks.push(allSchedules.slice(i, i + 500));
+                    }
+                    for (const chunk of chunks) {
+                        await batchAddSchedules(chunk);
+                    }
+
+                    let resultMsg = `업로드 완료: ${allSchedules.length}건 등록됨.`;
+                    if (missingTypes.size > 0) resultMsg += `\n\n[미등록 구분]: ${Array.from(missingTypes).join(', ')}`;
+                    if (missingConsultants.size > 0) resultMsg += `\n\n[미등록 컨설턴트]: ${Array.from(missingConsultants).join(', ')}`;
+                    alert(resultMsg);
+                } else {
+                    let failMsg = `등록 가능한 유효한 데이터가 없습니다. (분석행 수: ${totalAttempted})`;
+                    if (codes.length === 0) {
+                        failMsg += '\n\n⚠️ 현재 시스템에 [컨설팅 구분 코드]가 하나도 없습니다. 설정 메뉴에서 코드를 먼저 생성해 주세요.';
+                    }
+                    if (missingTypes.size > 0) failMsg += `\n\n[확인 필요 구분]: ${Array.from(missingTypes).join(', ')}`;
+                    if (missingConsultants.size > 0) failMsg += `\n\n[확인 필요 컨설턴트]: ${Array.from(missingConsultants).join(', ')}`;
+                    failMsg += '\n\n위 이름들이 시스템에 정확히 등록되어 있는지 확인해 주세요.';
+                    alert(failMsg);
+                }
+            } catch (error) {
+                console.error('Excel upload error:', error);
+                alert('엑셀 파일 처리에 실패했습니다.');
+            } finally {
+                setIsUploading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        };
+
+        reader.readAsArrayBuffer(file);
+    };
+
     // 일정 삭제
     const handleDelete = async (id) => {
         if (window.confirm('정말 이 일정을 삭제하시겠습니까?')) {
@@ -129,13 +311,34 @@ export default function SchedulesPage() {
                         <h1 className="page-title">일정 관리</h1>
                         <p className="page-description">컨설팅 일정을 통합 관리합니다</p>
                     </div>
-                    <button
-                        onClick={() => openModal()}
-                        className="btn btn-primary shadow-md"
-                    >
-                        <Plus size={18} />
-                        새 일정 등록
-                    </button>
+                    <div className="flex gap-3">
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleExcelUpload}
+                            accept=".xlsx, .xls "
+                            className="hidden"
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isUploading}
+                            className="btn btn-secondary shadow-sm hover:border-[#00462A] hover:text-[#00462A]"
+                        >
+                            {isUploading ? (
+                                <Loader2 size={18} className="animate-spin" />
+                            ) : (
+                                <Upload size={18} />
+                            )}
+                            엑셀 업로드
+                        </button>
+                        <button
+                            onClick={() => openModal()}
+                            className="btn btn-primary shadow-md"
+                        >
+                            <Plus size={18} />
+                            새 일정 등록
+                        </button>
+                    </div>
                 </div>
 
                 {/* Schedules Table */}
