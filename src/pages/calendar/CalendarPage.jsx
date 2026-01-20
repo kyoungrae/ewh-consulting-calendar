@@ -8,7 +8,7 @@ import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
-import { Calendar, Users, Clock, MapPin, Tag } from 'lucide-react';
+import { Calendar, Users, Clock, MapPin, Tag, Download } from 'lucide-react';
 
 export default function CalendarPage() {
     const [selectedEvent, setSelectedEvent] = useState(null);
@@ -19,6 +19,7 @@ export default function CalendarPage() {
     const [periodTab, setPeriodTab] = useState('h1');
     const [selectedConsultant, setSelectedConsultant] = useState('all');
     const [selectedType, setSelectedType] = useState('all');
+    const [selectedWeek, setSelectedWeek] = useState('all');
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
     const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
     const calendarRef = useRef(null);
@@ -30,9 +31,17 @@ export default function CalendarPage() {
     const { codes } = useCommonCodes();
     const { users } = useUsers();
 
-    // 컨설턴터인 경우 자신의 스케줄만 필터링
+    // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
     const filteredSchedules = useMemo(() => {
         let result = schedules;
+
+        const getWeekNumber = (date) => {
+            const d = new Date(date);
+            const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+            const dayOfWeek = firstDay.getDay();
+            return Math.ceil((d.getDate() + dayOfWeek) / 7);
+        };
+
         if (!isAdmin) {
             result = result.filter(s => s.consultantId === userProfile?.uid);
         }
@@ -42,8 +51,11 @@ export default function CalendarPage() {
         if (selectedType !== 'all') {
             result = result.filter(s => s.typeCode === selectedType);
         }
+        if (viewMode === 'list' && selectedWeek !== 'all') {
+            result = result.filter(s => getWeekNumber(s.date) === parseInt(selectedWeek));
+        }
         return result;
-    }, [schedules, isAdmin, userProfile?.uid, selectedConsultant, selectedType]);
+    }, [schedules, isAdmin, userProfile?.uid, selectedConsultant, selectedType, selectedWeek, viewMode]);
 
     // 칩 배경색 + 테두리색 (원본 HTML의 .event-chip 스타일)
     const getChipStyle = (typeName) => {
@@ -285,7 +297,7 @@ export default function CalendarPage() {
 
                     {/* Filters */}
                     <div className="ewh-filters">
-                        <div>
+                        <div className="ewh-filter-item">
                             <label>컨설턴트:</label>
                             <select
                                 value={selectedConsultant}
@@ -297,7 +309,7 @@ export default function CalendarPage() {
                                 ))}
                             </select>
                         </div>
-                        <div>
+                        <div className="ewh-filter-item">
                             <label>유형:</label>
                             <select
                                 value={selectedType}
@@ -309,6 +321,20 @@ export default function CalendarPage() {
                                 ))}
                             </select>
                         </div>
+                        {viewMode === 'list' && (
+                            <div className="ewh-filter-item">
+                                <label>주차:</label>
+                                <select
+                                    value={selectedWeek}
+                                    onChange={(e) => setSelectedWeek(e.target.value)}
+                                >
+                                    <option value="all">전체 주차</option>
+                                    {[1, 2, 3, 4, 5, 6].map(w => (
+                                        <option key={w} value={w}>{w}주차</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -374,7 +400,7 @@ export default function CalendarPage() {
                                         {currentYear}년 {currentMonth}월 - 총 {currentMonthSchedules.length}건의 일정
                                     </div>
                                     <button className="ewh-excel-btn">
-                                        <span style={{ marginRight: '6px' }}>📥</span> 목록 엑셀 다운로드
+                                        <Download size={15} style={{ marginRight: '6px' }} /> 목록 엑셀 다운로드
                                     </button>
                                 </div>
                                 <div className="ewh-list-table-container">
@@ -428,43 +454,45 @@ export default function CalendarPage() {
                     </div>
 
                     {/* Summary Sidebar */}
-                    <div className="ewh-summary-sidebar">
-                        <div className="ewh-sidebar-title">{selectedDate.replace(/-/g, '-')} 요약</div>
+                    {viewMode === 'calendar' && (
+                        <div className="ewh-summary-sidebar">
+                            <div className="ewh-sidebar-title">{selectedDate.replace(/-/g, '-')} 요약</div>
 
-                        {selectedDateStats.total > 0 ? (
-                            <>
-                                <div className="ewh-stat-total">총 일정: {selectedDateStats.total}건</div>
-                                <hr className="ewh-stat-divider" />
+                            {selectedDateStats.total > 0 ? (
+                                <>
+                                    <div className="ewh-stat-total">총 일정: {selectedDateStats.total}건</div>
+                                    <hr className="ewh-stat-divider" />
 
-                                {selectedDateStats.byType.length > 0 && (
-                                    <>
-                                        <div className="ewh-stat-section-title">컨설팅 유형별</div>
-                                        {selectedDateStats.byType.map(([name, count]) => (
-                                            <div key={name} className="ewh-stat-item">
-                                                <span className="ewh-stat-label">{name}</span>
-                                                <span className="ewh-stat-val">{count}</span>
-                                            </div>
-                                        ))}
-                                    </>
-                                )}
+                                    {selectedDateStats.byType.length > 0 && (
+                                        <>
+                                            <div className="ewh-stat-section-title">컨설팅 유형별</div>
+                                            {selectedDateStats.byType.map(([name, count]) => (
+                                                <div key={name} className="ewh-stat-item">
+                                                    <span className="ewh-stat-label">{name}</span>
+                                                    <span className="ewh-stat-val">{count}</span>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
 
-                                {isAdmin && selectedDateStats.byConsultant.length > 0 && (
-                                    <>
-                                        <hr className="ewh-stat-divider" />
-                                        <div className="ewh-stat-section-title">컨설턴트별</div>
-                                        {selectedDateStats.byConsultant.map(([name, count]) => (
-                                            <div key={name} className="ewh-stat-item">
-                                                <span className="ewh-stat-label">{name}T</span>
-                                                <span className="ewh-stat-val">{count}</span>
-                                            </div>
-                                        ))}
-                                    </>
-                                )}
-                            </>
-                        ) : (
-                            <p className="ewh-no-data">일정이 없습니다.</p>
-                        )}
-                    </div>
+                                    {isAdmin && selectedDateStats.byConsultant.length > 0 && (
+                                        <>
+                                            <hr className="ewh-stat-divider" />
+                                            <div className="ewh-stat-section-title">컨설턴트별</div>
+                                            {selectedDateStats.byConsultant.map(([name, count]) => (
+                                                <div key={name} className="ewh-stat-item">
+                                                    <span className="ewh-stat-label">{name}T</span>
+                                                    <span className="ewh-stat-val">{count}</span>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
+                                </>
+                            ) : (
+                                <p className="ewh-no-data">일정이 없습니다.</p>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Modal */}
@@ -756,23 +784,38 @@ export default function CalendarPage() {
 
                 .ewh-filters {
                     display: flex;
-                    gap: 15px;
+                    gap: 24px;
                     align-items: center;
                 }
 
+                .ewh-filter-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
                 .ewh-filters label {
-                    font-weight: 600;
-                    margin-right: 5px;
+                    font-weight: 700;
+                    font-size: 0.85rem;
+                    color: #222;
+                    margin-right: 0;
+                    white-space: nowrap;
                 }
 
                 .ewh-filters select {
-                    padding: 6px 12px;
+                    padding: 4px 8px;
                     border-radius: 6px;
-                    border: none;
-                    background-color: #eef0f2;
-                    font-size: 0.9rem;
+                    border: 1px solid #ddd;
+                    background-color: #eef1f4;
+                    font-size: 0.8rem;
                     color: #333;
                     cursor: pointer;
+                    font-weight: 500;
+                    min-width: 100px;
+                }
+                
+                .ewh-filters select:hover {
+                    background-color: #e8ebee;
                 }
 
                 /* Calendar Layout */
@@ -892,20 +935,21 @@ export default function CalendarPage() {
                 }
 
                 .ewh-excel-btn {
-                    background: #107c41; /* 엑셀 그린 */
+                    background: #006633;
                     color: white;
                     border: none;
-                    padding: 8px 16px;
+                    padding: 5px 12px;
                     border-radius: 6px;
-                    font-weight: 600;
+                    font-weight: 700;
                     cursor: pointer;
                     display: flex;
                     align-items: center;
-                    font-size: 0.9rem;
+                    font-size: 0.8rem;
+                    transition: all 0.2s;
                 }
                 
                 .ewh-excel-btn:hover {
-                    background: #0b5e30;
+                    background: #004d26;
                 }
 
                 .ewh-list-table-container {
