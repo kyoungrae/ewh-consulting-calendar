@@ -16,7 +16,7 @@ import {
 import { db } from '../firebase/config';
 
 // 개발 중 Firebase 읽기 차단 여부 (true: 연결 안함, false: 연결 함)
-const DISABLE_FIRESTORE = true;
+const DISABLE_FIRESTORE = false;
 
 /**
  * 스케줄 관리 훅
