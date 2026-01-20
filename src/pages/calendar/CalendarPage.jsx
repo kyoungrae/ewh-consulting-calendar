@@ -1,8 +1,7 @@
-import { useState, useMemo } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useState, useMemo, useRef } from 'react';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
-import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
@@ -15,7 +14,16 @@ export default function CalendarPage() {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [viewMode, setViewMode] = useState('calendar');
+    const [mainTab, setMainTab] = useState('schedules');
+    const [periodTab, setPeriodTab] = useState('h1');
+    const [selectedConsultant, setSelectedConsultant] = useState('all');
+    const [selectedType, setSelectedType] = useState('all');
+    const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+    const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+    const calendarRef = useRef(null);
     const { openSidebar } = useOutletContext();
+    const navigate = useNavigate();
 
     const { userProfile, isAdmin } = useAuth();
     const { schedules, loading: schedulesLoading } = useSchedules();
@@ -24,40 +32,56 @@ export default function CalendarPage() {
 
     // 컨설턴터인 경우 자신의 스케줄만 필터링
     const filteredSchedules = useMemo(() => {
-        if (isAdmin) {
-            return schedules;
+        let result = schedules;
+        if (!isAdmin) {
+            result = result.filter(s => s.consultantId === userProfile?.uid);
         }
-        return schedules.filter(s => s.consultantId === userProfile?.uid);
-    }, [schedules, isAdmin, userProfile?.uid]);
+        if (selectedConsultant !== 'all') {
+            result = result.filter(s => s.consultantId === selectedConsultant);
+        }
+        if (selectedType !== 'all') {
+            result = result.filter(s => s.typeCode === selectedType);
+        }
+        return result;
+    }, [schedules, isAdmin, userProfile?.uid, selectedConsultant, selectedType]);
+
+    // 칩 배경색 + 테두리색 (원본 HTML의 .event-chip 스타일)
+    const getChipStyle = (typeName) => {
+        if (typeName?.includes('웰컴세션')) return { bg: '#e1f5fe', border: '#03a9f4' };
+        if (typeName?.includes('진로개발') || typeName?.includes('진로취업')) return { bg: '#e3f2fd', border: '#0277bd' };
+        if (typeName?.includes('서류면접')) return { bg: '#fffde7', border: '#fbc02d' };
+        if (typeName?.includes('공기업')) return { bg: '#f5f5f5', border: '#616161' };
+        if (typeName?.includes('이공계')) return { bg: '#e8f5e9', border: '#2e7d32' };
+        if (typeName?.includes('외국계')) return { bg: '#f3e5f5', border: '#7b1fa2' };
+        if (typeName?.includes('콘텐츠엔터')) return { bg: '#fff3e0', border: '#ef6c00' };
+        return { bg: '#e0f2f1', border: '#00695c' };
+    };
 
     // FullCalendar 이벤트 형식으로 변환
     const calendarEvents = useMemo(() => {
         return filteredSchedules.map(schedule => {
             const typeCode = codes.find(c => c.code === schedule.typeCode);
             const consultant = users.find(u => u.uid === schedule.consultantId);
+            const chipStyle = getChipStyle(typeCode?.name);
 
-            // 컨설팅 구분에 따른 색상 (새로운 코드 C01-C08 대응)
-            const colorMap = {
-                'C01': '#00462A', // 공기업 - 진한 초록
-                'C02': '#3b82f6', // 서류면접 - 블루
-                'C03': '#8b5cf6', // 콘텐츠엔터 - 퍼플
-                'C04': '#f59e0b', // 진로취업 - 오렌지
-                'C05': '#10b981', // 외국계 - 그린
-                'C06': '#ef4444', // 이공계 - 레드
-                'C07': '#6366f1', // 임원면접 - 인디고
-                'C08': '#ec4899', // 진로개발 - 핑크
-            };
+            const date = new Date(schedule.date);
+            const hours = date.getHours();
+            const minutes = date.getMinutes();
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
             return {
                 id: schedule.id,
-                title: typeCode?.name || '미분류 일정',
+                title: `${timeStr} ${typeCode?.name || '미분류'} (${consultant?.name || '미배정'})`,
                 start: schedule.date,
                 end: schedule.endDate || schedule.date,
-                backgroundColor: colorMap[schedule.typeCode] || '#00462A',
+                backgroundColor: chipStyle.bg,
+                textColor: '#222',
+                borderColor: chipStyle.border,
                 extendedProps: {
                     ...schedule,
                     typeName: typeCode?.name,
-                    consultantName: consultant?.name
+                    consultantName: consultant?.name,
+                    chipStyle: chipStyle
                 }
             };
         });
@@ -71,28 +95,74 @@ export default function CalendarPage() {
             .sort((a, b) => a.date.localeCompare(b.date));
     }, [filteredSchedules, selectedDate]);
 
-    // 오늘의 일정 통계
-    const todayStats = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
-        const todaySchedules = filteredSchedules.filter(s => s.date?.startsWith(today));
+    // 선택된 날짜 통계
+    const selectedDateStats = useMemo(() => {
+        const byType = {};
+        const byConsultant = {};
+
+        selectedDateSchedules.forEach(schedule => {
+            const typeCode = codes.find(c => c.code === schedule.typeCode);
+            const consultant = users.find(u => u.uid === schedule.consultantId);
+
+            const typeName = typeCode?.name || '미분류';
+            const consultantName = consultant?.name || '미배정';
+
+            byType[typeName] = (byType[typeName] || 0) + 1;
+            byConsultant[consultantName] = (byConsultant[consultantName] || 0) + 1;
+        });
 
         return {
-            total: todaySchedules.length,
-            byType: codes.map(code => ({
-                code: code.code,
-                name: code.name,
-                count: todaySchedules.filter(s => s.typeCode === code.code).length
-            }))
+            total: selectedDateSchedules.length,
+            byType: Object.entries(byType),
+            byConsultant: Object.entries(byConsultant)
         };
-    }, [filteredSchedules, codes]);
+    }, [selectedDateSchedules, codes, users]);
 
-    const handleEventClick = (info) => {
-        setSelectedEvent(info.event.extendedProps);
-        setIsModalOpen(true);
-    };
+    // 목록 뷰용 이번달 데이터 필터링 (목록 보기 시 사용)
+    const currentMonthSchedules = useMemo(() => {
+        const targetPrefix = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+        return filteredSchedules
+            .filter(s => s.date && s.date.startsWith(targetPrefix))
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+    }, [filteredSchedules, currentYear, currentMonth]);
 
     const handleDateClick = (info) => {
         setSelectedDate(info.dateStr);
+    };
+
+    const changeYear = (delta) => {
+        const newYear = currentYear + delta;
+        setCurrentYear(newYear);
+        if (calendarRef.current) {
+            const calendarApi = calendarRef.current.getApi();
+            calendarApi.gotoDate(new Date(newYear, currentMonth - 1, 1));
+        }
+    };
+
+    const changeMonth = (delta) => {
+        let newMonth = currentMonth + delta;
+        let newYear = currentYear;
+
+        if (newMonth > 12) {
+            newMonth = 1;
+            newYear++;
+        } else if (newMonth < 1) {
+            newMonth = 12;
+            newYear--;
+        }
+
+        setCurrentMonth(newMonth);
+        setCurrentYear(newYear);
+        if (calendarRef.current) {
+            const calendarApi = calendarRef.current.getApi();
+            calendarApi.gotoDate(new Date(newYear, newMonth - 1, 1));
+        }
+    };
+
+    const handleDatesSet = (arg) => {
+        const date = arg.view.currentStart;
+        setCurrentYear(date.getFullYear());
+        setCurrentMonth(date.getMonth() + 1);
     };
 
     if (schedulesLoading) {
@@ -109,181 +179,295 @@ export default function CalendarPage() {
     return (
         <>
             <Header title="달력" onMenuClick={openSidebar} />
-            <div className="page-content">
-                <div className="flex items-center justify-between mb-4">
-                    <h1 className="text-xl font-bold text-gray-800">컨설팅 일정</h1>
-                </div>
+            <div className="ewh-calendar-page">
+                {/* Header */}
+                <header className="ewh-header">
+                    <div className="ewh-branded-title" onClick={() => navigate('/')}>
+                        📅 컨설팅 일정 관리
+                    </div>
+                </header>
 
-                {/* Stats Cards */}
-                <div className="stats-grid">
-                    <div className="stat-card">
-                        <div className="stat-icon green">
-                            <Calendar size={24} />
+                {/* Sub Tabs */}
+                {/* View/Filter Bar Combined */}
+                <div className="ewh-view-bar">
+                    {/* Left: Period Tabs */}
+                    <div className="ewh-sub-tabs-inline">
+                        <div
+                            className={`ewh-sub-tab-item ${periodTab === 'h1' ? 'active' : ''}`}
+                            onClick={() => setPeriodTab('h1')}
+                        >
+                            상반기 (3월~8월)
                         </div>
-                        <div className="stat-info">
-                            <h3>오늘 배정된 일정</h3>
-                            <p>{todayStats.total}</p>
+                        <div
+                            className={`ewh-sub-tab-item ${periodTab === 'h2' ? 'active' : ''}`}
+                            onClick={() => setPeriodTab('h2')}
+                        >
+                            하반기/익년 (9월~2월)
                         </div>
                     </div>
-                    <div className="stat-card">
-                        <div className="stat-icon blue">
-                            <Users size={24} />
-                        </div>
-                        <div className="stat-info">
-                            <h3>전체 일정 수</h3>
-                            <p>{filteredSchedules.length}</p>
-                        </div>
+
+                    {/* Center: Main Tabs */}
+                    <div className="ewh-main-tabs">
+                        <button
+                            className={`ewh-main-tab-btn ${mainTab === 'schedules' ? 'active' : ''}`}
+                            onClick={() => setMainTab('schedules')}
+                        >
+                            전체 일정
+                        </button>
+                        <button
+                            className={`ewh-main-tab-btn ${mainTab === 'consultants' ? 'active' : ''}`}
+                            onClick={() => setMainTab('consultants')}
+                        >
+                            컨설턴트
+                        </button>
                     </div>
-                    {todayStats.byType.slice(0, 2).map(type => (
-                        <div key={type.code} className="stat-card">
-                            <div className="stat-icon purple">
-                                <Clock size={24} />
-                            </div>
-                            <div className="stat-info">
-                                <h3>오늘 {type.name}</h3>
-                                <p>{type.count}</p>
-                            </div>
-                        </div>
-                    ))}
+
+                    {/* Right: View Toggle */}
+                    <div className="ewh-view-toggle">
+                        <button
+                            className={`ewh-view-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
+                            onClick={() => setViewMode('calendar')}
+                        >
+                            📅 달력 보기
+                        </button>
+                        <button
+                            className={`ewh-view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+                            onClick={() => setViewMode('list')}
+                        >
+                            📋 목록 보기
+                        </button>
+                    </div>
                 </div>
 
-                {/* Layout: Calendar + Side Summary - Stretched to fill height */}
-                <div className="flex flex-col xl:flex-row gap-6 items-stretch flex-1">
-                    {/* Calendar Card */}
-                    <div className="flex-1 card w-full min-w-0 flex flex-col">
-                        <div className="card-body flex-1 h-full min-h-[500px]">
+                {/* Filter Bar */}
+                <div className="ewh-filter-bar">
+                    {/* Year Nav */}
+                    <div className="ewh-year-nav">
+                        <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(-1)}>◀</button>
+                        <select
+                            className="ewh-nav-select"
+                            value={currentYear}
+                            onChange={(e) => {
+                                const year = parseInt(e.target.value);
+                                setCurrentYear(year);
+                                if (calendarRef.current) {
+                                    calendarRef.current.getApi().gotoDate(new Date(year, currentMonth - 1, 1));
+                                }
+                            }}
+                        >
+                            {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                <option key={y} value={y}>{y}년</option>
+                            ))}
+                        </select>
+                        <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(1)}>▶</button>
+                    </div>
+
+                    {/* Month Nav */}
+                    <div className="ewh-month-nav">
+                        <button onClick={() => changeMonth(-1)}>◀</button>
+                        <select
+                            className="ewh-nav-select large"
+                            value={currentMonth - 1}
+                            onChange={(e) => {
+                                const month = parseInt(e.target.value) + 1;
+                                setCurrentMonth(month);
+                                if (calendarRef.current) {
+                                    calendarRef.current.getApi().gotoDate(new Date(currentYear, month - 1, 1));
+                                }
+                            }}
+                        >
+                            {['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'].map((m, i) => (
+                                <option key={i} value={i}>{m}</option>
+                            ))}
+                        </select>
+                        <button onClick={() => changeMonth(1)}>▶</button>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="ewh-filters">
+                        <div>
+                            <label>컨설턴트:</label>
+                            <select
+                                value={selectedConsultant}
+                                onChange={(e) => setSelectedConsultant(e.target.value)}
+                            >
+                                <option value="all">전체 보기</option>
+                                {users.filter(u => u.role === 'consultant').map(user => (
+                                    <option key={user.uid} value={user.uid}>{user.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label>유형:</label>
+                            <select
+                                value={selectedType}
+                                onChange={(e) => setSelectedType(e.target.value)}
+                            >
+                                <option value="all">전체 유형</option>
+                                {codes.map(code => (
+                                    <option key={code.code} value={code.code}>{code.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Calendar Layout */}
+                <div className="ewh-calendar-layout">
+                    <div className="ewh-calendar-main">
+                        {viewMode === 'calendar' ? (
                             <FullCalendar
-                                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                                ref={calendarRef}
+                                plugins={[dayGridPlugin, interactionPlugin]}
                                 initialView="dayGridMonth"
-                                headerToolbar={{
-                                    left: '',
-                                    center: 'prev title next',
-                                    right: 'dayGridMonth,timeGridWeek,timeGridDay,today'
-                                }}
+                                headerToolbar={false}
                                 locale="ko"
                                 events={calendarEvents}
-                                // eventClick={handleEventClick} // 개별 일정 클릭 비활성화 (날짜 선택만 사용)
-                                eventClassNames="pointer-events-none" // 마우스 오버 효과 및 클릭 방지
-                                dateClick={handleDateClick}
-                                height="100%"
-                                dayMaxEvents={3}
-                                buttonText={{
-                                    today: '오늘',
-                                    month: '월',
-                                    week: '주',
-                                    day: '일'
+                                eventContent={(eventInfo) => {
+                                    const { chipStyle } = eventInfo.event.extendedProps;
+                                    return (
+                                        <div
+                                            className="ewh-event-chip"
+                                            style={{
+                                                backgroundColor: chipStyle?.bg || '#e0f2f1',
+                                                borderLeft: `3px solid ${chipStyle?.border || '#00695c'}`,
+                                            }}
+                                        >
+                                            {eventInfo.event.title}
+                                        </div>
+                                    );
                                 }}
+                                dateClick={handleDateClick}
+                                eventClick={(info) => {
+                                    // 이벤트 클릭 시 해당 날짜 선택
+                                    const eventDate = info.event.start;
+                                    const y = eventDate.getFullYear();
+                                    const m = String(eventDate.getMonth() + 1).padStart(2, '0');
+                                    const d = String(eventDate.getDate()).padStart(2, '0');
+                                    setSelectedDate(`${y}-${m}-${d}`);
+                                }}
+                                datesSet={handleDatesSet}
+                                height="100%"
+                                dayMaxEvents={false}
+                                fixedWeekCount={false}
                                 dayCellClassNames={(arg) => {
                                     const y = arg.date.getFullYear();
                                     const m = String(arg.date.getMonth() + 1).padStart(2, '0');
                                     const d = String(arg.date.getDate()).padStart(2, '0');
                                     const dateStr = `${y}-${m}-${d}`;
-                                    return dateStr === selectedDate ? 'selected-day-cell' : '';
+                                    const classes = [];
+                                    if (dateStr === selectedDate) classes.push('ewh-selected');
+                                    return classes;
+                                }}
+                                dayHeaderContent={(arg) => {
+                                    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+                                    return dayNames[arg.date.getDay()];
+                                }}
+                                dayCellContent={(arg) => {
+                                    return arg.dayNumberText.replace('일', '');
                                 }}
                             />
-                        </div>
-                    </div>
+                        ) : (
+                            <div className="ewh-list-view">
+                                <div className="ewh-list-header">
+                                    <div className="ewh-list-title">
+                                        {currentYear}년 {currentMonth}월 - 총 {currentMonthSchedules.length}건의 일정
+                                    </div>
+                                    <button className="ewh-excel-btn">
+                                        <span style={{ marginRight: '6px' }}>📥</span> 목록 엑셀 다운로드
+                                    </button>
+                                </div>
+                                <div className="ewh-list-table-container">
+                                    <table className="ewh-list-table">
+                                        <thead>
+                                            <tr>
+                                                <th style={{ width: '20%' }}>일자 ↕</th>
+                                                <th style={{ width: '15%' }}>시간 ↕</th>
+                                                <th style={{ width: '20%' }}>컨설턴트 ↕</th>
+                                                <th style={{ width: '25%' }}>구분 ↕</th>
+                                                <th style={{ width: '20%' }}>방식</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {currentMonthSchedules.length > 0 ? (
+                                                currentMonthSchedules.map(schedule => {
+                                                    const typeCode = codes.find(c => c.code === schedule.typeCode);
+                                                    const consultant = users.find(u => u.uid === schedule.consultantId);
+                                                    const dateObj = new Date(schedule.date);
+                                                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                                                    const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
 
-                    {/* Summary Side Panel */}
-                    <div className="w-full xl:w-80 flex flex-col animate-fade-in shrink-0">
-                        <div className="card h-full flex flex-col overflow-hidden">
-                            <div className="card-header bg-gray-50/50 py-4 border-b border-gray-100 shrink-0">
-                                <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-bold text-[#00462A]">
-                                        {selectedDate.replace(/-/g, '. ')} 요약
-                                    </h2>
-                                    <span className="bg-[#00462A]/10 text-[#00462A] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                        {selectedDateSchedules.length}건
-                                    </span>
+                                                    const isRemote = schedule.location?.includes('줌') || schedule.location?.includes('Zoom');
+
+                                                    return (
+                                                        <tr key={schedule.id}>
+                                                            <td className="fw-bold">{dateStr}</td>
+                                                            <td>{timeStr}</td>
+                                                            <td>{consultant ? consultant.name + 'T' : '-'}</td>
+                                                            <td>{typeCode ? typeCode.name : '미분류'}</td>
+                                                            <td>
+                                                                <span className={`ewh-badge ${isRemote ? 'remote' : 'remote'}`}>
+                                                                    {isRemote ? '비대면' : '비대면'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan="5" className="ewh-no-list-data">
+                                                        일정이 없습니다.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
-                            <div className="card-body p-0 overflow-y-auto flex-1 h-0">
-                                {selectedDateSchedules.length > 0 ? (
-                                    <div className="p-4 space-y-6">
-                                        {selectedDateSchedules.map(schedule => {
-                                            const typeCode = codes.find(c => c.code === schedule.typeCode);
-                                            const consultant = users.find(u => u.uid === schedule.consultantId);
+                        )}
+                    </div>
 
-                                            // 요약 카드용 색상
-                                            const cardColor = {
-                                                'C01': '#00462A', 'C02': '#3b82f6', 'C03': '#8b5cf6', 'C04': '#f59e0b',
-                                                'C05': '#10b981', 'C06': '#ef4444', 'C07': '#6366f1', 'C08': '#ec4899',
-                                            }[schedule.typeCode] || '#00462A';
+                    {/* Summary Sidebar */}
+                    <div className="ewh-summary-sidebar">
+                        <div className="ewh-sidebar-title">{selectedDate.replace(/-/g, '-')} 요약</div>
 
-                                            return (
-                                                <div
-                                                    key={schedule.id}
-                                                    className="group bg-white rounded-lg border border-gray-200 hover:border-gray-300 shadow-sm hover:shadow-md transition-all duration-200" style={{ margin: '0px 0px 5px' }}
-                                                >
-                                                    <div className="flex">
-                                                        {/* Left Color Bar */}
-                                                        <div
-                                                            className="w-1.5 rounded-l-lg shrink-0"
-                                                            style={{ backgroundColor: cardColor }}
-                                                        />
+                        {selectedDateStats.total > 0 ? (
+                            <>
+                                <div className="ewh-stat-total">총 일정: {selectedDateStats.total}건</div>
+                                <hr className="ewh-stat-divider" />
 
-                                                        <div className="flex-1 p-2.5 min-w-0" style={{ padding: '10px' }}>
-                                                            {/* Header */}
-                                                            <div className="flex items-center justify-between mb-2">
-                                                                <h3
-                                                                    className="font-bold text-sm tracking-tight truncate pr-2"
-                                                                    style={{ color: cardColor }}
-                                                                >
-                                                                    {typeCode?.name}
-                                                                </h3>
-                                                                <span className="text-[10px] text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 truncate max-w-[60px] shrink-0">
-                                                                    {schedule.location || '미정'}
-                                                                </span>
-                                                            </div>
-
-                                                            {/* Content */}
-                                                            <div className="space-y-1">
-                                                                <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                                                                    <Clock size={12} className="text-gray-400 shrink-0" />
-                                                                    <span className="font-medium truncate">
-                                                                        {new Date(schedule.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                                                                    </span>
-                                                                </div>
-
-                                                                {isAdmin && (
-                                                                    <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                                                                        <Users size={12} className="text-gray-400 shrink-0" />
-                                                                        <span className="truncate">
-                                                                            {consultant?.name || '관리자'}
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Footer Memo */}
-                                                            {schedule.memo && (
-                                                                <div className="mt-2 pt-2 border-t border-gray-50">
-                                                                    <p className="text-[11px] text-gray-400 line-clamp-1">
-                                                                        {schedule.memo}
-                                                                    </p>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div className="p-12 text-center">
-                                        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-gray-200">
-                                            <Calendar size={28} className="text-gray-200" />
-                                        </div>
-                                        <h4 className="text-gray-400 font-bold text-sm">일정이 없습니다</h4>
-                                        <p className="text-gray-300 text-[11px] mt-1">다른 날짜를 선택해 보세요</p>
-                                    </div>
+                                {selectedDateStats.byType.length > 0 && (
+                                    <>
+                                        <div className="ewh-stat-section-title">컨설팅 유형별</div>
+                                        {selectedDateStats.byType.map(([name, count]) => (
+                                            <div key={name} className="ewh-stat-item">
+                                                <span className="ewh-stat-label">{name}</span>
+                                                <span className="ewh-stat-val">{count}</span>
+                                            </div>
+                                        ))}
+                                    </>
                                 )}
-                            </div>
-                        </div>
+
+                                {isAdmin && selectedDateStats.byConsultant.length > 0 && (
+                                    <>
+                                        <hr className="ewh-stat-divider" />
+                                        <div className="ewh-stat-section-title">컨설턴트별</div>
+                                        {selectedDateStats.byConsultant.map(([name, count]) => (
+                                            <div key={name} className="ewh-stat-item">
+                                                <span className="ewh-stat-label">{name}T</span>
+                                                <span className="ewh-stat-val">{count}</span>
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
+                            </>
+                        ) : (
+                            <p className="ewh-no-data">일정이 없습니다.</p>
+                        )}
                     </div>
                 </div>
 
-                {/* Event Detail Modal */}
+                {/* Modal */}
                 <Modal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
@@ -292,75 +476,727 @@ export default function CalendarPage() {
                     {selectedEvent && (
                         <div className="space-y-4">
                             <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
-                                <div
-                                    className="w-12 h-12 rounded-lg flex items-center justify-center"
-                                    style={{ backgroundColor: '#e6f7ef' }}
-                                >
+                                <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#e8f5e9' }}>
                                     <Tag size={24} style={{ color: '#00462A' }} />
                                 </div>
                                 <div>
-                                    <h4 className="font-semibold text-gray-900 text-lg">
-                                        {selectedEvent.typeName || '미분류 일정'}
-                                    </h4>
+                                    <h4 className="font-semibold text-gray-900 text-lg">{selectedEvent.typeName || '미분류 일정'}</h4>
                                     <p className="text-sm text-gray-500">컨설팅 상세 정보</p>
                                 </div>
                             </div>
-
                             <div className="space-y-3 px-1">
                                 <div className="flex items-center gap-3 text-sm">
                                     <Clock size={18} className="text-gray-400" />
-                                    <div className="flex flex-col">
-                                        <span className="text-gray-700 font-medium">
-                                            {new Date(selectedEvent.date).toLocaleDateString('ko-KR', {
-                                                year: 'numeric',
-                                                month: 'long',
-                                                day: 'numeric',
-                                                weekday: 'long'
-                                            })}
-                                        </span>
-                                        <span className="text-gray-500 text-xs mt-0.5">
-                                            {new Date(selectedEvent.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                                            {selectedEvent.endDate ? ` ~ ${new Date(selectedEvent.endDate).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}` : ''}
-                                        </span>
-                                    </div>
+                                    <span className="text-gray-700 font-medium">
+                                        {new Date(selectedEvent.date).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                                    </span>
                                 </div>
-
                                 <div className="flex items-center gap-3 text-sm">
                                     <MapPin size={18} className="text-gray-400" />
-                                    <span className="text-gray-700">
-                                        {selectedEvent.location || '장소 미정'}
-                                    </span>
+                                    <span className="text-gray-700">{selectedEvent.location || '장소 미정'}</span>
                                 </div>
-
                                 <div className="flex items-center gap-3 text-sm">
                                     <Users size={18} className="text-gray-400" />
-                                    <span className="text-gray-700">
-                                        담당: <span className="font-medium">{selectedEvent.consultantName || '미배정'}</span>
-                                    </span>
+                                    <span className="text-gray-700">담당: <span className="font-medium">{selectedEvent.consultantName || '미배정'}</span></span>
                                 </div>
                             </div>
-
-                            {selectedEvent.memo && (
-                                <div className="pt-4 border-t border-gray-100">
-                                    <h5 className="text-sm font-semibold text-gray-900 mb-2">상세 메모</h5>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
-                                        {selectedEvent.memo}
-                                    </div>
-                                </div>
-                            )}
-
                             <div className="pt-4 border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => setIsModalOpen(false)}
-                                    className="btn btn-secondary px-6"
-                                >
-                                    닫기
-                                </button>
+                                <button onClick={() => setIsModalOpen(false)} className="btn btn-secondary px-6">닫기</button>
                             </div>
                         </div>
                     )}
                 </Modal>
             </div>
+
+            <style>{`
+                /* === EWH CALENDAR STYLES === */
+                .ewh-calendar-page {
+                    display: flex;
+                    flex-direction: column;
+                    height: calc(100vh - 65px);
+                    overflow: hidden;
+                    background: #f7f9f8;
+                }
+
+                /* Header */
+                /* Header */
+                .ewh-header {
+                    padding: 12px 24px;
+                    border-bottom: 1px solid #ddd;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background: #fff;
+                }
+
+                .ewh-branded-title {
+                    font-size: 1.2rem;
+                    font-weight: 800;
+                    color: #00462A;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    cursor: pointer;
+                }
+
+                .ewh-main-tabs {
+                    display: flex;
+                    gap: 4px;
+                    background: #f0f0f0;
+                    padding: 3px;
+                    border-radius: 8px;
+                    /* 중앙 정렬 */
+                    position: absolute;
+                    left: 50%;
+                    top: 50%;
+                    transform: translate(-50%, -50%);
+                    z-index: 10;
+                }
+
+                .ewh-main-tab-btn {
+                    padding: 6px 14px;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    font-size: 0.9rem;
+                    cursor: pointer;
+                    color: #666;
+                    background: transparent;
+                    transition: all 0.2s;
+                }
+
+                .ewh-main-tab-btn.active {
+                    background: #fff;
+                    color: #00462A;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }
+
+                .ewh-controls {
+                    display: flex;
+                    gap: 10px;
+                }
+
+                .ewh-btn {
+                    background: #00462A;
+                    color: #fff;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 600;
+                }
+
+                .ewh-btn:hover {
+                    opacity: 0.9;
+                }
+
+                .ewh-btn-outline {
+                    background: transparent;
+                    border: 1px solid #00462A;
+                    color: #00462A;
+                }
+
+                .ewh-btn-outline:hover {
+                    background: #e8f5e9;
+                }
+
+                .ewh-btn-outline.small {
+                    padding: 4px 8px;
+                }
+
+                /* Sub Tab Nav */
+                .ewh-sub-tab-nav {
+                    display: flex;
+                    background: #f4f4f4;
+                    padding: 0 20px;
+                    border-bottom: 1px solid #ddd;
+                }
+
+                .ewh-sub-tab-item {
+                    padding: 10px 24px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    color: #888;
+                    border-bottom: 3px solid transparent;
+                    font-size: 0.95rem;
+                    transition: all 0.3s;
+                }
+
+                .ewh-sub-tab-item.active {
+                    color: #00462A;
+                    border-bottom-color: #00462A;
+                    background: linear-gradient(to top, rgba(0,102,70,0.05), transparent);
+                }
+
+                /* View Bar */
+                .ewh-view-bar {
+                    padding: 6px 24px;
+                    background: #fdfdfd;
+                    border-bottom: 1px solid #eee;
+                    display: flex;
+                    justify-content: space-between; /* 양 끝 정렬 */
+                    gap: 8px;
+                    position: relative; /* 중앙 정렬 기준점 */
+                    height: 46px; /* 높이 확보 */
+                    align-items: center;
+                }
+
+                .ewh-sub-tabs-inline {
+                    display: flex;
+                    gap: 16px;
+                }
+
+                .ewh-sub-tab-item {
+                    font-size: 0.9rem;
+                    color: #666;
+                    cursor: pointer;
+                    font-weight: 500;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    transition: all 0.2s;
+                }
+
+                .ewh-sub-tab-item.active {
+                    color: #00462A;
+                    font-weight: 700;
+                    background: rgba(0, 70, 42, 0.08);
+                }
+
+                .ewh-view-toggle {
+                    display: flex;
+                    gap: 8px;
+                }
+
+                .ewh-view-toggle-btn {
+                    background: transparent;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    color: #666;
+                    padding: 4px 12px;
+                    font-weight: 500;
+                    font-size: 0.85rem;
+                }
+
+                .ewh-view-toggle-btn:hover {
+                    background: #e8f5e9;
+                    border-color: #00462A;
+                    color: #00462A;
+                }
+
+                .ewh-view-toggle-btn.active {
+                    background: #00462A;
+                    border-color: #00462A;
+                    color: #fff;
+                }
+
+                /* Filter Bar */
+                .ewh-filter-bar {
+                    padding: 10px 24px;
+                    background: #fff;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid #ddd;
+                    position: relative; /* 중앙 정렬 기준점 */
+                }
+
+                .ewh-year-nav {
+                    display: flex;
+                    align-items: center;
+                    margin-right: 20px;
+                }
+
+                .ewh-month-nav {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-size: 1.1rem;
+                    font-weight: 700;
+                    /* 중앙 정렬 */
+                    position: absolute;
+                    left: 50%;
+                    transform: translateX(-50%);
+                }
+
+                .ewh-month-nav button {
+                    background: none;
+                    border: none;
+                    font-size: 1.1rem;
+                    cursor: pointer;
+                    color: #00462A;
+                    padding: 0 6px;
+                }
+
+                .ewh-nav-select {
+                    font-weight: 700;
+                    font-size: 1rem;
+                    margin: 0 4px;
+                    padding: 0;
+                    border: none;
+                    background: none;
+                    cursor: pointer;
+                    color: #00462A;
+                    transition: all 0.2s;
+                    outline: none;
+                    -webkit-appearance: none;
+                    -moz-appearance: none;
+                    appearance: none;
+                }
+
+                .ewh-nav-select:hover {
+                    opacity: 0.8;
+                }
+
+                .ewh-nav-select.large {
+                    width: 100px;
+                    text-align: center;
+                }
+
+                .ewh-filters {
+                    display: flex;
+                    gap: 15px;
+                    align-items: center;
+                }
+
+                .ewh-filters label {
+                    font-weight: 600;
+                    margin-right: 5px;
+                }
+
+                .ewh-filters select {
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    border: none;
+                    background-color: #eef0f2;
+                    font-size: 0.9rem;
+                    color: #333;
+                    cursor: pointer;
+                }
+
+                /* Calendar Layout */
+                .ewh-calendar-layout {
+                    display: flex;
+                    flex: 1;
+                    overflow: hidden;
+                }
+
+                .ewh-calendar-main {
+                    flex: 1;
+                    padding: 16px 32px;
+                    overflow-y: auto;
+                    background: #fff;
+                }
+
+                /* Summary Sidebar */
+                .ewh-summary-sidebar {
+                    width: 240px;
+                    background: #fff;
+                    border-left: 1px solid #ddd;
+                    padding: 16px;
+                    overflow-y: auto;
+                    font-size: 0.9rem;
+                }
+
+                .ewh-sidebar-title {
+                    font-size: 1.1rem;
+                    font-weight: 700;
+                    color: #00462A;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e8f5e9;
+                    margin-bottom: 10px;
+                }
+
+                .ewh-stat-total {
+                    margin-top: 10px;
+                    font-weight: 700;
+                    color: #555;
+                }
+
+                .ewh-stat-divider {
+                    margin: 15px 0;
+                    border: 0;
+                    border-top: 1px solid #eee;
+                }
+
+                .ewh-stat-section-title {
+                    margin-bottom: 5px;
+                    font-weight: 600;
+                    color: #00462A;
+                }
+
+                .ewh-stat-item {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 8px 0;
+                    border-bottom: 1px dashed #eee;
+                    font-size: 0.95rem;
+                }
+
+                .ewh-stat-item:last-child {
+                    border-bottom: none;
+                }
+
+                .ewh-stat-label {
+                    color: #666;
+                }
+
+                .ewh-stat-val {
+                    font-weight: 700;
+                    color: #333;
+                }
+
+                .ewh-no-data {
+                    color: #888;
+                    margin-top: 10px;
+                }
+
+                /* ========== FULLCALENDAR OVERRIDES ========== */
+                .ewh-calendar-main .fc {
+                    height: 100% !important;
+                    font-family: inherit !important;
+                }
+
+                .ewh-calendar-main .fc-scrollgrid {
+                    border: none !important;
+                }
+
+                /* 사용자 요청: 테이블 자체 보더 숨김 (이중선 방지) */
+                .ewh-calendar-main .fc .fc-scrollgrid table {
+                    border-left-style: hidden;
+                    border-right-style: hidden;
+                    border-top-style: hidden;
+                    border-bottom: hidden !important;
+                }
+
+                /* List View Styles */
+                .ewh-list-view {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .ewh-list-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                }
+
+                .ewh-list-title {
+                    font-size: 1.1rem;
+                    font-weight: 700;
+                    color: #333;
+                }
+
+                .ewh-excel-btn {
+                    background: #107c41; /* 엑셀 그린 */
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    font-size: 0.9rem;
+                }
+                
+                .ewh-excel-btn:hover {
+                    background: #0b5e30;
+                }
+
+                .ewh-list-table-container {
+                    flex: 1;
+                    overflow-y: auto;
+                    border: 1px solid #eee;
+                    border-radius: 8px;
+                }
+
+                .ewh-list-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    text-align: left;
+                }
+
+                .ewh-list-table th {
+                    background: #00462A;
+                    color: white;
+                    padding: 12px 16px;
+                    font-weight: 600;
+                    position: sticky;
+                    top: 0;
+                    font-size: 0.95rem;
+                }
+
+                .ewh-list-table td {
+                    padding: 12px 16px;
+                    border-bottom: 1px solid #eee;
+                    color: #444;
+                    font-size: 0.95rem;
+                }
+
+                .ewh-list-table tr:hover {
+                    background: #f8fcf9;
+                }
+
+                .ewh-list-table .fw-bold {
+                    font-weight: 700;
+                    color: #222;
+                }
+                
+                .ewh-badge {
+                    display: inline-block;
+                    padding: 4px 10px;
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                }
+
+                .ewh-badge.remote {
+                    background: #e3f2fd;
+                    color: #1976d2;
+                }
+                
+                .ewh-no-list-data {
+                    text-align: center;
+                    padding: 40px;
+                    color: #888;
+                }
+                    border: hidden;
+                }
+
+                /* 컨테이너에 둥근 모서리와 외곽선 적용 */
+                .ewh-calendar-main .fc-view-harness {
+                    border-bottom: hidden !important;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }
+
+                /* 내부 셀 보더: 오른쪽과 아래쪽만 1px */
+                .ewh-calendar-main .fc-theme-standard td,
+                .ewh-calendar-main .fc-theme-standard th {
+                    border: none !important;
+                    border-right: 1px solid #ddd !important;
+                    border-bottom: 1px solid #ddd !important;
+                }
+
+                /* 마지막 열의 오른쪽 보더 제거 (외곽선과 겹침 방지) */
+                .ewh-calendar-main .fc-theme-standard td:last-child,
+                .ewh-calendar-main .fc-theme-standard th:last-child {
+                    border-right: none !important;
+                }
+
+                /* 마지막 행의 아래쪽 보더 제거 (강력한 선택자 사용) */
+                .ewh-calendar-main .fc-daygrid-body table tbody > tr:last-child td,
+                .ewh-calendar-main .fc-daygrid-body > table > tbody > tr:last-child > td {
+                    border-bottom: none !important;
+                }
+
+                /* 헤더 셀 스타일 */
+                .ewh-calendar-main .fc-col-header-cell {
+                    background: #fff;
+                    padding: 8px;
+                    text-align: center;
+                    font-weight: 700;
+                    color: #555;
+                }
+
+                /* 일요일 색상 (헤더 & 날짜) */
+                .ewh-calendar-main .fc-col-header-cell.fc-day-sun .fc-col-header-cell-cushion,
+                .ewh-calendar-main .fc-daygrid-day.fc-day-sun .fc-daygrid-day-number {
+                    color: #E53935 !important;
+                }
+
+                /* 토요일 색상 (헤더 & 날짜) */
+                .ewh-calendar-main .fc-col-header-cell.fc-day-sat .fc-col-header-cell-cushion,
+                .ewh-calendar-main .fc-daygrid-day.fc-day-sat .fc-daygrid-day-number {
+                    color: #1E88E5 !important;
+                }
+
+                /* 날짜 셀 */
+                .ewh-calendar-main .fc-daygrid-day {
+                    min-height: 100px !important;
+                    cursor: pointer;
+                }
+
+                /* 지난달/다음달 날짜 배경색 */
+                .ewh-calendar-main .fc-day-other {
+                    background-color: #eee !important;
+                }
+
+                .ewh-calendar-main .fc-daygrid-day-frame {
+                    min-height: 100px !important;
+                    padding: 4px;
+                    display: flex;
+                    flex-direction: column;
+                }
+                
+                /* 이번달 날짜만 호버 효과 (지난달/다음달 날짜 제외) */
+                .ewh-calendar-main .fc-daygrid-day:not(.fc-day-other):hover {
+                    background-color: #f0f7f4;
+                }
+
+                .ewh-calendar-main .fc-daygrid-day.ewh-selected {
+                    background-color: #e0f2f1 !important;
+                    box-shadow: inset 0 0 0 2px #00462A;
+                }
+
+                /* 날짜 숫자 기본값 */
+                .ewh-calendar-main .fc-daygrid-day-number {
+                    font-size: 0.85rem;
+                    font-weight: 600;
+                    color: #555;
+                    padding: 4px !important;
+                    text-align: right;
+                }
+
+                .ewh-calendar-main .fc-daygrid-day-top {
+                    justify-content: flex-end;
+                }
+
+                /* 다른 월의 날짜 */
+                .ewh-calendar-main .fc-daygrid-day.fc-day-other {
+                    background: #fcfcfc;
+                    opacity: 0.5;
+                }
+
+                /* 오늘 */
+                .ewh-calendar-main .fc-daygrid-day.fc-day-today {
+                    background: #fff !important;
+                }
+
+                /* 불릿 점 완전 제거 */
+                .ewh-calendar-main .fc-daygrid-event-dot,
+                .ewh-calendar-main .fc-event-dot,
+                .ewh-calendar-main .fc-list-event-dot {
+                    display: none !important;
+                }
+
+                /* 커스텀 이벤트 칩 스타일 */
+                /* 커스텀 이벤트 칩 스타일 */
+                .ewh-event-chip {
+                    display: block;
+                    width: 100%;
+                    box-sizing: border-box;
+                    font-size: 0.75rem;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    color: #222;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    line-height: 1.3;
+                    cursor: pointer;
+                }
+
+                .ewh-calendar-main .fc-event {
+                    background: transparent !important;
+                    border: none !important;
+                    padding: 0 !important;
+                    margin: 0 0 2px 0 !important;
+                    width: 100% !important;
+                }
+
+                .ewh-calendar-main .fc-event-main {
+                    padding: 0 !important;
+                    width: 100%;
+                }
+
+                .ewh-calendar-main .fc-daygrid-event-harness {
+                    margin: 0 0 2px 0 !important;
+                    width: 100% !important;
+                }
+
+                .ewh-calendar-main .fc-daygrid-day-events {
+                    padding: 0 4px !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 2px !important;
+                }
+
+                /* Responsive */
+                @media (max-width: 1024px) {
+                    .ewh-calendar-layout {
+                        flex-direction: column;
+                    }
+
+                    .ewh-summary-sidebar {
+                        width: 100%;
+                        border-left: none;
+                        border-top: 1px solid #ddd;
+                        min-height: 200px;
+                    }
+                }
+
+                @media (max-width: 768px) {
+                    .ewh-header {
+                        flex-direction: column;
+                        gap: 15px;
+                        padding: 16px;
+                    }
+
+                    .ewh-main-tabs {
+                        width: 100%;
+                        justify-content: center;
+                        position: static;
+                        transform: none;
+                    }
+
+                    .ewh-controls {
+                        width: 100%;
+                        justify-content: center;
+                    }
+
+                    .ewh-filter-bar {
+                        flex-direction: column;
+                        gap: 15px;
+                        padding: 16px;
+                    }
+
+                    .ewh-month-nav {
+                        position: static;
+                        transform: none;
+                    }
+
+                    .ewh-filters {
+                        width: 100%;
+                        flex-wrap: wrap;
+                    }
+
+                    .ewh-sub-tab-nav {
+                        padding: 0;
+                        overflow-x: auto;
+                        white-space: nowrap;
+                    }
+
+                    .ewh-sub-tab-item {
+                        padding: 12px 20px;
+                        font-size: 0.95rem;
+                    }
+
+                    .ewh-calendar-main {
+                        padding: 10px;
+                    }
+
+                    .ewh-calendar-main .fc-daygrid-day {
+                        min-height: 100px !important;
+                    }
+
+                    .ewh-calendar-main .fc-daygrid-day-frame {
+                        min-height: 100px !important;
+                        padding: 4px;
+                    }
+
+                    .ewh-calendar-main .fc-event {
+                        font-size: 0.7rem !important;
+                        padding: 2px 4px !important;
+                    }
+                }
+            `}</style>
         </>
     );
 }
