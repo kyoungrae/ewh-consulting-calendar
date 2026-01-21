@@ -8,7 +8,7 @@ import {
     createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db, firebaseConfig } from '../firebase/config';
+import { auth, db, firebaseConfig, DISABLE_FIRESTORE } from '../firebase/config';
 
 const AuthContext = createContext();
 
@@ -68,22 +68,24 @@ export function AuthProvider({ children }) {
 
     // 로그인 (ID 또는 이메일로 로그인)
     async function login(userIdOrEmail, password) {
-        // 1. 더미 유저 체크 (개발 모드)
-        const dummyUser = DUMMY_USERS.find(u => u.userId === userIdOrEmail);
-        if (dummyUser) {
-            console.log('⚡️ Dev Login with Dummy User:', dummyUser.name);
-            const fakeUser = {
-                uid: dummyUser.uid,
-                email: `${dummyUser.userId}@ewha.dev`,
-                displayName: dummyUser.name
-            };
+        // 1. 더미 유저 체크 (개발 모드일 때만)
+        if (DISABLE_FIRESTORE) {
+            const dummyUser = DUMMY_USERS.find(u => u.userId === userIdOrEmail);
+            if (dummyUser) {
+                console.log('⚡️ Dev Login with Dummy User:', dummyUser.name);
+                const fakeUser = {
+                    uid: dummyUser.uid,
+                    email: `${dummyUser.userId}@ewha.dev`,
+                    displayName: dummyUser.name
+                };
 
-            // 로컬 스토리지에 더미 세션 저장 (새로고침 유지용)
-            localStorage.setItem('ewh_dummy_user', JSON.stringify({ user: fakeUser, profile: dummyUser }));
+                // 로컬 스토리지에 더미 세션 저장 (새로고침 유지용)
+                localStorage.setItem('ewh_dummy_user', JSON.stringify({ user: fakeUser, profile: dummyUser }));
 
-            setCurrentUser(fakeUser);
-            setUserProfile(dummyUser);
-            return { user: fakeUser };
+                setCurrentUser(fakeUser);
+                setUserProfile(dummyUser);
+                return { user: fakeUser };
+            }
         }
 
         // 2. 실제 Firebase 로그인 진행

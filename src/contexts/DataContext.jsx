@@ -13,31 +13,33 @@ import {
     where,
     writeBatch
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, DISABLE_FIRESTORE } from '../firebase/config';
 
 const DataContext = createContext();
-
-// 개발 중 Firebase 읽기 차단 여부 (useFirestore.js와 동기화)
-const DISABLE_FIRESTORE = true;
 
 export function useData() {
     return useContext(DataContext);
 }
 
 /**
- * 스케줄 고유 키 생성 (날짜+시간+컨설턴트로 중복 체크용)
+ * 스케줄 고유 키 생성 (날짜+컨설턴트+구분으로 중복 체크용)
+ * 날짜는 'YYYY-MM-DDTHH:mm' 형식으로 정규화하여 초/밀리초 차이로 인한 매칭 실패 방지
  */
 function generateScheduleKey(schedule) {
-    const date = schedule.date ? new Date(schedule.date).toISOString() : '';
-    return `${date}_${schedule.consultantId || schedule.consultantName}_${schedule.typeCode || schedule.type}`;
+    if (!schedule.date) return '';
+    const d = new Date(schedule.date);
+    const dateStr = isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16);
+    const consultant = (schedule.consultantId || schedule.consultantName || '').toString().trim();
+    const type = (schedule.typeCode || schedule.type || '').toString().trim();
+    return `${dateStr}_${consultant}_${type}`;
 }
-
 export function DataProvider({ children }) {
-    // 1. Schedules State
+    // DataProvider State
     const [schedules, setSchedules] = useState([]);
     const [schedulesLoading, setSchedulesLoading] = useState(true);
     const [schedulesError, setSchedulesError] = useState(null);
     const [changeLog, setChangeLog] = useState([]);
+    const [logsLoading, setLogsLoading] = useState(true);
 
     // 2. Users State
     const [users, setUsers] = useState([]);
@@ -51,8 +53,8 @@ export function DataProvider({ children }) {
 
     // --- Listeners Setup ---
 
+    // 1. Schedules Listener
     useEffect(() => {
-        // --- Schedules Listener ---
         if (DISABLE_FIRESTORE) {
             const dummySchedules = [
                 { id: 'dev_1', date: '2026-01-05T10:30:00', consultantId: 'user_kjh', typeCode: 'EDU', location: '비대면 (Zoom)', memo: '진로 설정 상담' },
@@ -69,16 +71,34 @@ export function DataProvider({ children }) {
             setSchedules(dummySchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
             setSchedulesLoading(false);
         } else {
-            const schedulesRef = collection(db, 'schedules');
-            const q = query(schedulesRef, orderBy('date', 'asc'));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                setSchedulesLoading(false);
-            }, (err) => {
-                setSchedulesError(err.message);
-                setSchedulesLoading(false);
-            });
-            return () => unsubscribe();
+            const unsub = onSnapshot(query(collection(db, 'schedules'), orderBy('date', 'asc')),
+                snapshot => {
+                    setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setSchedulesLoading(false);
+                }, err => {
+                    setSchedulesError(err.message);
+                    setSchedulesLoading(false);
+                }
+            );
+            return () => unsub();
+        }
+    }, []);
+
+    // 2. Change Logs Listener (History)
+    useEffect(() => {
+        if (DISABLE_FIRESTORE) {
+            setLogsLoading(false);
+        } else {
+            const unsub = onSnapshot(query(collection(db, 'change_logs'), orderBy('timestamp', 'desc')),
+                snapshot => {
+                    setChangeLog(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setLogsLoading(false);
+                }, err => {
+                    console.error('Logs Error:', err);
+                    setLogsLoading(false);
+                }
+            );
+            return () => unsub();
         }
     }, []);
 
@@ -224,10 +244,24 @@ export function DataProvider({ children }) {
                 const key = generateScheduleKey(newSched);
                 newMap.set(key, newSched);
                 if (existingMap.has(key)) {
+                    // 기존 스케줄이 있음 - 변경 여부 확인 (기본 정보 제외한 모든 실질 데이터 체크)
                     const existing = existingMap.get(key);
-                    const hasChanges = existing.location !== newSched.location || existing.memo !== newSched.memo;
+
+                    const normalizeStr = (s) => (s || '').toString().trim();
+
+                    const hasChanges =
+                        normalizeStr(existing.location) !== normalizeStr(newSched.location) ||
+                        normalizeStr(existing.memo) !== normalizeStr(newSched.memo) ||
+                        normalizeStr(existing.consultantName) !== normalizeStr(newSched.consultantName) ||
+                        normalizeStr(existing.typeName) !== normalizeStr(newSched.typeName) ||
+                        normalizeStr(existing.endDate) !== normalizeStr(newSched.endDate);
+
                     if (hasChanges) {
-                        const updated = { ...existing, ...newSched, updatedAt: new Date().toISOString() };
+                        const updated = {
+                            ...existing,
+                            ...newSched,
+                            updatedAt: new Date().toISOString()
+                        };
                         result.updated.push({ before: existing, after: updated });
                         processed.push(updated);
                     } else {
@@ -245,6 +279,35 @@ export function DataProvider({ children }) {
             });
             setSchedules(processed.sort((a, b) => new Date(a.date) - new Date(b.date)));
         }
+
+        // 변경 이력 기록 (상세 내역 포함)
+        if (!replaceAll) {
+            const logData = {
+                type: 'MERGE',
+                summary: {
+                    added: result.added.length,
+                    updated: result.updated.length,
+                    deleted: result.deleted.length,
+                    unchanged: result.unchanged.length
+                },
+                details: {
+                    added: result.added,
+                    updated: result.updated,
+                    deleted: result.deleted
+                },
+                timestamp: new Date().toISOString()
+            };
+
+            if (DISABLE_FIRESTORE) {
+                setChangeLog(prev => [{ id: Date.now(), ...logData }, ...prev]);
+            } else {
+                addDoc(collection(db, 'change_logs'), {
+                    ...logData,
+                    createdAt: serverTimestamp()
+                }).catch(err => console.error('Log save failed:', err));
+            }
+        }
+
         return result;
     };
 
@@ -320,7 +383,9 @@ export function DataProvider({ children }) {
         codesError,
         addCode,
         updateCode,
-        deleteCode
+        deleteCode,
+
+        logsLoading
     };
 
     return (

@@ -178,8 +178,18 @@ function LogItem({ log, index }) {
                                 {details.updated.map((u, i) => {
                                     const { before, after } = u;
                                     const changedFields = [];
-                                    if (before.location !== after.location) changedFields.push({ label: '장소', before: before.location, after: after.location });
-                                    if (before.memo !== after.memo) changedFields.push({ label: '메모', before: before.memo, after: after.memo });
+                                    const normalize = (s) => (s || '').toString().trim();
+
+                                    if (normalize(before.location) !== normalize(after.location))
+                                        changedFields.push({ label: '장소', before: before.location, after: after.location });
+                                    if (normalize(before.memo) !== normalize(after.memo))
+                                        changedFields.push({ label: '메모', before: before.memo, after: after.memo });
+                                    if (normalize(before.consultantName) !== normalize(after.consultantName))
+                                        changedFields.push({ label: '담당자명', before: before.consultantName, after: after.consultantName });
+                                    if (normalize(before.typeName) !== normalize(after.typeName))
+                                        changedFields.push({ label: '구분명', before: before.typeName, after: after.typeName });
+                                    if (normalize(before.endDate) !== normalize(after.endDate))
+                                        changedFields.push({ label: '종료시간', before: before.endDate, after: after.endDate });
 
                                     return (
                                         <div key={i} className="bg-white rounded-xl border border-amber-200 p-6 shadow-sm relative overflow-hidden">
@@ -509,12 +519,15 @@ export default function SchedulesPage() {
                     // Row 1: 요일 헤더 (월요일, 화요일, ...)
                     // Row 2+: 데이터 행 (0~5열에 날짜 or 스케줄)
 
-                    // 시트명에서 년도 추출 시도 (2027-1월 형식)
-                    let baseYear = new Date().getFullYear();
+                    // 시트명에서 년/월 추출 시도 (예: 2027-1월, 1월 등)
+                    let fallbackYear = new Date().getFullYear();
+                    let fallbackMonth = new Date().getMonth();
+
                     const yearMatch = sheetName.match(/(\d{4})/);
-                    if (yearMatch) {
-                        baseYear = parseInt(yearMatch[1]);
-                    }
+                    if (yearMatch) fallbackYear = parseInt(yearMatch[1]);
+
+                    const monthMatch = sheetName.match(/(\d{1,2})월/);
+                    if (monthMatch) fallbackMonth = parseInt(monthMatch[1]) - 1;
 
                     // Row 0에서 기준 날짜 추출
                     let baseDate = null;
@@ -522,17 +535,21 @@ export default function SchedulesPage() {
                     if (typeof firstCell === 'number' && firstCell > 40000) {
                         // 엑셀 시리얼 날짜
                         baseDate = new Date((firstCell - 25569) * 86400 * 1000);
+                    } else {
+                        // A1이 날짜가 아닌 경우 시트명 정보 활용
+                        baseDate = new Date(fallbackYear, fallbackMonth, 1);
+                        console.log(`ℹ️ ${sheetName}: 시트명 기준 날짜 설정 (${fallbackYear}-${fallbackMonth + 1})`);
                     }
 
-                    if (!baseDate) {
-                        console.log(`⚠️ ${sheetName}: 기준 날짜를 찾을 수 없음, 스킵`);
+                    if (!baseDate || isNaN(baseDate.getTime())) {
+                        console.log(`⚠️ ${sheetName}: 기준 날짜를 찾을 수 없음 (A1 셀이 날짜 형식이 아니고 시트명에도 '월'이 포함되지 않음), 스킵`);
                         return;
                     }
 
                     const baseMonth = baseDate.getMonth();
                     const baseYearFromDate = baseDate.getFullYear();
 
-                    console.log(`📅 ${sheetName}: 기준 날짜 ${baseYearFromDate}-${baseMonth + 1}`);
+                    console.log(`📅 ${sheetName}: 기준 날짜 확정 ${baseYearFromDate}-${baseMonth + 1}`);
 
                     // 현재 주의 날짜 정보 (0~5열이 월~토에 해당)
                     let currentWeekDates = [null, null, null, null, null, null];
@@ -557,21 +574,24 @@ export default function SchedulesPage() {
                             if (typeof cellValue === 'string') {
                                 const cellStr = cellValue.trim();
 
-                                // 스케줄 패턴 매칭
-                                const match = cellStr.match(schedulePattern);
+                                // 스케줄 패턴 매칭 (시간과 상담유형 사이 공백 유무에 유연하게 대응)
+                                // 형식: "10:00 상담종류(담당자)" 또는 "10:00상담종류(담당자)"
+                                const match = cellStr.match(/^(\d{1,2}:\d{2})\s*(.+?)\((.+?)\)(\*.*)?$/);
                                 if (match && currentWeekDates[colIdx]) {
                                     const [, timeStr, typeName, consultantName, noteRaw] = match;
                                     const day = currentWeekDates[colIdx];
 
                                     // 시간 파싱
-                                    const [hours, minutes] = timeStr.split(':').map(Number);
+                                    const timeParts = timeStr.split(':').map(Number);
+                                    const hours = timeParts[0];
+                                    const minutes = timeParts[1];
 
                                     // 날짜 생성
                                     const scheduleDate = new Date(baseYearFromDate, baseMonth, day, hours, minutes, 0, 0);
 
-                                    // ISO 문자열로 변환 (로컬 시간 기준)
-                                    const offset = scheduleDate.getTimezoneOffset() * 60000;
-                                    const dateStr = new Date(scheduleDate.getTime() - offset).toISOString().slice(0, 16);
+                                    // ISO 문자열로 변환 (로컬 시간 기준 정규화)
+                                    // 분 단위까지만 저장하여 매칭 정확도 향상
+                                    const dateStr = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
                                     // 비고 처리
                                     const note = noteRaw ? noteRaw.replace(/^\*/, '').trim() : '';
