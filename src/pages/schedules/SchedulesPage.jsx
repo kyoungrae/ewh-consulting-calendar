@@ -14,7 +14,10 @@ import {
     MapPin,
     Upload,
     FileText,
-    Loader2
+    Loader2,
+    Filter,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 
 // 날짜 포맷팅 유틸리티
@@ -260,6 +263,49 @@ export default function SchedulesPage() {
     const { users, loading: usersLoading } = useUsers();
 
     const loading = schedulesLoading || codesLoading || usersLoading;
+
+    // --- 페이지네이션 및 필터 상태 ---
+    const [selectedYear, setSelectedYear] = useState('all');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 15;
+
+    // 필터 변경 시 페이지 초기화
+    if (selectedYear !== 'all' && currentPage !== 1) {
+        // useEffect 대신 렌더링 중 상태 변경 방지를 위해 로직 내에서 처리하거나, 
+        // 여기서는 단순화를 위해 useEffect를 쓰거나 렌더링 로직에서 처리.
+        // React 렌더링 사이클을 고려해 useEffect로 처리하는 것이 안전함.
+    }
+
+    // 년도 목록 추출
+    const availableYears = [...new Set(schedules.map(s => {
+        if (!s.date) return null;
+        return new Date(s.date).getFullYear();
+    }).filter(y => y !== null))].sort((a, b) => b - a);
+
+    // 필터링 및 정렬
+    const filteredSchedules = schedules.filter(s => {
+        if (selectedYear === 'all') return true;
+        if (!s.date) return false;
+        return new Date(s.date).getFullYear() === parseInt(selectedYear);
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // 페이지네이션 로직
+    const totalPages = Math.ceil(filteredSchedules.length / itemsPerPage);
+    const paginatedSchedules = filteredSchedules.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // 페이지 변경 핸들러
+    const handlePageChange = (page) => {
+        setCurrentPage(page);
+    };
+
+    // 년도 변경 핸들러
+    const handleYearChange = (e) => {
+        setSelectedYear(e.target.value);
+        setCurrentPage(1);
+    };
 
     // 폼 상태
     const [formData, setFormData] = useState({
@@ -672,40 +718,70 @@ export default function SchedulesPage() {
                 {/* Tab Content */}
                 {activeTab === 'list' ? (
                     <div className="animate-fade-in">
-                        {/* Action Buttons */}
-                        <div className="flex justify-end gap-3 mb-4" style={{ paddingBottom: "10px" }}>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleExcelUpload}
-                                accept=".xlsx, .xls "
-                                className="hidden"
-                            />
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={isUploading}
-                                className="btn btn-secondary shadow-sm hover:border-[#00462A] hover:text-[#00462A]"
-                            >
-                                {isUploading ? (
-                                    <Loader2 size={18} className="animate-spin" />
-                                ) : (
-                                    <Upload size={18} />
-                                )}
-                                엑셀 업로드
-                            </button>
-                            <button
-                                onClick={() => openModal()}
-                                className="btn btn-primary shadow-md"
-                            >
-                                <Plus size={18} />
-                                새 일정 등록
-                            </button>
+                        {/* Action Toolbar */}
+                        <div className="flex justify-between items-center mb-4" style={{ paddingBottom: "10px" }}>
+                            {/* Filter */}
+                            <div className="flex items-center gap-2">
+                                <div className="relative">
+                                    <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <select
+                                        className="min-w-[150px] pl-12 pr-12 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                        value={selectedYear}
+                                        onChange={handleYearChange}
+                                        style={{ paddingLeft: '45px' }}
+                                    >
+                                        <option value="all">전체 년도</option>
+                                        {availableYears.map(year => (
+                                            <option key={year} value={year}>{year}년</option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
+                                </div>
+                                <span className="text-sm text-gray-500 font-medium ml-2">
+                                    총 <span className="text-[#00462A] font-bold">{filteredSchedules.length}</span>건
+                                </span>
+                            </div>
+
+                            {/* Buttons */}
+                            <div className="flex gap-3">
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleExcelUpload}
+                                    accept=".xlsx, .xls "
+                                    className="hidden"
+                                />
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isUploading}
+                                    className="btn btn-secondary shadow-sm hover:border-[#00462A] hover:text-[#00462A]"
+                                >
+                                    {isUploading ? (
+                                        <Loader2 size={18} className="animate-spin" />
+                                    ) : (
+                                        <Upload size={18} />
+                                    )}
+                                    엑셀 업로드
+                                </button>
+                                <button
+                                    onClick={() => openModal()}
+                                    className="btn btn-primary shadow-md"
+                                >
+                                    <Plus size={18} />
+                                    새 일정 등록
+                                </button>
+                            </div>
                         </div>
 
                         {/* Schedules Table */}
                         <div className="card w-full shadow-sm">
                             <div className="card-header border-b border-gray-100 bg-gray-50/30 flex justify-between items-center">
-                                <h3 className="font-semibold text-gray-900">전체 일정 목록 ({schedules.length}건)</h3>
+                                <h3 className="font-semibold text-gray-900">
+                                    {selectedYear === 'all' ? '전체 일정 목록' : `${selectedYear}년 일정 목록`}
+                                    <span className="text-gray-400 font-normal ml-1">({filteredSchedules.length}건)</span>
+                                </h3>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="data-table">
@@ -719,19 +795,21 @@ export default function SchedulesPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {schedules.length === 0 ? (
+                                        {paginatedSchedules.length === 0 ? (
                                             <tr>
                                                 <td colSpan="5">
                                                     <div className="empty-state py-20">
                                                         <Calendar size={48} className="empty-state-icon mx-auto opacity-20" />
-                                                        <h3 className="mt-4 text-gray-400">등록된 일정이 없습니다</h3>
+                                                        <h3 className="mt-4 text-gray-400">
+                                                            {selectedYear === 'all' ? '등록된 일정이 없습니다' : `${selectedYear}년도 일정이 없습니다`}
+                                                        </h3>
                                                     </div>
                                                 </td>
                                             </tr>
                                         ) : (
-                                            schedules.map(schedule => (
+                                            paginatedSchedules.map(schedule => (
                                                 <tr key={schedule.id}>
-                                                    <td className="whitespace-nowrap">
+                                                    <td className="whitespace-nowrap" style={{ padding: '0.4rem' }}>
                                                         <div className="flex flex-col">
                                                             <div className="flex items-center gap-2 text-gray-900 font-medium">
                                                                 <Calendar size={14} className="text-gray-400" />
@@ -786,6 +864,58 @@ export default function SchedulesPage() {
                                     </tbody>
                                 </table>
                             </div>
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="relative border-t border-gray-100 bg-gray-50/30 px-6 py-4 flex items-center justify-center" style={{ padding: '10px' }}>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => handlePageChange(currentPage - 1)}
+                                            disabled={currentPage === 1}
+                                            className="p-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+
+                                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                            // Simple pagination logic: show around current page
+                                            let pageNum;
+                                            if (totalPages <= 5) {
+                                                pageNum = i + 1;
+                                            } else if (currentPage <= 3) {
+                                                pageNum = i + 1;
+                                            } else if (currentPage >= totalPages - 2) {
+                                                pageNum = totalPages - 4 + i;
+                                            } else {
+                                                pageNum = currentPage - 2 + i;
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={pageNum}
+                                                    onClick={() => handlePageChange(pageNum)}
+                                                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${currentPage === pageNum
+                                                        ? 'bg-[#00462A] text-white border border-[#00462A] shadow-sm'
+                                                        : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                                                        }`}
+                                                >
+                                                    {pageNum}
+                                                </button>
+                                            );
+                                        })}
+
+                                        <button
+                                            onClick={() => handlePageChange(currentPage + 1)}
+                                            disabled={currentPage === totalPages}
+                                            className="p-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                    <div className="absolute right-6 text-sm text-gray-500">
+                                        <span className="font-medium">{filteredSchedules.length}</span>개 중 <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredSchedules.length)}</span> 표시
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ) : (
@@ -926,7 +1056,7 @@ export default function SchedulesPage() {
                         </div>
                     </form>
                 </Modal>
-            </div>
+            </div >
         </>
     );
 }
