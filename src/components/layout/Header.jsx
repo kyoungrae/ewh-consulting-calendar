@@ -1,12 +1,15 @@
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Menu, LogOut } from 'lucide-react';
 
 export default function Header({ title, onMenuClick }) {
     const { userProfile, isAdmin, logout } = useAuth();
+    const navigate = useNavigate();
 
     const handleLogout = async () => {
         try {
             await logout();
+            navigate('/');
         } catch (error) {
             console.error('로그아웃 실패:', error);
         }

@@ -29,7 +29,9 @@ export default function CodesPage() {
     const [formData, setFormData] = useState({
         code: '',
         name: '',
-        description: ''
+        description: '',
+        color: '#e0f2f1',
+        borderColor: '#00695c'
     });
 
     // 모달 열기 (등록/수정)
@@ -39,14 +41,18 @@ export default function CodesPage() {
             setFormData({
                 code: code.code || '',
                 name: code.name || '',
-                description: code.description || ''
+                description: code.description || '',
+                color: code.color || '#e0f2f1',
+                borderColor: code.borderColor || '#00695c'
             });
         } else {
             setEditingCode(null);
             setFormData({
                 code: '',
                 name: '',
-                description: ''
+                description: '',
+                color: '#e0f2f1',
+                borderColor: '#00695c'
             });
         }
         setIsModalOpen(true);
@@ -120,7 +126,7 @@ export default function CodesPage() {
                 {/* Info Card */}
                 <div
                     className="card mb-6 border-l-4"
-                    style={{ borderLeftColor: '#00462A' }}
+                    style={{ borderLeftColor: '#00462A', marginBottom: '10px' }}
                 >
                     <div className="card-body flex items-start gap-3">
                         <div
@@ -154,6 +160,7 @@ export default function CodesPage() {
                                 <tr>
                                     <th>코드</th>
                                     <th>코드명</th>
+                                    <th>색상 프리뷰</th>
                                     <th>설명</th>
                                     <th>등록일</th>
                                     <th>관리</th>
@@ -188,6 +195,18 @@ export default function CodesPage() {
                                             </td>
                                             <td className="font-medium text-gray-900">
                                                 {code.name}
+                                            </td>
+                                            <td>
+                                                <div
+                                                    className="px-3 py-1 rounded text-xs font-bold border"
+                                                    style={{
+                                                        backgroundColor: code.color || '#e0f2f1',
+                                                        borderColor: code.borderColor || '#00695c',
+                                                        color: '#222'
+                                                    }}
+                                                >
+                                                    Chip Preview
+                                                </div>
                                             </td>
                                             <td className="text-gray-600">
                                                 {code.description || '-'}
@@ -265,11 +284,50 @@ export default function CodesPage() {
                                 <label className="form-label">설명</label>
                                 <textarea
                                     className="form-input"
-                                    rows={3}
+                                    rows={2}
                                     placeholder="코드에 대한 상세 설명을 입력하세요"
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                 />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="form-group">
+                                    <label className="form-label">배경색</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="color"
+                                            className="h-10 w-12 rounded border p-1 cursor-pointer"
+                                            value={formData.color}
+                                            onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                                        />
+                                        <input
+                                            type="text"
+                                            className="form-input flex-1"
+                                            value={formData.color}
+                                            onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                                            placeholder="#FFFFFF"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">테두리색</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="color"
+                                            className="h-10 w-12 rounded border p-1 cursor-pointer"
+                                            value={formData.borderColor}
+                                            onChange={(e) => setFormData({ ...formData, borderColor: e.target.value })}
+                                        />
+                                        <input
+                                            type="text"
+                                            className="form-input flex-1"
+                                            value={formData.borderColor}
+                                            onChange={(e) => setFormData({ ...formData, borderColor: e.target.value })}
+                                            placeholder="#000000"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

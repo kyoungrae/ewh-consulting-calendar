@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Shield, User, Lock, AlertCircle, Loader2, Home } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Shield, User, Lock, AlertCircle, Loader2, Home } from 'lucide-react';
 export default function LoginPage() {
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
+    const [rememberMe, setRememberMe] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -13,11 +14,18 @@ export default function LoginPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const prefilledUserId = searchParams.get('userId');
+    const prefilledName = searchParams.get('name');
 
-    // prefilledUserId가 있을 경우 초기값으로 설정
-    useState(() => {
+    // 초기 마운트 시 저장된 아이디 불러오기 (localStorage)
+    useEffect(() => {
         if (prefilledUserId) {
             setUserId(prefilledUserId);
+        } else {
+            const savedId = localStorage.getItem('savedUserId');
+            if (savedId) {
+                setUserId(savedId);
+                setRememberMe(true);
+            }
         }
     }, [prefilledUserId]);
 
@@ -37,6 +45,14 @@ export default function LoginPage() {
         try {
             setError('');
             setLoading(true);
+
+            // 아이디 기억하기 처리
+            if (rememberMe) {
+                localStorage.setItem('savedUserId', userId);
+            } else {
+                localStorage.removeItem('savedUserId');
+            }
+
             await login(userId, password);
             navigate('/calendar');
         } catch (err) {
@@ -98,7 +114,7 @@ export default function LoginPage() {
                                     <User size={20} />
                                 </div>
                                 <div className="flex-1 overflow-hidden">
-                                    <p className="text-sm font-bold text-[#333] truncate">{prefilledUserId}</p>
+                                    <p className="text-sm font-bold text-[#333] truncate">{prefilledName || prefilledUserId}</p>
                                     <button
                                         type="button"
                                         onClick={() => navigate('/select-consultant')}
@@ -147,6 +163,20 @@ export default function LoginPage() {
                         </div>
                     </div>
 
+                    {!prefilledUserId && (
+                        <div className="flex items-center justify-between px-1" style={{ padding: '10px' }}>
+                            <label className="flex items-center gap-2 cursor-pointer group">
+                                <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded border-gray-300 text-[#00462A] focus:ring-[#00462A] cursor-pointer"
+                                    checked={rememberMe}
+                                    onChange={(e) => setRememberMe(e.target.checked)}
+                                />
+                                <span className="text-sm text-gray-500 group-hover:text-gray-700 transition-colors">아이디 기억하기</span>
+                            </label>
+                        </div>
+                    )}
+
                     <button
                         type="submit"
                         className="btn btn-primary w-full py-3.5 mt-4 shadow-md hover:shadow-lg transition-all text-base font-semibold"
@@ -166,7 +196,7 @@ export default function LoginPage() {
                     </button>
                 </form>
 
-                <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center gap-4">
+                <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center gap-4" style={{ padding: '10px' }}>
                     <p className="text-xs text-gray-400">
                         계정이 없으신가요?{' '}
                         <span className="text-[#00462A] font-bold cursor-help hover:underline">관리자에게 문의하세요</span>

@@ -9,7 +9,7 @@ export function ProtectedRoute({ children }) {
     const { currentUser, userProfile } = useAuth();
 
     if (!currentUser) {
-        return <Navigate to="/login" replace />;
+        return <Navigate to="/" replace />;
     }
 
     // 사용자 프로필이 아직 로드되지 않은 경우

@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Calendar,
@@ -13,10 +13,12 @@ import {
 export default function Sidebar({ isOpen, onClose }) {
     const { userProfile, logout, isAdmin } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
 
     const handleLogout = async () => {
         try {
             await logout();
+            navigate('/');
         } catch (error) {
             console.error('로그아웃 실패:', error);
         }

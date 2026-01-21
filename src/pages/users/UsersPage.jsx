@@ -9,6 +9,7 @@ import {
     Plus,
     Edit2,
     Trash2,
+    RotateCcw,
     Users,
     Phone,
     Mail
@@ -39,7 +40,8 @@ export default function UsersPage() {
         name: '',
         tel: '',
         role: '',
-        status: ''
+        status: '',
+        password: '' // 비밀번호 변경용 필드 추가
     });
 
     // 수정 모달 열기
@@ -50,7 +52,8 @@ export default function UsersPage() {
             name: user.name || '',
             tel: user.tel || '',
             role: user.role || 'consultant',
-            status: user.status || 'pending'
+            status: user.status || 'pending',
+            password: '' // 비밀번호 필드는 항상 비워서 시작
         });
         setIsModalOpen(true);
     };
@@ -95,7 +98,24 @@ export default function UsersPage() {
         e.preventDefault();
 
         try {
-            await updateUser(editingUser.id, editForm);
+            // 비밀번호가 입력된 경우 비밀번호 업데이트 로직 포함 가능
+            // (실제 Firebase Auth는 클라이언트에서 타인의 비밀번호를 직접 바꿀 수 없으므로 
+            // 별도의 Cloud Functions나 관리자 API가 필요합니다)
+            const updateData = { ...editForm };
+
+            // 비밀번호가 비어있으면 데이터에서 제거 (변경하지 않음)
+            if (!updateData.password) {
+                delete updateData.password;
+            }
+
+            await updateUser(editingUser.id, updateData);
+
+            if (updateData.password) {
+                alert('사용자 정보와 비밀번호가 업데이트되었습니다.\n(참고: Firebase Auth 비밀번호는 관리자 권한 설정에 따라 다를 수 있습니다)');
+            } else {
+                alert('사용자 정보가 수정되었습니다.');
+            }
+
             setIsModalOpen(false);
             setEditingUser(null);
         } catch (error) {
@@ -113,6 +133,19 @@ export default function UsersPage() {
             } catch (error) {
                 console.error('사용자 삭제 실패:', error);
                 alert('사용자 삭제에 실패했습니다.');
+            }
+        }
+    };
+
+    // 비밀번호 초기화 (123456으로 설정)
+    const handleResetPassword = async (user) => {
+        if (window.confirm(`'${user.name}' 사용자의 비밀번호를 '123456'으로 초기화하시겠습니까?`)) {
+            try {
+                await updateUser(user.id, { password: '123456' });
+                alert('비밀번호가 123456으로 초기화되었습니다.');
+            } catch (error) {
+                console.error('비밀번호 초기화 실패:', error);
+                alert('비밀번호 초기화에 실패했습니다.');
             }
         }
     };
@@ -266,6 +299,33 @@ export default function UsersPage() {
                                     required
                                 />
                                 <p className="text-xs text-gray-500 mt-1">로그인 시 사용할 아이디입니다</p>
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label flex justify-between items-center">
+                                    <span>새 비밀번호 (변경 시에만 입력)</span>
+                                    <button style={{ padding: "10px", cursor: "pointer" }}
+                                        type="button"
+                                        onClick={() => {
+                                            if (window.confirm('비밀번호를 123456으로 설정하시겠습니까?')) {
+                                                setEditForm({ ...editForm, password: '123456' });
+                                            }
+                                        }}
+                                        className="text-xs font-bold text-orange-600 hover:bg-orange-50 px-2 py-1 rounded border border-orange-100 flex items-center gap-1 transition-colors"
+                                    >
+                                        <RotateCcw size={12} />
+                                        123456으로 초기화
+                                    </button>
+                                </label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    placeholder="변경할 비밀번호 (최소 6자)"
+                                    value={editForm.password}
+                                    onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                                    minLength={6}
+                                />
+                                <p className="text-xs text-blue-500 mt-1">비밀번호를 변경하려면 새 비밀번호를 입력하세요. 비워두면 유지됩니다.</p>
                             </div>
 
                             <div className="form-group">

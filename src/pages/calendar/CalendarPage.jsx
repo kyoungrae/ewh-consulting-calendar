@@ -1,14 +1,17 @@
-import { useState, useMemo, useRef } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
-import { Calendar, Users, Clock, MapPin, Tag, Download } from 'lucide-react';
+import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 export default function CalendarPage() {
     const [selectedEvent, setSelectedEvent] = useState(null);
@@ -22,14 +25,71 @@ export default function CalendarPage() {
     const [selectedWeek, setSelectedWeek] = useState('all');
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
     const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+    const [currentDay, setCurrentDay] = useState(new Date().getDate());
+    const [currentView, setCurrentView] = useState('dayGridMonth');
+
+    // List View State
+    const [downloadPeriod, setDownloadPeriod] = useState('monthly'); // 'monthly', 'yearly', 'custom'
+    const [customStartDate, setCustomStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isPeriodSelectorOpen, setIsPeriodSelectorOpen] = useState(false);
+    const periodSelectorRef = useRef(null);
+
+    // 정렬 상태 추가
+    const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'ascending' });
+
+    const [searchParams] = useSearchParams();
+    const urlConsultantId = searchParams.get('consultantId');
+
+    // URL 파라미터(consultantId)가 있을 경우 해당 컨설턴트 뷰로 전환
+    useEffect(() => {
+        if (urlConsultantId) {
+            setSelectedConsultant(urlConsultantId);
+            setMainTab('consultants');
+        }
+    }, [urlConsultantId]);
+
+    const requestSort = (key) => {
+        let direction = 'ascending';
+        if (sortConfig.key === key) {
+            if (sortConfig.direction === 'ascending') {
+                direction = 'descending';
+            } else if (sortConfig.direction === 'descending') {
+                setSortConfig({ key: null, direction: 'ascending' });
+                return;
+            }
+        }
+        setSortConfig({ key, direction });
+    };
+
     const calendarRef = useRef(null);
     const { openSidebar } = useOutletContext();
     const navigate = useNavigate();
+
+    // Close Dropdown on Outside Click
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (periodSelectorRef.current && !periodSelectorRef.current.contains(event.target)) {
+                setIsPeriodSelectorOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
 
     const { userProfile, isAdmin } = useAuth();
     const { schedules, loading: schedulesLoading } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
+
+    // 관리자가 아니면 'consultants' 탭을 기본으로 설정
+    useEffect(() => {
+        if (!isAdmin) {
+            setMainTab('consultants');
+        }
+    }, [isAdmin]);
 
     // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
     const filteredSchedules = useMemo(() => {
@@ -58,7 +118,14 @@ export default function CalendarPage() {
     }, [schedules, isAdmin, userProfile?.uid, selectedConsultant, selectedType, selectedWeek, viewMode]);
 
     // 칩 배경색 + 테두리색 (원본 HTML의 .event-chip 스타일)
-    const getChipStyle = (typeName) => {
+    // 칩 배경색 + 테두리색 (Common Codes에서 가져오거나 기본값 반환)
+    const getChipStyle = (typeCodeId, typeName) => {
+        const code = codes.find(c => c.code === typeCodeId);
+        if (code && code.color) {
+            return { bg: code.color, border: code.borderColor || code.color };
+        }
+
+        // 폴백 (기존 하드코딩 로직 유지)
         if (typeName?.includes('웰컴세션')) return { bg: '#e1f5fe', border: '#03a9f4' };
         if (typeName?.includes('진로개발') || typeName?.includes('진로취업')) return { bg: '#e3f2fd', border: '#0277bd' };
         if (typeName?.includes('서류면접')) return { bg: '#fffde7', border: '#fbc02d' };
@@ -74,7 +141,7 @@ export default function CalendarPage() {
         return filteredSchedules.map(schedule => {
             const typeCode = codes.find(c => c.code === schedule.typeCode);
             const consultant = users.find(u => u.uid === schedule.consultantId);
-            const chipStyle = getChipStyle(typeCode?.name);
+            const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
 
             const date = new Date(schedule.date);
             const hours = date.getHours();
@@ -102,10 +169,25 @@ export default function CalendarPage() {
     // 선택된 날짜의 일정 필터링
     const selectedDateSchedules = useMemo(() => {
         if (!selectedDate) return [];
+        // 시간 정보가 포함되어 있어도 날짜 부분만 사용하여 해당 날짜 전체 일정을 보여줌
+        const datePart = selectedDate.split('T')[0];
         return filteredSchedules
-            .filter(s => s.date?.startsWith(selectedDate))
+            .filter(s => s.date?.startsWith(datePart))
             .sort((a, b) => a.date.localeCompare(b.date));
     }, [filteredSchedules, selectedDate]);
+
+    // 요약 바에 표시할 포맷팅된 날짜/시간
+    const getDisplayDate = useMemo(() => {
+        if (!selectedDate) return '';
+        const datePart = selectedDate.split('T')[0];
+        if (!selectedDate.includes('T')) return datePart;
+
+        const date = new Date(selectedDate);
+        if (isNaN(date.getTime())) return selectedDate;
+        const hh = String(date.getHours()).padStart(2, '0');
+        const mm = String(date.getMinutes()).padStart(2, '0');
+        return `${datePart} ${hh}:${mm}`;
+    }, [selectedDate]);
 
     // 선택된 날짜 통계
     const selectedDateStats = useMemo(() => {
@@ -130,7 +212,74 @@ export default function CalendarPage() {
         };
     }, [selectedDateSchedules, codes, users]);
 
-    // 목록 뷰용 이번달 데이터 필터링 (목록 보기 시 사용)
+    // 목록 다운로드용 데이터 필터링
+    const downloadTargetSchedules = useMemo(() => {
+        if (downloadPeriod === 'monthly') {
+            const targetPrefix = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+            return filteredSchedules
+                .filter(s => s.date && s.date.startsWith(targetPrefix))
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+        } else if (downloadPeriod === 'yearly') {
+            return filteredSchedules
+                .filter(s => s.date && s.date.startsWith(`${currentYear}-`))
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+        } else if (downloadPeriod === 'custom') {
+            return filteredSchedules
+                .filter(s => {
+                    if (!s.date) return false;
+                    const date = s.date.split('T')[0];
+                    return date >= customStartDate && date <= customEndDate;
+                })
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
+        return [];
+    }, [filteredSchedules, downloadPeriod, currentYear, currentMonth, customStartDate, customEndDate]);
+
+    // 화면 표시용 정렬 데이터
+    const sortedSchedules = useMemo(() => {
+        let sortableItems = [...downloadTargetSchedules];
+        if (sortConfig.key !== null) {
+            sortableItems.sort((a, b) => {
+                let aValue, bValue;
+
+                if (sortConfig.key === 'consultant') {
+                    const consultantA = users.find(u => u.uid === a.consultantId)?.name || '미배정';
+                    const consultantB = users.find(u => u.uid === b.consultantId)?.name || '미배정';
+                    aValue = consultantA;
+                    bValue = consultantB;
+                } else if (sortConfig.key === 'type') {
+                    const typeA = codes.find(c => c.code === a.typeCode)?.name || '미분류';
+                    const typeB = codes.find(c => c.code === b.typeCode)?.name || '미분류';
+                    aValue = typeA;
+                    bValue = typeB;
+                } else if (sortConfig.key === 'date') {
+                    aValue = new Date(a.date);
+                    bValue = new Date(b.date);
+                } else if (sortConfig.key === 'time') {
+                    // 시간 비교 (날짜는 무시하고 시간만 비교하거나, 날짜 포함 비교하거나. 보통 리스트에서는 날짜별 시간 정렬을 원할 수 있지만 여기선 단순 Time 컬럼 정렬 요청)
+                    // 하지만 사용자는 "시간" 컬럼을 정렬하길 원함.
+                    const dateA = new Date(a.date);
+                    const dateB = new Date(b.date);
+                    aValue = dateA.getHours() * 60 + dateA.getMinutes();
+                    bValue = dateB.getHours() * 60 + dateB.getMinutes();
+                } else {
+                    aValue = a[sortConfig.key];
+                    bValue = b[sortConfig.key];
+                }
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [downloadTargetSchedules, sortConfig, users, codes]);
+
+    // 목록 뷰용 이번달 데이터 필터링 (기존 로직 유지 - 캘린더/목록 전환 시 초기 데이터)
     const currentMonthSchedules = useMemo(() => {
         const targetPrefix = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
         return filteredSchedules
@@ -151,23 +300,15 @@ export default function CalendarPage() {
         }
     };
 
-    const changeMonth = (delta) => {
-        let newMonth = currentMonth + delta;
-        let newYear = currentYear;
-
-        if (newMonth > 12) {
-            newMonth = 1;
-            newYear++;
-        } else if (newMonth < 1) {
-            newMonth = 12;
-            newYear--;
-        }
-
-        setCurrentMonth(newMonth);
-        setCurrentYear(newYear);
+    const handlePrev = () => {
         if (calendarRef.current) {
-            const calendarApi = calendarRef.current.getApi();
-            calendarApi.gotoDate(new Date(newYear, newMonth - 1, 1));
+            calendarRef.current.getApi().prev();
+        }
+    };
+
+    const handleNext = () => {
+        if (calendarRef.current) {
+            calendarRef.current.getApi().next();
         }
     };
 
@@ -175,6 +316,121 @@ export default function CalendarPage() {
         const date = arg.view.currentStart;
         setCurrentYear(date.getFullYear());
         setCurrentMonth(date.getMonth() + 1);
+        setCurrentDay(date.getDate());
+        setCurrentView(arg.view.type);
+
+        // 오늘 날짜가 현재 달력 보기 범위 내에 있는지 확인
+        const today = new Date();
+        const start = arg.view.currentStart;
+        const end = arg.view.currentEnd;
+
+        // 시간 정보를 제외하고 날짜만 비교하기 위해 00:00:00으로 설정
+        const todayReset = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const startReset = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        const endReset = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+
+        if (todayReset >= startReset && todayReset < endReset) {
+            // 오늘이 현재 기간 내에 있으면 오늘을 자동 선택
+            const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+            setSelectedDate(todayStr);
+        } else {
+            // 오늘이 기간 내에 없으면 선택을 해제 (내비게이션 시 1일이 자동 선택되는 현상 방지)
+            setSelectedDate('');
+        }
+    };
+
+    // 엑셀 다운로드 핸들러
+    const handleExcelDownload = async () => {
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('일정 목록');
+
+        // 컬럼 정의 (순서 변경: 일자, 시간, 컨설턴트명, 구분, 방식)
+        worksheet.columns = [
+            { header: '일자', key: 'date', width: 15 },
+            { header: '시간', key: 'time', width: 10 },
+            { header: '컨설턴트명', key: 'consultant', width: 15 },
+            { header: '구분', key: 'type', width: 30 },
+            { header: '방식', key: 'method', width: 10 },
+        ];
+
+        // 데이터 추가
+        downloadTargetSchedules.forEach(schedule => {
+            const typeCode = codes.find(c => c.code === schedule.typeCode);
+            const consultant = users.find(u => u.uid === schedule.consultantId);
+            const dateObj = new Date(schedule.date);
+            const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+            const isRemote = !schedule.location?.includes('대면');
+
+            worksheet.addRow({
+                date: dateStr,
+                time: timeStr,
+                consultant: consultant ? consultant.name + 'T' : '-',
+                type: typeCode ? typeCode.name : '미분류',
+                method: isRemote ? '비대면' : '대면'
+            });
+        });
+
+        // 스타일 적용
+        // 1. 헤더 스타일 (행 1)
+        const headerRow = worksheet.getRow(1);
+        headerRow.eachCell((cell) => {
+            cell.font = { bold: true };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFD3D3D3' } // 연한 회색
+            };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+
+        // 2. 데이터 행 스타일 (행 2부터)
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return; // 헤더 제외
+
+            row.eachCell((cell, colNumber) => {
+                // 공통 스타일: 테두리, 중앙 정렬
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+                // '구분' 컬럼 (열 4) 배경색 적용 (달력과 매칭)
+                if (colNumber === 4) {
+                    const typeName = row.getCell(4).value;
+                    const typeCodeId = downloadTargetSchedules[rowNumber - 2]?.typeCode;
+                    const chipStyle = getChipStyle(typeCodeId, typeName);
+                    // hex (#ffffff) -> ARGB (FFFFFFFF) 변환
+                    const argbColor = 'FF' + chipStyle.bg.replace('#', '').toUpperCase();
+
+                    cell.fill = {
+                        type: 'pattern',
+                        pattern: 'solid',
+                        fgColor: { argb: argbColor }
+                    };
+                }
+            });
+        });
+
+        // 파일명 생성
+        let fileName = '컨설팅일정.xlsx';
+        if (downloadPeriod === 'monthly') fileName = `${currentYear}년_${currentMonth}월_컨설팅일정.xlsx`;
+        else if (downloadPeriod === 'yearly') fileName = `${currentYear}년_전체_컨설팅일정.xlsx`;
+        else if (downloadPeriod === 'custom') fileName = `컨설팅일정_${customStartDate}~${customEndDate}.xlsx`;
+
+        // 파일 생성 및 다운로드
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, fileName);
     };
 
     if (schedulesLoading) {
@@ -220,15 +476,27 @@ export default function CalendarPage() {
 
                     {/* Center: Main Tabs */}
                     <div className="ewh-main-tabs">
-                        <button
-                            className={`ewh-main-tab-btn ${mainTab === 'schedules' ? 'active' : ''}`}
-                            onClick={() => setMainTab('schedules')}
-                        >
-                            전체 일정
-                        </button>
+                        {isAdmin && (
+                            <button
+                                className={`ewh-main-tab-btn ${mainTab === 'schedules' ? 'active' : ''}`}
+                                onClick={() => {
+                                    setMainTab('schedules');
+                                    setSelectedConsultant('all');
+                                    navigate('/calendar');
+                                }}
+                            >
+                                전체 일정
+                            </button>
+                        )}
                         <button
                             className={`ewh-main-tab-btn ${mainTab === 'consultants' ? 'active' : ''}`}
-                            onClick={() => setMainTab('consultants')}
+                            onClick={() => {
+                                if (isAdmin) {
+                                    navigate('/select-consultant?mode=admin');
+                                } else {
+                                    setMainTab('consultants');
+                                }
+                            }}
                         >
                             컨설턴트
                         </button>
@@ -274,67 +542,141 @@ export default function CalendarPage() {
                         <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(1)}>▶</button>
                     </div>
 
-                    {/* Month Nav */}
+                    {/* Period Nav (Central) */}
                     <div className="ewh-month-nav">
-                        <button onClick={() => changeMonth(-1)}>◀</button>
-                        <select
-                            className="ewh-nav-select large"
-                            value={currentMonth - 1}
-                            onChange={(e) => {
-                                const month = parseInt(e.target.value) + 1;
-                                setCurrentMonth(month);
-                                if (calendarRef.current) {
-                                    calendarRef.current.getApi().gotoDate(new Date(currentYear, month - 1, 1));
-                                }
-                            }}
-                        >
-                            {['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'].map((m, i) => (
-                                <option key={i} value={i}>{m}</option>
-                            ))}
-                        </select>
-                        <button onClick={() => changeMonth(1)}>▶</button>
+                        <button onClick={handlePrev}>◀</button>
+
+                        <div className="ewh-period-selectors">
+                            {/* Month Selector (Always) */}
+                            <select
+                                className="ewh-nav-select"
+                                value={currentMonth - 1}
+                                onChange={(e) => {
+                                    const month = parseInt(e.target.value) + 1;
+                                    setCurrentMonth(month);
+                                    if (calendarRef.current) {
+                                        calendarRef.current.getApi().gotoDate(new Date(currentYear, month - 1, 1));
+                                    }
+                                }}
+                            >
+                                {['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'].map((m, i) => (
+                                    <option key={i} value={i}>{m}</option>
+                                ))}
+                            </select>
+
+                            {/* Week Selector (Only in Week View) */}
+                            {currentView === 'timeGridWeek' && (
+                                <select
+                                    className="ewh-nav-select"
+                                    value={Math.ceil(currentDay / 7)}
+                                    onChange={(e) => {
+                                        const week = parseInt(e.target.value);
+                                        const day = (week - 1) * 7 + 1;
+                                        if (calendarRef.current) {
+                                            calendarRef.current.getApi().gotoDate(new Date(currentYear, currentMonth - 1, day));
+                                        }
+                                    }}
+                                >
+                                    {[1, 2, 3, 4, 5, 6].map(w => (
+                                        <option key={w} value={w}>{w}주</option>
+                                    ))}
+                                </select>
+                            )}
+
+                            {/* Day Selector (Only in Day View) */}
+                            {currentView === 'timeGridDay' && (
+                                <select
+                                    className="ewh-nav-select"
+                                    value={currentDay}
+                                    onChange={(e) => {
+                                        const day = parseInt(e.target.value);
+                                        if (calendarRef.current) {
+                                            calendarRef.current.getApi().gotoDate(new Date(currentYear, currentMonth - 1, day));
+                                        }
+                                    }}
+                                >
+                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                        <option key={d} value={d}>{d}일</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+
+                        <button onClick={handleNext}>▶</button>
                     </div>
 
-                    {/* Filters */}
-                    <div className="ewh-filters">
-                        <div className="ewh-filter-item">
-                            <label>컨설턴트:</label>
-                            <select
-                                value={selectedConsultant}
-                                onChange={(e) => setSelectedConsultant(e.target.value)}
+                    <div className="ewh-right-controls">
+                        {/* View Type Nav (Red Box Area) */}
+                        <div className="ewh-view-type-nav">
+                            <button
+                                className="ewh-today-btn"
+                                onClick={() => calendarRef.current.getApi().today()}
                             >
-                                <option value="all">전체 보기</option>
-                                {users.filter(u => u.role === 'consultant').map(user => (
-                                    <option key={user.uid} value={user.uid}>{user.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="ewh-filter-item">
-                            <label>유형:</label>
-                            <select
-                                value={selectedType}
-                                onChange={(e) => setSelectedType(e.target.value)}
-                            >
-                                <option value="all">전체 유형</option>
-                                {codes.map(code => (
-                                    <option key={code.code} value={code.code}>{code.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        {viewMode === 'list' && (
-                            <div className="ewh-filter-item">
-                                <label>주차:</label>
-                                <select
-                                    value={selectedWeek}
-                                    onChange={(e) => setSelectedWeek(e.target.value)}
+                                오늘
+                            </button>
+                            <div className="ewh-view-type-group">
+                                <button
+                                    className={`ewh-view-type-btn ${currentView === 'dayGridMonth' ? 'active' : ''}`}
+                                    onClick={() => calendarRef.current.getApi().changeView('dayGridMonth')}
                                 >
-                                    <option value="all">전체 주차</option>
-                                    {[1, 2, 3, 4, 5, 6].map(w => (
-                                        <option key={w} value={w}>{w}주차</option>
+                                    월
+                                </button>
+                                <button
+                                    className={`ewh-view-type-btn ${currentView === 'timeGridWeek' ? 'active' : ''}`}
+                                    onClick={() => calendarRef.current.getApi().changeView('timeGridWeek')}
+                                >
+                                    주
+                                </button>
+                                <button
+                                    className={`ewh-view-type-btn ${currentView === 'timeGridDay' ? 'active' : ''}`}
+                                    onClick={() => calendarRef.current.getApi().changeView('timeGridDay')}
+                                >
+                                    일
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Filters */}
+                        <div className="ewh-filters">
+                            <div className="ewh-filter-item">
+                                <label>컨설턴트:</label>
+                                <select
+                                    value={selectedConsultant}
+                                    onChange={(e) => setSelectedConsultant(e.target.value)}
+                                >
+                                    <option value="all">전체 보기</option>
+                                    {users.filter(u => u.role === 'consultant').map(user => (
+                                        <option key={user.uid} value={user.uid}>{user.name}</option>
                                     ))}
                                 </select>
                             </div>
-                        )}
+                            <div className="ewh-filter-item">
+                                <label>유형:</label>
+                                <select
+                                    value={selectedType}
+                                    onChange={(e) => setSelectedType(e.target.value)}
+                                >
+                                    <option value="all">전체 유형</option>
+                                    {codes.map(code => (
+                                        <option key={code.code} value={code.code}>{code.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {viewMode === 'list' && (
+                                <div className="ewh-filter-item">
+                                    <label>주차:</label>
+                                    <select
+                                        value={selectedWeek}
+                                        onChange={(e) => setSelectedWeek(e.target.value)}
+                                    >
+                                        <option value="all">전체 주차</option>
+                                        {[1, 2, 3, 4, 5, 6].map(w => (
+                                            <option key={w} value={w}>{w}주차</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -344,9 +686,12 @@ export default function CalendarPage() {
                         {viewMode === 'calendar' ? (
                             <FullCalendar
                                 ref={calendarRef}
-                                plugins={[dayGridPlugin, interactionPlugin]}
+                                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                                 initialView="dayGridMonth"
                                 headerToolbar={false}
+                                slotMinTime="09:00:00"
+                                slotMaxTime="22:00:00"
+                                allDaySlot={false}
                                 locale="ko"
                                 events={calendarEvents}
                                 eventContent={(eventInfo) => {
@@ -382,7 +727,7 @@ export default function CalendarPage() {
                                     const d = String(arg.date.getDate()).padStart(2, '0');
                                     const dateStr = `${y}-${m}-${d}`;
                                     const classes = [];
-                                    if (dateStr === selectedDate) classes.push('ewh-selected');
+                                    if (dateStr === selectedDate.split("T")[0]) classes.push('ewh-selected');
                                     return classes;
                                 }}
                                 dayHeaderContent={(arg) => {
@@ -394,46 +739,149 @@ export default function CalendarPage() {
                                 }}
                             />
                         ) : (
-                            <div className="ewh-list-view">
-                                <div className="ewh-list-header">
-                                    <div className="ewh-list-title">
-                                        {currentYear}년 {currentMonth}월 - 총 {currentMonthSchedules.length}건의 일정
+                            <div className="ewh-list-view w-full px-6 pb-10">
+                                {/* Control Header - Exact User Design */}
+                                <div className="flex justify-between items-center mb-[15px] bg-[#f8f9fa] p-[15px] rounded-[8px] border border-[#eee]" style={{ padding: "15px", marginBottom: "15px" }}>
+                                    <div className="flex items-center gap-[15px] flex-wrap">
+                                        <div className="flex items-center gap-[8px]">
+                                            <label htmlFor="downloadPeriod" className="font-medium text-[0.95rem]">다운로드 기간:</label>
+                                            <select
+                                                style={{ padding: "5px" }}
+                                                id="downloadPeriod"
+                                                className="px-4 py-2 text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] cursor-pointer shadow-sm hover:bg-gray-50 transition-colors"
+                                                value={downloadPeriod}
+                                                onChange={(e) => setDownloadPeriod(e.target.value)}
+                                            >
+                                                <option value="monthly">월별 (현재 화면)</option>
+                                                <option value="yearly">년별 (전체 연도)</option>
+                                                <option value="custom">사용자 지정 기간</option>
+                                            </select>
+                                        </div>
+
+                                        {downloadPeriod === 'custom' && (
+                                            <div className="flex items-center gap-2 ml-2">
+                                                <input
+                                                    type="date"
+                                                    style={{ padding: "5px 12px" }}
+                                                    className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
+                                                    value={customStartDate}
+                                                    onChange={(e) => setCustomStartDate(e.target.value)}
+                                                />
+                                                <span className="text-gray-400 font-bold">~</span>
+                                                <input
+                                                    type="date"
+                                                    style={{ padding: "5px 12px" }}
+                                                    className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
+                                                    value={customEndDate}
+                                                    onChange={(e) => setCustomEndDate(e.target.value)}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
-                                    <button className="ewh-excel-btn">
-                                        <Download size={15} style={{ marginRight: '6px' }} /> 목록 엑셀 다운로드
-                                    </button>
+
+                                    <div className="flex items-center gap-[15px]">
+                                        <div className="font-semibold text-[#555]">
+                                            {downloadPeriod === 'monthly' && `${currentYear}년 ${currentMonth}월`}
+                                            {downloadPeriod === 'yearly' && `${currentYear}년 전체`}
+                                            {downloadPeriod === 'custom' && '선택 기간'}
+                                            - 총 {downloadTargetSchedules.length}건
+                                        </div>
+                                        <button
+                                            onClick={handleExcelDownload}
+                                            className="px-[16px] py-[8px] text-[0.9rem] bg-[#006633] text-white border-none rounded-[4px] cursor-pointer flex items-center gap-[5px] hover:bg-[#00552b] transition-colors"
+                                            style={{ padding: "6px", fontWeight: "bold" }}
+                                        >
+                                            <svg style={{ width: '16px', height: '16px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                            Excel 다운로드
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="ewh-list-table-container">
-                                    <table className="ewh-list-table">
+
+                                {/* Summary Container Box */}
+                                <div className="bg-white rounded-2xl border border-gray-200 p-8 mb-8 shadow-[0_2px_8px_rgba(0,0,0,0.02)] flex flex-wrap gap-6 items-center" style={{ padding: "16px", marginBottom: "16px" }}>
+                                    {/* Total Count Card */}
+                                    <div className="w-[180px] h-[110px] bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#00462A] shadow-sm relative overflow-hidden group">
+                                        <div className="text-gray-500 text-sm font-bold mb-1">전체 세션</div>
+                                        <div className="text-[#00462A] text-3xl font-extrabold">{downloadTargetSchedules.length}</div>
+                                    </div>
+
+                                    {/* Divider */}
+                                    {downloadTargetSchedules.length > 0 && <div className="w-[1px] h-[60px] bg-gray-100"></div>}
+
+                                    {/* Breakdown Cards */}
+                                    {Object.entries(downloadTargetSchedules.reduce((acc, curr) => {
+                                        const name = codes.find(c => c.code === curr.typeCode)?.name || '미분류';
+                                        acc[name] = (acc[name] || 0) + 1;
+                                        return acc;
+                                    }, {})).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, count]) => (
+                                        <div key={name} className="w-[180px] h-[110px] bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
+                                            <div className="text-gray-500 text-sm font-bold mb-1">{name}</div>
+                                            <div className="text-[#00462A] text-3xl font-extrabold">{count}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* List Table */}
+                                <div className="ewh-list-table-container rounded-t-lg overflow-hidden border-t-0">
+                                    <table className="ewh-list-table w-full">
                                         <thead>
-                                            <tr>
-                                                <th style={{ width: '20%' }}>일자 ↕</th>
-                                                <th style={{ width: '15%' }}>시간 ↕</th>
-                                                <th style={{ width: '20%' }}>컨설턴트 ↕</th>
-                                                <th style={{ width: '25%' }}>구분 ↕</th>
-                                                <th style={{ width: '20%' }}>방식</th>
+                                            <tr className="bg-[#00462A] text-white h-[50px]">
+                                                <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('date')}>
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        일자 {sortConfig.key === 'date' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                    </div>
+                                                </th>
+                                                <th className="py-2 text-center font-bold text-sm w-[10%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('time')}>
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        시간 {sortConfig.key === 'time' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                    </div>
+                                                </th>
+                                                <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('consultant')}>
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        컨설턴트 {sortConfig.key === 'consultant' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                    </div>
+                                                </th>
+                                                <th className="py-2 text-left px-8 font-bold text-sm w-[25%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('type')}>
+                                                    <div className="flex items-center gap-1">
+                                                        구분 {sortConfig.key === 'type' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                    </div>
+                                                </th>
+                                                <th className="py-2 text-center font-bold text-sm w-[15%]">방식</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {currentMonthSchedules.length > 0 ? (
-                                                currentMonthSchedules.map(schedule => {
+                                            {sortedSchedules.length > 0 ? (
+                                                sortedSchedules.map(schedule => {
                                                     const typeCode = codes.find(c => c.code === schedule.typeCode);
                                                     const consultant = users.find(u => u.uid === schedule.consultantId);
                                                     const dateObj = new Date(schedule.date);
                                                     const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                                                     const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
-
-                                                    const isRemote = schedule.location?.includes('줌') || schedule.location?.includes('Zoom');
+                                                    const isRemote = !schedule.location?.includes('대면');
+                                                    const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
 
                                                     return (
-                                                        <tr key={schedule.id}>
-                                                            <td className="fw-bold">{dateStr}</td>
-                                                            <td>{timeStr}</td>
-                                                            <td>{consultant ? consultant.name + 'T' : '-'}</td>
-                                                            <td>{typeCode ? typeCode.name : '미분류'}</td>
-                                                            <td>
-                                                                <span className={`ewh-badge ${isRemote ? 'remote' : 'remote'}`}>
-                                                                    {isRemote ? '비대면' : '비대면'}
+                                                        <tr key={schedule.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors h-[60px]">
+                                                            <td className="text-center font-bold text-gray-800 text-sm">{dateStr}</td>
+                                                            <td className="text-center text-gray-600 text-sm font-medium">{timeStr}</td>
+                                                            <td className="text-center text-gray-700 text-sm font-medium">{consultant ? consultant.name + 'T' : '-'}</td>
+                                                            <td className="px-8 text-left">
+                                                                <span
+                                                                    className="font-bold text-gray-800 text-[13px] px-3 py-1 rounded-md border"
+                                                                    style={{
+                                                                        backgroundColor: chipStyle.bg,
+                                                                        borderColor: chipStyle.border,
+                                                                        padding: '5px 10px',
+                                                                    }}
+                                                                >
+                                                                    {typeCode ? typeCode.name : '미분류'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                <span style={{ padding: "5px 12px", borderRadius: "15px" }} className={`inline-flex px-3 py-1 rounded-md text-xs font-bold ${isRemote ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+                                                                    {isRemote ? '비대면' : '대면'}
                                                                 </span>
                                                             </td>
                                                         </tr>
@@ -441,8 +889,11 @@ export default function CalendarPage() {
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="5" className="ewh-no-list-data">
-                                                        일정이 없습니다.
+                                                    <td colSpan="5" className="py-24 text-center text-gray-400">
+                                                        <div className="flex flex-col items-center gap-2">
+                                                            <Calendar size={40} className="text-gray-200 mb-2" />
+                                                            <span>조건에 맞는 일정이 없습니다.</span>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             )}
@@ -456,7 +907,7 @@ export default function CalendarPage() {
                     {/* Summary Sidebar */}
                     {viewMode === 'calendar' && (
                         <div className="ewh-summary-sidebar">
-                            <div className="ewh-sidebar-title">{selectedDate.replace(/-/g, '-')} 요약</div>
+                            <div className="ewh-sidebar-title">{getDisplayDate} 요약</div>
 
                             {selectedDateStats.total > 0 ? (
                                 <>
@@ -740,12 +1191,16 @@ export default function CalendarPage() {
                     display: flex;
                     align-items: center;
                     gap: 12px;
-                    font-size: 1.1rem;
-                    font-weight: 700;
                     /* 중앙 정렬 */
                     position: absolute;
                     left: 50%;
                     transform: translateX(-50%);
+                }
+
+                .ewh-period-selectors {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
                 }
 
                 .ewh-month-nav button {
@@ -755,6 +1210,73 @@ export default function CalendarPage() {
                     cursor: pointer;
                     color: #00462A;
                     padding: 0 6px;
+                }
+
+                .ewh-month-nav button:hover {
+                    opacity: 0.6;
+                }
+
+                /* Right Side Controls Group */
+                .ewh-right-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: 32px;
+                }
+
+                /* View Type Nav Styles */
+                .ewh-view-type-nav {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+
+                .ewh-today-btn {
+                    padding: 4px 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    background: #fff;
+                    font-size: 0.85rem;
+                    font-weight: 600;
+                    color: #555;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+
+                .ewh-today-btn:hover {
+                    border-color: #00462A;
+                    color: #00462A;
+                    background: #f0f7f4;
+                }
+
+                .ewh-view-type-group {
+                    display: flex;
+                    background: #f1f3f5;
+                    padding: 2px;
+                    border-radius: 8px;
+                    border: 1px solid #e9ecef;
+                }
+
+                .ewh-view-type-btn {
+                    padding: 4px 12px;
+                    font-size: 0.85rem;
+                    font-weight: 500;
+                    color: #666;
+                    border: none;
+                    background: transparent;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+
+                .ewh-view-type-btn:hover {
+                    color: #00462A;
+                }
+
+                .ewh-view-type-btn.active {
+                    background: #fff;
+                    color: #00462A;
+                    font-weight: 700;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                 }
 
                 .ewh-nav-select {

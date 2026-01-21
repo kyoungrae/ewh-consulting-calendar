@@ -1,9 +1,11 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useUsers } from '../../hooks/useFirestore';
 import { Loader2, ArrowLeft, User, Home } from 'lucide-react';
 
 export default function ConsultantSelectionPage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const mode = searchParams.get('mode');
     const { users, loading } = useUsers();
 
     // 역할이 'consultant'인 유저만 필터링 및 이름순 정렬
@@ -35,7 +37,7 @@ export default function ConsultantSelectionPage() {
                         <div className="w-full h-1.5 bg-[#00462A] rounded-full mb-4"></div>
                     </div>
                     <p className="text-gray-500 font-medium text-sm md:text-base">
-                        본인의 이름을 선택하여 로그인을 진행해 주세요.
+                        {mode === 'admin' ? '일정을 확인할 컨설턴트를 선택해 주세요.' : '본인의 이름을 선택하여 로그인을 진행해 주세요.'}
                     </p>
                 </div>
 
@@ -44,7 +46,13 @@ export default function ConsultantSelectionPage() {
                     {consultants.map((consultant) => (
                         <button
                             key={consultant.id}
-                            onClick={() => navigate(`/login?email=${encodeURIComponent(consultant.email)}`)}
+                            onClick={() => {
+                                if (mode === 'admin') {
+                                    navigate(`/calendar?consultantId=${consultant.uid}`);
+                                } else {
+                                    navigate(`/login?userId=${encodeURIComponent(consultant.userId || consultant.email)}&name=${encodeURIComponent(consultant.name)}`);
+                                }
+                            }}
                             className="bg-white border border-gray-100 rounded-2xl text-center shadow-sm hover:shadow-xl hover:border-[#00462A]/30 hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden w-full flex flex-col items-center justify-center cursor-pointer"
                             style={{ height: '100px' }}
                         >

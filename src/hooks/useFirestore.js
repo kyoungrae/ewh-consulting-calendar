@@ -39,8 +39,90 @@ export function useSchedules() {
     useEffect(() => {
         if (DISABLE_FIRESTORE) {
             console.log('🛑 Firestore disabled (dev mode) - 휘발성 데이터 사용');
-            // 초기에는 빈 배열로 시작 (엑셀 업로드로 데이터 추가)
-            setSchedules([]);
+            // 개발용 더미 데이터 셋팅
+            const dummySchedules = [
+                {
+                    id: 'dev_1',
+                    date: '2026-01-05T10:30:00',
+                    consultantId: 'user_kjh',
+                    typeCode: 'EDU', // 진로개발
+                    location: '비대면 (Zoom)',
+                    memo: '진로 설정 상담'
+                },
+                {
+                    id: 'dev_2',
+                    date: '2026-01-05T13:30:00',
+                    consultantId: 'user_lhj',
+                    typeCode: 'RES', // 서류면접
+                    location: 'ECC B215',
+                    memo: '자기소개서 첨삭'
+                },
+                {
+                    id: 'dev_3',
+                    date: '2026-01-07T14:00:00',
+                    consultantId: 'user_sys',
+                    typeCode: 'PUB', // 공기업
+                    location: '비대면 (Zoom)',
+                    memo: 'NCS 기반 면접 준비'
+                },
+                {
+                    id: 'dev_4',
+                    date: '2026-01-12T11:00:00',
+                    consultantId: 'user_kjh',
+                    typeCode: 'CON', // 콘텐츠엔터
+                    location: '학생문화관 203호',
+                    memo: '엔터테인먼트 마케팅 직무 상담'
+                },
+                {
+                    id: 'dev_5',
+                    date: '2026-01-15T15:30:00',
+                    consultantId: 'user_lhj',
+                    typeCode: 'SCI', // 이공계
+                    location: '비대면 (줌)',
+                    memo: '반도체 공정 기술 면접'
+                },
+                {
+                    id: 'dev_6',
+                    date: '2026-01-20T10:00:00',
+                    consultantId: 'user_sys',
+                    typeCode: 'GLO', // 외국계
+                    location: 'ECC B216',
+                    memo: '영문 레쥬메 검토'
+                },
+                {
+                    id: 'dev_7',
+                    date: '2026-01-21T13:00:00',
+                    consultantId: 'user_kjh',
+                    typeCode: 'EXE', // 임원면접
+                    location: '비대면 (Zoom)',
+                    memo: '모의 면접 실전'
+                },
+                {
+                    id: 'dev_8',
+                    date: '2026-01-21T15:00:00',
+                    consultantId: 'user_lhj',
+                    typeCode: 'JOB', // 취업상담
+                    location: '학생문화관 204호',
+                    memo: '채용 공고 분석'
+                },
+                {
+                    id: 'dev_9',
+                    date: '2026-02-02T10:30:00',
+                    consultantId: 'user_sys',
+                    typeCode: 'EDU',
+                    location: '비대면 (줌)',
+                    memo: '신학기 진로 로드맵'
+                },
+                {
+                    id: 'dev_10',
+                    date: '2026-02-05T14:00:00',
+                    consultantId: 'user_kjh',
+                    typeCode: 'RES',
+                    location: 'ECC B215',
+                    memo: '실전 면접 코칭'
+                }
+            ];
+            setSchedules(dummySchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
             setLoading(false);
             return;
         }
@@ -304,14 +386,15 @@ export function useCommonCodes() {
             console.log('🛑 Firestore disabled (dev mode)');
             // 기본 더미 코드 제공 (화면 깨짐 방지)
             setCodes([
-                { code: 'EDU', name: '진로개발', color: '#B3E5FC' }, // 하늘색
-                { code: 'RES', name: '서류면접', color: '#C8E6C9' }, // 연두색
-                { code: 'PUB', name: '공기업', color: '#FFF9C4' },   // 연한 노란색
-                { code: 'CON', name: '콘텐츠엔터', color: '#F8BBD0' }, // 연한 분홍색
-                { code: 'SCI', name: '이공계', color: '#E1BEE7' },     // 연한 보라색
-                { code: 'GLO', name: '외국계', color: '#FFCCBC' },     // 연한 주황색
-                { code: 'EXE', name: '임원면접', color: '#D7CCC8' },   // 연한 갈색
-                { code: 'JOB', name: '취업상담', color: '#F0F4C3' }    // 라임색 (기타)
+                { code: 'WELCOME', name: '웰컴세션', color: '#e1f5fe', borderColor: '#03a9f4' },
+                { code: 'EDU', name: '진로개발', color: '#e3f2fd', borderColor: '#0277bd' },
+                { code: 'RES', name: '서류면접', color: '#fffde7', borderColor: '#fbc02d' },
+                { code: 'PUB', name: '공기업', color: '#f5f5f5', borderColor: '#616161' },
+                { code: 'CON', name: '콘텐츠엔터', color: '#fff3e0', borderColor: '#ef6c00' },
+                { code: 'SCI', name: '이공계', color: '#e8f5e9', borderColor: '#2e7d32' },
+                { code: 'GLO', name: '외국계', color: '#f3e5f5', borderColor: '#7b1fa2' },
+                { code: 'EXE', name: '임원면접', color: '#D7CCC8', borderColor: '#8D6E63' },
+                { code: 'JOB', name: '취업상담', color: '#e0f2f1', borderColor: '#00695c' }
             ]);
             setLoading(false);
             return;
@@ -403,7 +486,7 @@ export function useUsers() {
                 { uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi' },
                 { uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa' },
                 { uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws' },
-                { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin' },
+                { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin', status: 'approved' },
                 { uid: 'user_kjh', name: '김지현', role: 'consultant', userId: 'kjh' },
                 { uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs' },
                 { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy' },
