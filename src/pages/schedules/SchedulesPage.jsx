@@ -790,7 +790,7 @@ export default function SchedulesPage() {
                     </div>
                 ) : (
                     <div className="animate-fade-in space-y-4">
-                        <div className="flex justify-between items-center mb-4 px-1">
+                        <div className="flex justify-between items-center mb-4 px-1" style={{ padding: "10px" }}>
                             <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
                                 <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
                                 최근 업로드 및 변경 이력
