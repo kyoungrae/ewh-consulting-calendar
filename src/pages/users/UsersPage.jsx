@@ -25,6 +25,7 @@ export default function UsersPage() {
 
     // 신규 사용자 폼 상태
     const [newUserForm, setNewUserForm] = useState({
+        userId: '',
         email: '',
         password: '',
         name: '',
@@ -34,6 +35,7 @@ export default function UsersPage() {
 
     // 수정 폼 상태
     const [editForm, setEditForm] = useState({
+        userId: '',
         name: '',
         tel: '',
         role: '',
@@ -44,6 +46,7 @@ export default function UsersPage() {
     const openEditModal = (user) => {
         setEditingUser(user);
         setEditForm({
+            userId: user.userId || '',
             name: user.name || '',
             tel: user.tel || '',
             role: user.role || 'consultant',
@@ -58,6 +61,7 @@ export default function UsersPage() {
 
         try {
             await registerUser(newUserForm.email, newUserForm.password, {
+                userId: newUserForm.userId,
                 name: newUserForm.name,
                 tel: newUserForm.tel,
                 role: newUserForm.role,
@@ -66,6 +70,7 @@ export default function UsersPage() {
 
             setIsAddModalOpen(false);
             setNewUserForm({
+                userId: '',
                 email: '',
                 password: '',
                 name: '',
@@ -77,8 +82,10 @@ export default function UsersPage() {
             console.error('사용자 등록 실패:', error);
             if (error.code === 'auth/email-already-in-use') {
                 alert('이미 사용 중인 이메일입니다.');
+            } else if (error.message === '이미 사용 중인 아이디입니다.') {
+                alert('이미 사용 중인 아이디입니다.');
             } else {
-                alert('사용자 등록에 실패했습니다.');
+                alert(error.message || '사용자 등록에 실패했습니다.');
             }
         }
     };
@@ -179,7 +186,7 @@ export default function UsersPage() {
                                                     </div>
                                                     <div>
                                                         <p className="font-medium text-gray-900">{user.name}</p>
-                                                        <p className="text-xs text-gray-500">{user.email}</p>
+                                                        <p className="text-xs text-gray-500">@{user.userId || '-'} · {user.email}</p>
                                                     </div>
                                                 </div>
                                             </td>
@@ -246,6 +253,19 @@ export default function UsersPage() {
                             <div className="p-3 bg-gray-50 rounded-lg flex items-center gap-3">
                                 <Mail size={18} className="text-gray-400" />
                                 <span className="text-gray-600 font-medium">{editingUser?.email}</span>
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">아이디 (로그인용) *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="영문, 숫자 조합"
+                                    value={editForm.userId}
+                                    onChange={(e) => setEditForm({ ...editForm, userId: e.target.value })}
+                                    required
+                                />
+                                <p className="text-xs text-gray-500 mt-1">로그인 시 사용할 아이디입니다</p>
                             </div>
 
                             <div className="form-group">
@@ -326,6 +346,19 @@ export default function UsersPage() {
                 >
                     <form onSubmit={handleAddUser}>
                         <div className="space-y-4">
+                            <div className="form-group">
+                                <label className="form-label">아이디 (로그인용) *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="영문, 숫자 조합"
+                                    value={newUserForm.userId}
+                                    onChange={(e) => setNewUserForm({ ...newUserForm, userId: e.target.value })}
+                                    required
+                                />
+                                <p className="text-xs text-gray-500 mt-1">로그인 시 사용할 아이디입니다</p>
+                            </div>
+
                             <div className="form-group">
                                 <label className="form-label">이메일 *</label>
                                 <input

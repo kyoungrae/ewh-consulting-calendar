@@ -16,125 +16,36 @@ import {
 import { db } from '../firebase/config';
 
 // 개발 중 Firebase 읽기 차단 여부 (true: 연결 안함, false: 연결 함)
-const DISABLE_FIRESTORE = false;
+const DISABLE_FIRESTORE = true;
 
 /**
- * 스케줄 관리 훅
+ * 스케줄 고유 키 생성 (날짜+시간+컨설턴트로 중복 체크용)
+ */
+function generateScheduleKey(schedule) {
+    const date = schedule.date ? new Date(schedule.date).toISOString() : '';
+    return `${date}_${schedule.consultantId || schedule.consultantName}_${schedule.typeCode || schedule.type}`;
+}
+
+/**
+ * 스케줄 관리 훅 (개발 모드: 휘발성 데이터 + 머지 지원)
  */
 export function useSchedules() {
     const [schedules, setSchedules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    // 변경 이력 추적
+    const [changeLog, setChangeLog] = useState([]);
 
     useEffect(() => {
         if (DISABLE_FIRESTORE) {
-            console.log('🛑 Firestore disabled (dev mode)');
-
-            // 현재 날짜 기준 더미 데이터 생성
-            const today = new Date();
-            const year = today.getFullYear();
-            const month = today.getMonth(); // 0-indexed
-
-            const dummySchedules = [
-                {
-                    id: 'dummy1',
-                    date: new Date(year, month, 5, 10, 30).toISOString(),
-                    type: 'EDU',
-                    typeName: '진로개발',
-                    consultantId: 'user1',
-                    consultantName: '김지현',
-                    location: '상담실 A'
-                },
-                {
-                    id: 'dummy2',
-                    date: new Date(year, month, 5, 11, 30).toISOString(),
-                    type: 'EDU',
-                    typeName: '진로개발',
-                    consultantId: 'user1',
-                    consultantName: '김지현',
-                    location: '상담실 A'
-                },
-                {
-                    id: 'dummy3',
-                    date: new Date(year, month, 6, 10, 0).toISOString(), // 다음날
-                    type: 'JOB',
-                    typeName: '공기업',
-                    consultantId: 'user2',
-                    consultantName: '심영섭',
-                    location: '상담실 B'
-                },
-                {
-                    id: 'dummy4',
-                    date: new Date(year, month, 6, 11, 0).toISOString(),
-                    type: 'RES',
-                    typeName: '서류면접',
-                    consultantId: 'user2',
-                    consultantName: '심영섭',
-                    location: '상담실 B'
-                },
-                {
-                    id: 'dummy5',
-                    date: new Date(year, month, 7, 11, 0).toISOString(), // 다다음날
-                    type: 'EDU',
-                    typeName: '진로개발',
-                    consultantId: 'user3',
-                    consultantName: '범하나',
-                    location: '줌(Zoom)'
-                },
-                {
-                    id: 'dummy6',
-                    date: new Date(year, month, 7, 12, 0).toISOString(),
-                    type: 'EDU',
-                    typeName: '진로개발',
-                    consultantId: 'user3',
-                    consultantName: '범하나',
-                    location: '줌(Zoom)'
-                },
-                {
-                    id: 'dummy7',
-                    date: new Date(year, month, 8, 11, 0).toISOString(),
-                    type: 'EDU',
-                    typeName: '진로개발',
-                    consultantId: 'user4',
-                    consultantName: '김나영',
-                    location: '상담실 C'
-                },
-                {
-                    id: 'dummy8',
-                    date: new Date(year, month, 9, 10, 0).toISOString(),
-                    type: 'INT',
-                    typeName: '서류면접',
-                    consultantId: 'user5',
-                    consultantName: '장신혜',
-                    location: '상담실 D'
-                },
-                {
-                    id: 'dummy9',
-                    date: new Date(year, month, 20, 10, 0).toISOString(), // 20일
-                    type: 'JOB',
-                    typeName: '공기업',
-                    consultantId: 'user6',
-                    consultantName: '심영섭',
-                    location: '상담실 B'
-                },
-                {
-                    id: 'dummy10',
-                    date: new Date(year, month, 20, 11, 0).toISOString(),
-                    type: 'RES',
-                    typeName: '서류면접',
-                    consultantId: 'user6',
-                    consultantName: '심영섭',
-                    location: '상담실 B'
-                }
-            ];
-
-            setSchedules(dummySchedules);
+            console.log('🛑 Firestore disabled (dev mode) - 휘발성 데이터 사용');
+            // 초기에는 빈 배열로 시작 (엑셀 업로드로 데이터 추가)
+            setSchedules([]);
             setLoading(false);
             return;
         }
 
         const schedulesRef = collection(db, 'schedules');
-        // 날짜순 정렬 (데이터가 없으면 비어있는 배열 반환)
         const q = query(schedulesRef, orderBy('date', 'asc'));
 
         const unsubscribe = onSnapshot(q,
@@ -156,9 +67,21 @@ export function useSchedules() {
         return () => unsubscribe();
     }, []);
 
-    // 스케줄 추가
+    // 스케줄 추가 (개발 모드: 상태에 직접 추가)
     const addSchedule = async (scheduleData) => {
-        if (DISABLE_FIRESTORE) { console.warn('Firestore write disabled'); return null; }
+        if (DISABLE_FIRESTORE) {
+            const newSchedule = {
+                ...scheduleData,
+                id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            setSchedules(prev => [...prev, newSchedule].sort((a, b) =>
+                new Date(a.date) - new Date(b.date)
+            ));
+            setChangeLog(prev => [...prev, { type: 'ADD', schedule: newSchedule, timestamp: new Date().toISOString() }]);
+            return newSchedule;
+        }
         const schedulesRef = collection(db, 'schedules');
         return await addDoc(schedulesRef, {
             ...scheduleData,
@@ -167,9 +90,15 @@ export function useSchedules() {
         });
     };
 
-    // 스케줄 수정
+    // 스케줄 수정 (개발 모드: 상태에서 직접 수정)
     const updateSchedule = async (id, scheduleData) => {
-        if (DISABLE_FIRESTORE) { console.warn('Firestore write disabled'); return null; }
+        if (DISABLE_FIRESTORE) {
+            setSchedules(prev => prev.map(s =>
+                s.id === id ? { ...s, ...scheduleData, updatedAt: new Date().toISOString() } : s
+            ));
+            setChangeLog(prev => [...prev, { type: 'UPDATE', id, changes: scheduleData, timestamp: new Date().toISOString() }]);
+            return { id, ...scheduleData };
+        }
         const scheduleRef = doc(db, 'schedules', id);
         return await updateDoc(scheduleRef, {
             ...scheduleData,
@@ -177,16 +106,33 @@ export function useSchedules() {
         });
     };
 
-    // 스케줄 삭제
+    // 스케줄 삭제 (개발 모드: 상태에서 직접 삭제)
     const deleteSchedule = async (id) => {
-        if (DISABLE_FIRESTORE) { console.warn('Firestore write disabled'); return null; }
+        if (DISABLE_FIRESTORE) {
+            const deletedSchedule = schedules.find(s => s.id === id);
+            setSchedules(prev => prev.filter(s => s.id !== id));
+            setChangeLog(prev => [...prev, { type: 'DELETE', schedule: deletedSchedule, timestamp: new Date().toISOString() }]);
+            return { id };
+        }
         const scheduleRef = doc(db, 'schedules', id);
         return await deleteDoc(scheduleRef);
     };
 
-    // 일괄 추가 (엑셀 업로드용)
+    // 일괄 추가 (엑셀 업로드용 - 개발 모드: 상태에 직접 추가)
     const batchAddSchedules = async (schedulesArray) => {
-        if (DISABLE_FIRESTORE) { console.warn('Firestore write disabled'); return null; }
+        if (DISABLE_FIRESTORE) {
+            const newSchedules = schedulesArray.map(s => ({
+                ...s,
+                id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            }));
+            setSchedules(prev => [...prev, ...newSchedules].sort((a, b) =>
+                new Date(a.date) - new Date(b.date)
+            ));
+            setChangeLog(prev => [...prev, { type: 'BATCH_ADD', count: newSchedules.length, timestamp: new Date().toISOString() }]);
+            return newSchedules;
+        }
         const batch = writeBatch(db);
         const schedulesRef = collection(db, 'schedules');
 
@@ -202,9 +148,115 @@ export function useSchedules() {
         return await batch.commit();
     };
 
+    /**
+     * 엑셀 데이터 머지 (기존 데이터와 비교하여 추가/수정/삭제 추적)
+     * @param {Array} newSchedules - 새로 파싱한 스케줄 배열
+     * @param {boolean} replaceAll - true: 전체 교체, false: 머지
+     * @returns {Object} 변경 결과 { added, updated, deleted, unchanged }
+     */
+    const mergeSchedules = (newSchedules, replaceAll = false) => {
+        const result = {
+            added: [],
+            updated: [],
+            deleted: [],
+            unchanged: []
+        };
+
+        if (replaceAll) {
+            // 전체 교체 모드
+            result.deleted = [...schedules];
+            result.added = newSchedules.map(s => ({
+                ...s,
+                id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            }));
+
+            setSchedules(result.added.sort((a, b) => new Date(a.date) - new Date(b.date)));
+        } else {
+            // 머지 모드: 기존 스케줄의 키 맵 생성
+            const existingMap = new Map();
+            schedules.forEach(s => {
+                existingMap.set(generateScheduleKey(s), s);
+            });
+
+            const newMap = new Map();
+            const processedSchedules = [];
+
+            newSchedules.forEach(newSched => {
+                const key = generateScheduleKey(newSched);
+                newMap.set(key, newSched);
+
+                if (existingMap.has(key)) {
+                    // 기존 스케줄이 있음 - 변경 여부 확인
+                    const existing = existingMap.get(key);
+                    const hasChanges =
+                        existing.location !== newSched.location ||
+                        existing.memo !== newSched.memo;
+
+                    if (hasChanges) {
+                        const updated = { ...existing, ...newSched, updatedAt: new Date().toISOString() };
+                        result.updated.push({ before: existing, after: updated });
+                        processedSchedules.push(updated);
+                    } else {
+                        result.unchanged.push(existing);
+                        processedSchedules.push(existing);
+                    }
+                } else {
+                    // 새로운 스케줄
+                    const added = {
+                        ...newSched,
+                        id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    result.added.push(added);
+                    processedSchedules.push(added);
+                }
+            });
+
+            // 삭제된 스케줄 찾기 (기존에는 있었는데 새 데이터에 없는 것)
+            schedules.forEach(existing => {
+                const key = generateScheduleKey(existing);
+                if (!newMap.has(key)) {
+                    result.deleted.push(existing);
+                }
+            });
+
+            setSchedules(processedSchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
+        }
+
+        // 변경 이력 기록 (상세 내역 포함) - 단, 전체 교체(초기 업로드)가 아닐 때만 기록
+        if (!replaceAll) {
+            setChangeLog(prev => [{
+                id: Date.now(),
+                type: 'MERGE',
+                summary: {
+                    added: result.added.length,
+                    updated: result.updated.length,
+                    deleted: result.deleted.length,
+                    unchanged: result.unchanged.length
+                },
+                details: {
+                    added: result.added,
+                    updated: result.updated, // { before, after } 구조
+                    deleted: result.deleted
+                },
+                timestamp: new Date().toISOString()
+            }, ...prev]);
+        }
+
+        return result;
+    };
+
     // 모든 일정 삭제 (초기화용)
     const clearAllSchedules = async () => {
-        if (DISABLE_FIRESTORE) { console.warn('Firestore write disabled'); return null; }
+        if (DISABLE_FIRESTORE) {
+            const deletedCount = schedules.length;
+            setSchedules([]);
+            setChangeLog(prev => [...prev, { type: 'CLEAR_ALL', count: deletedCount, timestamp: new Date().toISOString() }]);
+            return { deletedCount };
+        }
         const schedulesRef = collection(db, 'schedules');
         const snapshot = await getDocs(schedulesRef);
 
@@ -218,15 +270,24 @@ export function useSchedules() {
         return await batch.commit();
     };
 
+    // 변경 이력 초기화
+    const clearChangeLog = () => {
+        setChangeLog([]);
+    };
+
     return {
         schedules,
         loading,
         error,
+        changeLog,
         addSchedule,
         updateSchedule,
         deleteSchedule,
         batchAddSchedules,
-        clearAllSchedules
+        mergeSchedules,
+        clearAllSchedules,
+        clearChangeLog,
+        setSchedules // 직접 설정용 (엑셀 파싱 후 사용)
     };
 }
 
@@ -243,10 +304,14 @@ export function useCommonCodes() {
             console.log('🛑 Firestore disabled (dev mode)');
             // 기본 더미 코드 제공 (화면 깨짐 방지)
             setCodes([
-                { code: 'EDU', name: '진로개발', color: '#B3E5FC' },
-                { code: 'JOB', name: '취업상담', color: '#C8E6C9' },
-                { code: 'RES', name: '서류첨삭', color: '#FFF9C4' },
-                { code: 'INT', name: '면접지도', color: '#F8BBD0' }
+                { code: 'EDU', name: '진로개발', color: '#B3E5FC' }, // 하늘색
+                { code: 'RES', name: '서류면접', color: '#C8E6C9' }, // 연두색
+                { code: 'PUB', name: '공기업', color: '#FFF9C4' },   // 연한 노란색
+                { code: 'CON', name: '콘텐츠엔터', color: '#F8BBD0' }, // 연한 분홍색
+                { code: 'SCI', name: '이공계', color: '#E1BEE7' },     // 연한 보라색
+                { code: 'GLO', name: '외국계', color: '#FFCCBC' },     // 연한 주황색
+                { code: 'EXE', name: '임원면접', color: '#D7CCC8' },   // 연한 갈색
+                { code: 'JOB', name: '취업상담', color: '#F0F4C3' }    // 라임색 (기타)
             ]);
             setLoading(false);
             return;
@@ -325,8 +390,25 @@ export function useUsers() {
             console.log('🛑 Firestore disabled (dev mode)');
             // 기본 더미 유저 제공
             setUsers([
-                { uid: 'user1', name: '김컨설', role: 'consultant' },
-                { uid: 'user2', name: '이관리', role: 'admin' }
+                { uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin' },
+                { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy' },
+                { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys' },
+                { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana' },
+                { uid: 'user_lsh', name: '이상환', role: 'consultant', userId: 'lsh' },
+                { uid: 'user_ksh', name: '김세희', role: 'consultant', userId: 'ksh' },
+                { uid: 'user_kmk', name: '김민경', role: 'consultant', userId: 'kmk' },
+                { uid: 'user_jsh', name: '장신혜', role: 'consultant', userId: 'jsh' },
+                { uid: 'user_kny', name: '김나영', role: 'consultant', userId: 'kny' },
+                { uid: 'user_sjw', name: '성지우', role: 'consultant', userId: 'sjw' },
+                { uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi' },
+                { uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa' },
+                { uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws' },
+                { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin' },
+                { uid: 'user_kjh', name: '김지현', role: 'consultant', userId: 'kjh' },
+                { uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs' },
+                { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy' },
+                { uid: 'user_jms', name: '지명선', role: 'consultant', userId: 'jms' },
+                { uid: 'user_mhj', name: '민현정', role: 'consultant', userId: 'mhj' }
             ]);
             setLoading(false);
             return;

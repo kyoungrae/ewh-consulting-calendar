@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Shield, Mail, Lock, AlertCircle, Loader2, Home } from 'lucide-react';
+import { Shield, User, Lock, AlertCircle, Loader2, Home } from 'lucide-react';
 
 export default function LoginPage() {
-    const [email, setEmail] = useState('');
+    const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -12,14 +12,14 @@ export default function LoginPage() {
     const { login, currentUser } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const prefilledEmail = searchParams.get('email');
+    const prefilledUserId = searchParams.get('userId');
 
-    // prefilledEmail이 있을 경우 초기값으로 설정
+    // prefilledUserId가 있을 경우 초기값으로 설정
     useState(() => {
-        if (prefilledEmail) {
-            setEmail(prefilledEmail);
+        if (prefilledUserId) {
+            setUserId(prefilledUserId);
         }
-    }, [prefilledEmail]);
+    }, [prefilledUserId]);
 
     // 이미 로그인된 경우 리다이렉트
     if (currentUser) {
@@ -29,22 +29,22 @@ export default function LoginPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!email || !password) {
-            setError('이메일과 비밀번호를 입력해주세요.');
+        if (!userId || !password) {
+            setError('아이디와 비밀번호를 입력해주세요.');
             return;
         }
 
         try {
             setError('');
             setLoading(true);
-            await login(email, password);
+            await login(userId, password);
             navigate('/calendar');
         } catch (err) {
             console.error('로그인 오류:', err);
             if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-                setError('이메일 또는 비밀번호가 올바르지 않습니다.');
-            } else if (err.code === 'auth/invalid-email') {
-                setError('잘못된 이메일 형식입니다.');
+                setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+            } else if (err.code === 'auth/invalid-credential') {
+                setError('아이디 또는 비밀번호가 올바르지 않습니다.');
             } else {
                 setError(err.message || '로그인에 실패했습니다. 다시 시도해주세요.');
             }
@@ -90,15 +90,15 @@ export default function LoginPage() {
 
                 {/* Login Form */}
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    {prefilledEmail ? (
+                    {prefilledUserId ? (
                         <div className="form-group mb-0">
                             <label className="form-label mb-1.5 ml-1 text-gray-400">로그인 계정</label>
                             <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
                                 <div className="w-10 h-10 rounded-full bg-[#00462A]/10 flex items-center justify-center text-[#00462A]">
-                                    <Mail size={20} />
+                                    <User size={20} />
                                 </div>
                                 <div className="flex-1 overflow-hidden">
-                                    <p className="text-sm font-bold text-[#333] truncate">{prefilledEmail}</p>
+                                    <p className="text-sm font-bold text-[#333] truncate">{prefilledUserId}</p>
                                     <button
                                         type="button"
                                         onClick={() => navigate('/select-consultant')}
@@ -111,17 +111,17 @@ export default function LoginPage() {
                         </div>
                     ) : (
                         <div className="form-group mb-0">
-                            <label className="form-label mb-1.5 ml-1">이메일</label>
+                            <label className="form-label mb-1.5 ml-1">아이디 또는 이메일</label>
                             <div className="relative group">
                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00462A] transition-colors">
-                                    <Mail size={18} />
+                                    <User size={18} />
                                 </div>
                                 <input
-                                    type="email"
+                                    type="text"
                                     className="form-input !pl-12 h-12"
-                                    placeholder="이메일을 입력하세요"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="아이디 또는 이메일을 입력하세요"
+                                    value={userId}
+                                    onChange={(e) => setUserId(e.target.value)}
                                     disabled={loading}
                                     required
                                 />
