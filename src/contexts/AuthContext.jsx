@@ -279,6 +279,48 @@ export function AuthProvider({ children }) {
         return () => unsubscribe();
     }, []);
 
+    const [remainingTime, setRemainingTime] = useState(1800); // 30분 = 1800초
+
+    // ... (onAuthStateChanged useEffect)
+
+    // 30분 타이머 로직 (활동 감지 없이 고정 시간, 수동 연장 가능)
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30분
+        let lastReset = Date.now();
+
+        const checkTimer = () => {
+            const now = Date.now();
+            const diff = now - lastReset;
+
+            if (diff >= INACTIVITY_TIMEOUT) {
+                logout();
+                alert('로그인 세션(30분)이 만료되어 자동 로그아웃되었습니다.');
+            } else {
+                setRemainingTime(Math.max(0, Math.floor((INACTIVITY_TIMEOUT - diff) / 1000)));
+            }
+        };
+
+        const interval = setInterval(checkTimer, 1000);
+
+        // 수동 연장 처리를 위한 커스텀 이벤트 리스너
+        const handleManualReset = () => {
+            lastReset = Date.now();
+            setRemainingTime(1800);
+        };
+        window.addEventListener('ewh-reset-timer', handleManualReset);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('ewh-reset-timer', handleManualReset);
+        };
+    }, [currentUser]);
+
+    const resetTimer = () => {
+        window.dispatchEvent(new CustomEvent('ewh-reset-timer'));
+    };
+
     const value = {
         currentUser,
         userProfile,
@@ -286,6 +328,8 @@ export function AuthProvider({ children }) {
         logout,
         registerUser,
         checkUserIdExists,
+        remainingTime,
+        resetTimer, // 수동 연장 함수 추가
         isAdmin: userProfile?.role === 'admin',
         isConsultant: userProfile?.role === 'consultant'
     };
