@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
@@ -18,6 +18,7 @@ import {
     Filter,
     ChevronLeft,
     ChevronRight,
+    ArrowUp,
 } from 'lucide-react';
 
 // 날짜 포맷팅 유틸리티
@@ -118,23 +119,48 @@ function LogItem({ log, index }) {
                                             <th className="px-6 py-4 text-left min-w-[100px] whitespace-nowrap" style={{ padding: "10px" }}>시간</th>
                                             <th className="px-6 py-4 text-left min-w-[100px] whitespace-nowrap" style={{ padding: "10px" }}>구분</th>
                                             <th className="px-6 py-4 text-left min-w-[100px] whitespace-nowrap" style={{ padding: "10px" }}>담당</th>
-                                            <th className="px-6 py-4 text-left min-w-[200px]" style={{ padding: "10px" }}>장소/메모</th>
+                                            <th className="px-6 py-4 text-left min-w-[150px]" style={{ padding: "10px" }}>장소/메모</th>
+                                            <th className="px-6 py-4 text-left min-w-[200px]" style={{ padding: "10px" }}>사유</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
-                                        {details.added.map((s, i) => (
-                                            <tr key={i} className="hover:bg-emerald-50/30 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.scheduleDate(s.date)}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.time(s.date)}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
-                                                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                                                        {s.typeName || s.typeCode}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{s.consultantName}</td>
-                                                <td className="px-6 py-4 text-gray-500 truncate max-w-xs">{s.location || s.memo || '-'}</td>
-                                            </tr>
-                                        ))}
+                                        {details.added.map((s, i) => {
+                                            const isMissingConsultant = s.consultantId?.startsWith('unknown_');
+                                            const isMissingType = s.typeName === s.typeCode;
+                                            const isMissingInfo = isMissingConsultant || isMissingType;
+
+                                            let message = '';
+                                            let messageColor = '';
+
+                                            if (isMissingInfo) {
+                                                messageColor = 'text-orange-600';
+                                                if (isMissingConsultant && isMissingType) message = '담당자 및 구분 등록 정보 확인 필요';
+                                                else if (isMissingConsultant) message = '담당자 등록 정보 확인 필요';
+                                                else if (isMissingType) message = '구분 등록 정보 확인 필요';
+                                            } else {
+                                                message = '정상 등록';
+                                                messageColor = 'text-emerald-600';
+                                            }
+
+                                            return (
+                                                <tr key={i} className={`transition-colors ${isMissingInfo ? 'bg-orange-50 hover:bg-orange-100' : 'bg-emerald-50 hover:bg-emerald-100'}`}>
+                                                    <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.scheduleDate(s.date)}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.time(s.date)}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                        <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium border ${isMissingType ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                                            {s.typeName || s.typeCode}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`px-6 py-4 font-medium whitespace-nowrap ${isMissingConsultant ? 'text-orange-600 font-bold' : 'text-gray-800'}`}>
+                                                        {s.consultantName}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-gray-500 truncate max-w-xs">{s.location || s.memo || '-'}</td>
+                                                    <td className={`px-6 py-4 text-xs font-medium ${messageColor}`}>
+                                                        {message}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -261,6 +287,31 @@ export default function SchedulesPage() {
     } = useSchedules();
     const { codes, loading: codesLoading } = useCommonCodes();
     const { users, loading: usersLoading } = useUsers();
+
+    // 스크롤 맨 위로 버튼 상태
+    const [showScrollTop, setShowScrollTop] = useState(false);
+
+    // 스크롤 이벤트 감지
+    useEffect(() => {
+        const handleScroll = () => {
+            if (window.scrollY > 300) {
+                setShowScrollTop(true);
+            } else {
+                setShowScrollTop(false);
+            }
+        };
+
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    // 맨 위로 스크롤
+    const scrollToTop = () => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+        });
+    };
 
     const loading = schedulesLoading || codesLoading || usersLoading;
 
@@ -1056,6 +1107,16 @@ export default function SchedulesPage() {
                         </div>
                     </form>
                 </Modal>
+
+                {/* Scroll to Top Button */}
+                <button
+                    onClick={scrollToTop}
+                    className={`fixed bottom-8 right-8 p-3 rounded-full bg-[#00462A] text-white shadow-lg hover:bg-[#00331F] transition-all duration-300 z-50 ${showScrollTop ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
+                        }`}
+                    aria-label="맨 위로 스크롤"
+                >
+                    <ArrowUp size={24} />
+                </button>
             </div >
         </>
     );
