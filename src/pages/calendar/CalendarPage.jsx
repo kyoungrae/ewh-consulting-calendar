@@ -529,7 +529,10 @@ export default function CalendarPage() {
                         </button>
                         <button
                             className={`ewh-view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
-                            onClick={() => setViewMode('list')}
+                            onClick={() => {
+                                setViewMode('list');
+                                setCurrentView('dayGridMonth');
+                            }}
                         >
                             📋 목록 보기
                         </button>
@@ -581,8 +584,8 @@ export default function CalendarPage() {
                                 ))}
                             </select>
 
-                            {/* Week Selector (Only in Week View) */}
-                            {currentView === 'timeGridWeek' && (
+                            {/* Week Selector (Only in Week View and Calendar Perspective) */}
+                            {currentView === 'timeGridWeek' && viewMode === 'calendar' && (
                                 <select
                                     className="ewh-nav-select"
                                     value={Math.ceil(currentDay / 7)}
@@ -600,8 +603,8 @@ export default function CalendarPage() {
                                 </select>
                             )}
 
-                            {/* Day Selector (Only in Day View) */}
-                            {currentView === 'timeGridDay' && (
+                            {/* Day Selector (Only in Day View and Calendar Perspective) */}
+                            {currentView === 'timeGridDay' && viewMode === 'calendar' && (
                                 <select
                                     className="ewh-nav-select"
                                     value={currentDay}

@@ -5,7 +5,9 @@ import {
     signOut,
     onAuthStateChanged,
     getAuth,
-    createUserWithEmailAndPassword
+    createUserWithEmailAndPassword,
+    setPersistence,
+    browserSessionPersistence
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, firebaseConfig, DISABLE_FIRESTORE } from '../firebase/config';
@@ -79,8 +81,8 @@ export function AuthProvider({ children }) {
                     displayName: dummyUser.name
                 };
 
-                // 로컬 스토리지에 더미 세션 저장 (새로고침 유지용)
-                localStorage.setItem('ewh_dummy_user', JSON.stringify({ user: fakeUser, profile: dummyUser }));
+                // 세션 유지용 데이터 저장 (sessionStorage는 창을 닫으면 자동 삭제됨)
+                sessionStorage.setItem('ewh_dummy_user', JSON.stringify({ user: fakeUser, profile: dummyUser }));
 
                 setCurrentUser(fakeUser);
                 setUserProfile(dummyUser);
@@ -117,6 +119,9 @@ export function AuthProvider({ children }) {
         if (userData.password && userData.password === password) {
             console.log('✅ Firestore DB Password Match:', userData.name);
 
+            // 사이트 종료 시 자동으로 로그아웃 되도록 세션 유지 방식 설정
+            await setPersistence(auth, browserSessionPersistence);
+
             // Firebase Auth 로그인은 선택적으로 시도 (성공하면 좋고 실패해도 DB 세션으로 인증)
             let authUser = null;
             try {
@@ -133,8 +138,8 @@ export function AuthProvider({ children }) {
                 };
             }
 
-            // 세션 유지용 데이터 저장 (더미 세션과 같은 방식 활용)
-            localStorage.setItem('ewh_db_auth_session', JSON.stringify({ uid: authUser.uid }));
+            // 세션 유지용 데이터 저장 (sessionStorage는 창을 닫으면 자동 삭제됨)
+            sessionStorage.setItem('ewh_db_auth_session', JSON.stringify({ uid: authUser.uid }));
 
             setCurrentUser(authUser);
             setUserProfile(userData);
@@ -143,6 +148,7 @@ export function AuthProvider({ children }) {
 
         // DB 비밀번호가 다르거나 없는 경우, 표준 Auth 로그인 시도 (최종 수단)
         try {
+            await setPersistence(auth, browserSessionPersistence);
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             setCurrentUser(userCredential.user);
             const profile = await fetchUserProfile(userCredential.user.uid);
@@ -156,8 +162,8 @@ export function AuthProvider({ children }) {
 
     // 로그아웃
     function logout() {
-        localStorage.removeItem('ewh_dummy_user'); // 더미 세션 삭제
-        localStorage.removeItem('ewh_db_auth_session'); // DB 세션 삭제
+        sessionStorage.removeItem('ewh_dummy_user'); // 더미 세션 삭제
+        sessionStorage.removeItem('ewh_db_auth_session'); // DB 세션 삭제
         setCurrentUser(null);
         setUserProfile(null);
         return signOut(auth);
@@ -228,8 +234,8 @@ export function AuthProvider({ children }) {
                 }
             } else {
                 // Firebase 유저가 없을 때, 커스텀 세션 확인
-                const storedDummy = localStorage.getItem('ewh_dummy_user');
-                const storedDbAuth = localStorage.getItem('ewh_db_auth_session');
+                const storedDummy = sessionStorage.getItem('ewh_dummy_user');
+                const storedDbAuth = sessionStorage.getItem('ewh_db_auth_session');
 
                 if (storedDummy) {
                     try {
@@ -238,7 +244,7 @@ export function AuthProvider({ children }) {
                         setCurrentUser(fakeUser);
                         setUserProfile(latestDummyProfile || null);
                     } catch (e) {
-                        localStorage.removeItem('ewh_dummy_user');
+                        sessionStorage.removeItem('ewh_dummy_user');
                     }
                 } else if (storedDbAuth) {
                     try {
@@ -253,10 +259,10 @@ export function AuthProvider({ children }) {
                             });
                             setUserProfile(profile);
                         } else {
-                            localStorage.removeItem('ewh_db_auth_session');
+                            sessionStorage.removeItem('ewh_db_auth_session');
                         }
                     } catch (e) {
-                        localStorage.removeItem('ewh_db_auth_session');
+                        sessionStorage.removeItem('ewh_db_auth_session');
                     }
                 } else {
                     setCurrentUser(null);
