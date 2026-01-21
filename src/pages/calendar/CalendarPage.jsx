@@ -303,12 +303,28 @@ export default function CalendarPage() {
     const handlePrev = () => {
         if (calendarRef.current) {
             calendarRef.current.getApi().prev();
+        } else {
+            // 목록 보기 모드에서는 수동으로 월 변경
+            if (currentMonth === 1) {
+                setCurrentYear(prev => prev - 1);
+                setCurrentMonth(12);
+            } else {
+                setCurrentMonth(prev => prev - 1);
+            }
         }
     };
 
     const handleNext = () => {
         if (calendarRef.current) {
             calendarRef.current.getApi().next();
+        } else {
+            // 목록 보기 모드에서는 수동으로 월 변경
+            if (currentMonth === 12) {
+                setCurrentYear(prev => prev + 1);
+                setCurrentMonth(1);
+            } else {
+                setCurrentMonth(prev => prev + 1);
+            }
         }
     };
 
@@ -606,35 +622,37 @@ export default function CalendarPage() {
                     </div>
 
                     <div className="ewh-right-controls">
-                        {/* View Type Nav (Red Box Area) */}
-                        <div className="ewh-view-type-nav">
-                            <button
-                                className="ewh-today-btn"
-                                onClick={() => calendarRef.current.getApi().today()}
-                            >
-                                오늘
-                            </button>
-                            <div className="ewh-view-type-group">
+                        {/* View Type Nav (목록 보기에서는 숨김) */}
+                        {viewMode === 'calendar' && (
+                            <div className="ewh-view-type-nav">
                                 <button
-                                    className={`ewh-view-type-btn ${currentView === 'dayGridMonth' ? 'active' : ''}`}
-                                    onClick={() => calendarRef.current.getApi().changeView('dayGridMonth')}
+                                    className="ewh-today-btn"
+                                    onClick={() => calendarRef.current?.getApi().today()}
                                 >
-                                    월
+                                    오늘
                                 </button>
-                                <button
-                                    className={`ewh-view-type-btn ${currentView === 'timeGridWeek' ? 'active' : ''}`}
-                                    onClick={() => calendarRef.current.getApi().changeView('timeGridWeek')}
-                                >
-                                    주
-                                </button>
-                                <button
-                                    className={`ewh-view-type-btn ${currentView === 'timeGridDay' ? 'active' : ''}`}
-                                    onClick={() => calendarRef.current.getApi().changeView('timeGridDay')}
-                                >
-                                    일
-                                </button>
+                                <div className="ewh-view-type-group">
+                                    <button
+                                        className={`ewh-view-type-btn ${currentView === 'dayGridMonth' ? 'active' : ''}`}
+                                        onClick={() => calendarRef.current?.getApi().changeView('dayGridMonth')}
+                                    >
+                                        월
+                                    </button>
+                                    <button
+                                        className={`ewh-view-type-btn ${currentView === 'timeGridWeek' ? 'active' : ''}`}
+                                        onClick={() => calendarRef.current?.getApi().changeView('timeGridWeek')}
+                                    >
+                                        주
+                                    </button>
+                                    <button
+                                        className={`ewh-view-type-btn ${currentView === 'timeGridDay' ? 'active' : ''}`}
+                                        onClick={() => calendarRef.current?.getApi().changeView('timeGridDay')}
+                                    >
+                                        일
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* Filters */}
                         <div className="ewh-filters">
