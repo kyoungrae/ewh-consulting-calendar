@@ -22,6 +22,8 @@ export const db = getFirestore(app);
 export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 
 // 개발 중 Firebase 읽기 차단 여부 (중앙 관리)
+// true: Firebase 사용 안함 (더미 데이터 사용)
+// false: Firebase 사용
 export const DISABLE_FIRESTORE = false;
 
 export default app;

@@ -88,48 +88,76 @@ export function AuthProvider({ children }) {
             }
         }
 
-        // 2. 실제 Firebase 로그인 진행
-        let email;
+        // 2. 실제 Firebase 로그인 진행 (Firestore 연동 모드)
+        let userDoc = null;
+        let email = userIdOrEmail;
 
-        // 이메일 형식인지 체크
+        // 이메일 또는 ID로 사용자 조회
         const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userIdOrEmail);
+        const usersRef = collection(db, 'users');
+        const q = isEmail
+            ? query(usersRef, where('email', '==', userIdOrEmail))
+            : query(usersRef, where('userId', '==', userIdOrEmail));
 
-        if (isEmail) {
-            // 이메일로 직접 로그인
-            email = userIdOrEmail;
-        } else {
-            // ID로 이메일 조회
-            email = await getEmailByUserId(userIdOrEmail);
-
-            if (!email) {
-                throw new Error('등록되지 않은 아이디입니다.');
-            }
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+            throw new Error('등록되지 않은 아이디 또는 이메일입니다.');
         }
 
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-
-        // 사용자 프로필 조회
-        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-
-        if (!userDoc.exists()) {
-            await signOut(auth);
-            throw new Error('등록되지 않은 사용자입니다. 관리자에게 문의하세요.');
-        }
-
+        userDoc = querySnapshot.docs[0];
         const userData = userDoc.data();
+        email = userData.email;
 
-        // 승인되지 않은 사용자 체크
+        // 상태 확인
         if (userData.status !== 'approved') {
-            await signOut(auth);
             throw new Error('계정이 아직 승인되지 않았습니다. 관리자에게 문의하세요.');
         }
 
-        return userCredential;
+        // DB에 저장된 비밀번호와 일치하는지 확인 (우선순위 1)
+        if (userData.password && userData.password === password) {
+            console.log('✅ Firestore DB Password Match:', userData.name);
+
+            // Firebase Auth 로그인은 선택적으로 시도 (성공하면 좋고 실패해도 DB 세션으로 인증)
+            let authUser = null;
+            try {
+                const cred = await signInWithEmailAndPassword(auth, email, password);
+                authUser = cred.user;
+            } catch (authError) {
+                console.warn('Auth sync required, but using DB session');
+                // Auth 비밀번호가 구형이어도 DB 세션으로 대체 인증
+                authUser = {
+                    uid: userData.uid,
+                    email: userData.email,
+                    displayName: userData.name,
+                    isCustomAuth: true
+                };
+            }
+
+            // 세션 유지용 데이터 저장 (더미 세션과 같은 방식 활용)
+            localStorage.setItem('ewh_db_auth_session', JSON.stringify({ uid: authUser.uid }));
+
+            setCurrentUser(authUser);
+            setUserProfile(userData);
+            return { user: authUser };
+        }
+
+        // DB 비밀번호가 다르거나 없는 경우, 표준 Auth 로그인 시도 (최종 수단)
+        try {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            setCurrentUser(userCredential.user);
+            const profile = await fetchUserProfile(userCredential.user.uid);
+            setUserProfile(profile);
+            return userCredential;
+        } catch (error) {
+            console.error('Login failed:', error);
+            throw new Error('비밀번호가 일치하지 않습니다.');
+        }
     }
 
     // 로그아웃
     function logout() {
         localStorage.removeItem('ewh_dummy_user'); // 더미 세션 삭제
+        localStorage.removeItem('ewh_db_auth_session'); // DB 세션 삭제
         setCurrentUser(null);
         setUserProfile(null);
         return signOut(auth);
@@ -199,28 +227,36 @@ export function AuthProvider({ children }) {
                     console.error('Failed to fetch user profile:', err);
                 }
             } else {
-                // Firebase 유저가 없을 때, 더미 세션 확인
+                // Firebase 유저가 없을 때, 커스텀 세션 확인
                 const storedDummy = localStorage.getItem('ewh_dummy_user');
+                const storedDbAuth = localStorage.getItem('ewh_db_auth_session');
+
                 if (storedDummy) {
                     try {
                         const { user: fakeUser } = JSON.parse(storedDummy);
-                        // 최신 더미 프로필 정보로 업데이트 (status 등 최신화)
                         const latestDummyProfile = DUMMY_USERS.find(u => u.uid === fakeUser.uid);
-
                         setCurrentUser(fakeUser);
                         setUserProfile(latestDummyProfile || null);
-
-                        // 세션 정보 업데이트 (선택 사항)
-                        if (latestDummyProfile) {
-                            localStorage.setItem('ewh_dummy_user', JSON.stringify({
-                                user: fakeUser,
-                                profile: latestDummyProfile
-                            }));
+                    } catch (e) {
+                        localStorage.removeItem('ewh_dummy_user');
+                    }
+                } else if (storedDbAuth) {
+                    try {
+                        const { uid } = JSON.parse(storedDbAuth);
+                        const profile = await fetchUserProfile(uid);
+                        if (profile) {
+                            setCurrentUser({
+                                uid: profile.uid,
+                                email: profile.email,
+                                displayName: profile.name,
+                                isCustomAuth: true
+                            });
+                            setUserProfile(profile);
+                        } else {
+                            localStorage.removeItem('ewh_db_auth_session');
                         }
                     } catch (e) {
-                        console.error('Failed to restore dummy session', e);
-                        setCurrentUser(null);
-                        setUserProfile(null);
+                        localStorage.removeItem('ewh_db_auth_session');
                     }
                 } else {
                     setCurrentUser(null);

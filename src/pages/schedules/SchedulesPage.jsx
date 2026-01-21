@@ -135,8 +135,8 @@ function LogItem({ log, index }) {
                                             if (isMissingInfo) {
                                                 messageColor = 'text-orange-600';
                                                 if (isMissingConsultant && isMissingType) message = '담당자 및 구분 등록 정보 확인 필요';
-                                                else if (isMissingConsultant) message = '담당자 등록 정보 확인 필요';
-                                                else if (isMissingType) message = '구분 등록 정보 확인 필요';
+                                                else if (isMissingConsultant) message = '담당자 등록 정보 확인 필요(회원 관리 메뉴에 존재 하지 않음)';
+                                                else if (isMissingType) message = '구분 등록 정보 확인 필요(코드 관리 메뉴에 해당 구분이 존재 하지 않음)';
                                             } else {
                                                 message = '정상 등록';
                                                 messageColor = 'text-emerald-600';
@@ -529,27 +529,59 @@ export default function SchedulesPage() {
                     const monthMatch = sheetName.match(/(\d{1,2})월/);
                     if (monthMatch) fallbackMonth = parseInt(monthMatch[1]) - 1;
 
-                    // Row 0에서 기준 날짜 추출
-                    let baseDate = null;
-                    const firstCell = rawRows[0]?.[0];
-                    if (typeof firstCell === 'number' && firstCell > 40000) {
-                        // 엑셀 시리얼 날짜
-                        baseDate = new Date((firstCell - 25569) * 86400 * 1000);
-                    } else {
-                        // A1이 날짜가 아닌 경우 시트명 정보 활용
-                        baseDate = new Date(fallbackYear, fallbackMonth, 1);
-                        console.log(`ℹ️ ${sheetName}: 시트명 기준 날짜 설정 (${fallbackYear}-${fallbackMonth + 1})`);
+                    // Row 0의 모든 셀을 검사하여 년/월 정보 추출 (엑셀 내 텍스트가 시트명보다 우선순위 높음)
+                    let baseYear = fallbackYear;
+                    let baseMonth = fallbackMonth;
+                    let headerFound = false;
+
+                    const firstRow = rawRows[0] || [];
+                    for (let i = 0; i < firstRow.length; i++) {
+                        const cell = firstRow[i];
+                        if (!cell) continue;
+
+                        if (typeof cell === 'number' && cell > 40000) {
+                            // 엑셀 시리얼 날짜 (예: 46082 -> 2026-03-01)
+                            const d = new Date((cell - 25569) * 86400 * 1000);
+                            baseYear = d.getFullYear();
+                            baseMonth = d.getMonth();
+                            headerFound = true;
+                            break;
+                        } else if (typeof cell === 'string') {
+                            // 문자열 검색 (예: "2026년 3월")
+                            const ymMatch = cell.match(/(\d{4})년\s*(\d{1,2})월/);
+                            if (ymMatch) {
+                                baseYear = parseInt(ymMatch[1]);
+                                baseMonth = parseInt(ymMatch[2]) - 1;
+                                headerFound = true;
+                                break;
+                            }
+                            // 년도만 있는 경우
+                            const yMatch = cell.match(/(\d{4})년/);
+                            if (yMatch) {
+                                baseYear = parseInt(yMatch[1]);
+                                headerFound = true;
+                            }
+                            // 월만 있는 경우
+                            const mMatch = cell.match(/(\d{1,2})월/);
+                            if (mMatch) {
+                                baseMonth = parseInt(mMatch[1]) - 1;
+                                headerFound = true;
+                            }
+                            if (headerFound) break;
+                        }
                     }
+
+                    const baseDate = new Date(baseYear, baseMonth, 1);
 
                     if (!baseDate || isNaN(baseDate.getTime())) {
                         console.log(`⚠️ ${sheetName}: 기준 날짜를 찾을 수 없음 (A1 셀이 날짜 형식이 아니고 시트명에도 '월'이 포함되지 않음), 스킵`);
                         return;
                     }
 
-                    const baseMonth = baseDate.getMonth();
-                    const baseYearFromDate = baseDate.getFullYear();
+                    const confirmedMonth = baseDate.getMonth();
+                    const confirmedYear = baseDate.getFullYear();
 
-                    console.log(`📅 ${sheetName}: 기준 날짜 확정 ${baseYearFromDate}-${baseMonth + 1}`);
+                    console.log(`📅 ${sheetName}: 스케줄 기준 년월 확정 -> ${confirmedYear}년 ${confirmedMonth + 1}월 (출처: ${headerFound ? '헤더셀' : '시트명/현재시간'})`);
 
                     // 현재 주의 날짜 정보 (0~5열이 월~토에 해당)
                     let currentWeekDates = [null, null, null, null, null, null];
@@ -586,8 +618,8 @@ export default function SchedulesPage() {
                                     const hours = timeParts[0];
                                     const minutes = timeParts[1];
 
-                                    // 날짜 생성
-                                    const scheduleDate = new Date(baseYearFromDate, baseMonth, day, hours, minutes, 0, 0);
+                                    // 날짜 생성 (확정된 년, 월 사용)
+                                    const scheduleDate = new Date(confirmedYear, confirmedMonth, day, hours, minutes, 0, 0);
 
                                     // ISO 문자열로 변환 (로컬 시간 기준 정규화)
                                     // 분 단위까지만 저장하여 매칭 정확도 향상
@@ -654,7 +686,7 @@ export default function SchedulesPage() {
 
                     if (uploadMode === 'merge') {
                         // 머지 모드: 변경 추적
-                        const mergeResult = mergeSchedules(allSchedules, false);
+                        const mergeResult = await mergeSchedules(allSchedules, false);
                         resultMsg = `📊 엑셀 업로드 완료!\n\n` +
                             `✅ 새로 추가: ${mergeResult.added.length}건\n` +
                             `🔄 변경됨: ${mergeResult.updated.length}건\n` +
@@ -674,7 +706,7 @@ export default function SchedulesPage() {
                         setActiveTab('log');
                     } else {
                         // 전체 교체 모드
-                        const mergeResult = mergeSchedules(allSchedules, true);
+                        const mergeResult = await mergeSchedules(allSchedules, true);
                         resultMsg = `📊 엑셀 업로드 완료!\n\n` +
                             `✅ 새로 등록: ${mergeResult.added.length}건\n` +
                             `🗑️ 기존 삭제: ${mergeResult.deleted.length}건`;

@@ -226,27 +226,47 @@ export function DataProvider({ children }) {
         return await batch.commit();
     };
 
-    const mergeSchedules = (newSchedules, replaceAll = false) => {
+    const mergeSchedules = async (newSchedules, replaceAll = false) => {
         const result = { added: [], updated: [], deleted: [], unchanged: [] };
+        const schedulesRef = collection(db, 'schedules');
+        const batch = DISABLE_FIRESTORE ? null : writeBatch(db);
+
         if (replaceAll) {
             result.deleted = [...schedules];
             result.added = newSchedules.map(s => ({
-                ...s, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+                ...s,
+                id: DISABLE_FIRESTORE ? `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
             }));
-            setSchedules(result.added.sort((a, b) => new Date(a.date) - new Date(b.date)));
+
+            if (DISABLE_FIRESTORE) {
+                setSchedules(result.added.sort((a, b) => new Date(a.date) - new Date(b.date)));
+            } else if (batch) {
+                // 이미 onSnapshot으로 관리 중인 'schedules' 상태 이용 (읽기 비용 발생 안함)
+                schedules.forEach(s => {
+                    batch.delete(doc(db, 'schedules', s.id));
+                });
+
+                newSchedules.forEach(data => {
+                    const newDocRef = doc(schedulesRef);
+                    batch.set(newDocRef, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                });
+
+                await batch.commit();
+            }
         } else {
             const existingMap = new Map();
             schedules.forEach(s => existingMap.set(generateScheduleKey(s), s));
             const newMap = new Map();
             const processed = [];
+
             newSchedules.forEach(newSched => {
                 const key = generateScheduleKey(newSched);
                 newMap.set(key, newSched);
-                if (existingMap.has(key)) {
-                    // 기존 스케줄이 있음 - 변경 여부 확인 (기본 정보 제외한 모든 실질 데이터 체크)
-                    const existing = existingMap.get(key);
 
+                if (existingMap.has(key)) {
+                    const existing = existingMap.get(key);
                     const normalizeStr = (s) => (s || '').toString().trim();
 
                     const hasChanges =
@@ -264,24 +284,52 @@ export function DataProvider({ children }) {
                         };
                         result.updated.push({ before: existing, after: updated });
                         processed.push(updated);
+
+                        if (batch) {
+                            const ref = doc(db, 'schedules', existing.id);
+                            const cleanUpdate = { ...newSched, updatedAt: serverTimestamp() };
+                            batch.update(ref, cleanUpdate);
+                        }
                     } else {
                         result.unchanged.push(existing);
                         processed.push(existing);
                     }
                 } else {
-                    const added = { ...newSched, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+                    const added = {
+                        ...newSched,
+                        id: DISABLE_FIRESTORE ? `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : null,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
                     result.added.push(added);
                     processed.push(added);
+
+                    if (batch) {
+                        const newDocRef = doc(schedulesRef);
+                        batch.set(newDocRef, { ...newSched, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                    }
                 }
             });
+
             schedules.forEach(existing => {
-                if (!newMap.has(generateScheduleKey(existing))) result.deleted.push(existing);
+                if (!newMap.has(generateScheduleKey(existing))) {
+                    result.deleted.push(existing);
+                    if (batch) {
+                        batch.delete(doc(db, 'schedules', existing.id));
+                    }
+                }
             });
-            setSchedules(processed.sort((a, b) => new Date(a.date) - new Date(b.date)));
+
+            if (DISABLE_FIRESTORE) {
+                setSchedules(processed.sort((a, b) => new Date(a.date) - new Date(b.date)));
+            } else if (batch) {
+                await batch.commit();
+                // onSnapshot이 있으므로 setSchedules는 생략
+            }
         }
 
         // 변경 이력 기록 (상세 내역 포함)
-        if (!replaceAll) {
+        if (!replaceAll && (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0)) {
             const logData = {
                 type: 'MERGE',
                 summary: {
@@ -301,10 +349,10 @@ export function DataProvider({ children }) {
             if (DISABLE_FIRESTORE) {
                 setChangeLog(prev => [{ id: Date.now(), ...logData }, ...prev]);
             } else {
-                addDoc(collection(db, 'change_logs'), {
+                await addDoc(collection(db, 'change_logs'), {
                     ...logData,
                     createdAt: serverTimestamp()
-                }).catch(err => console.error('Log save failed:', err));
+                });
             }
         }
 
