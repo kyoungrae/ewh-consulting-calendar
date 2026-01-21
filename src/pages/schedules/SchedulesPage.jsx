@@ -38,26 +38,35 @@ const formatters = {
 // 변경 이력 아이템 컴포넌트 (개선된 UI)
 function LogItem({ log, index }) {
     const [isExpanded, setIsExpanded] = useState(index === 0);
+    const [subExpanded, setSubExpanded] = useState({
+        added: true,
+        deleted: true,
+        warning: true
+    });
+
     const { summary, details } = log;
     const totalChanges = summary.added + summary.updated + summary.deleted;
 
-    // 변경 유형별 아이콘 및 컬러 매핑
-    const getChangeTypeInfo = (type) => {
-        switch (type) {
-            case 'added': return { label: '추가됨', color: 'text-emerald-600 bg-emerald-50 border-emerald-100', icon: '🟢' };
-            case 'updated': return { label: '수정됨', color: 'text-amber-600 bg-amber-50 border-amber-100', icon: '🟠' };
-            case 'deleted': return { label: '삭제됨', color: 'text-rose-600 bg-rose-50 border-rose-100', icon: '🔴' };
-            default: return { label: '', color: 'text-gray-500', icon: '' };
-        }
+    const toggleSub = (key) => {
+        setSubExpanded(prev => ({ ...prev, [key]: !prev[key] }));
     };
+
+    // ... (logic for added/updated list)
+    const addedUpdatedSchedules = [...(details.added || []), ...(details.updated || []).map(u => u.after)]
+        .filter(s => !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode);
+
+    const warningSchedules = [...(details.added || []), ...(details.updated || []).map(u => u.after)]
+        .filter(s => s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode);
 
     return (
         <div className={`group border transition-all duration-200 rounded-xl bg-white overflow-hidden mb-8 ${isExpanded ? 'border-[#00462A] shadow-md ring-1 ring-[#00462A]/10' : 'border-gray-200 shadow-sm hover:border-gray-300'}`} style={{ padding: "10px" }}>
             {/* Header */}
             <div
+                style={{ padding: "5px" }}
                 className={`flex items-center justify-between p-5 cursor-pointer select-none ${isExpanded ? 'bg-gray-50/50' : 'bg-white hover:bg-gray-50'}`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
+                {/* ... (Header Content) */}
                 <div className="flex items-center gap-5">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${isExpanded ? 'bg-[#00462A] text-white shadow-lg shadow-[#00462A]/20' : 'bg-gray-100 text-gray-500 group-hover:bg-[#00462A]/10 group-hover:text-[#00462A]'}`}>
                         <FileText size={20} className={isExpanded ? 'scale-110' : ''} />
@@ -65,7 +74,7 @@ function LogItem({ log, index }) {
                     <div>
                         <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-bold text-gray-900 text-lg">엑셀 일정 업로드</h3>
-                            {index === 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold tracking-tight">NEW</span>}
+                            {index === 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold tracking-tight" style={{ padding: "5px" }}>NEW</span>}
                         </div>
                         <p className="text-sm text-gray-500 font-medium">{formatters.timestamp(log.timestamp)}</p>
                     </div>
@@ -74,29 +83,29 @@ function LogItem({ log, index }) {
                 <div className="flex items-center gap-6">
                     <div className="flex gap-2">
                         {summary.added > 0 && (
-                            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold flex items-center gap-1.5">
+                            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold flex items-center gap-1.5" style={{ padding: "10px" }}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                +{summary.added} 추가
+                                추가 (+{summary.added})
                             </div>
                         )}
                         {summary.updated > 0 && (
-                            <div className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs font-bold flex items-center gap-1.5">
+                            <div className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs font-bold flex items-center gap-1.5" style={{ padding: "10px" }}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                                 {summary.updated} 수정
                             </div>
                         )}
                         {summary.deleted > 0 && (
-                            <div className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5">
+                            <div className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5" style={{ padding: "10px" }}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                                -{summary.deleted} 삭제
+                                삭제 (-{summary.deleted})
                             </div>
                         )}
-                        {(details?.added?.some(s => s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode) ||
-                            details?.updated?.some(u => u.after.consultantId?.startsWith('unknown_') || u.after.typeName === u.after.typeCode)) && (
-                                <div className="px-3 py-1.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-700 text-xs font-bold flex items-center gap-1.5">
-                                    ⚠️ 정보 확인 필요
-                                </div>
-                            )}
+                        {warningSchedules.length > 0 && (
+                            <div className="px-3 py-1.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-700 text-xs font-bold flex items-center gap-1.5" style={{ padding: "10px" }}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                정보 확인 필요 ({warningSchedules.length})
+                            </div>
+                        )}
                         {totalChanges === 0 && (
                             <span className="text-sm text-gray-400 font-medium bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">변경사항 없음</span>
                         )}
@@ -112,28 +121,37 @@ function LogItem({ log, index }) {
                 <div className="border-t border-gray-100 bg-white animate-fade-in divide-y divide-gray-100">
 
                     {/* 1. 정상 추가/변경 된 일정 (Green) */}
-                    {([...(details.added || []), ...(details.updated || []).map(u => u.after)]
-                        .filter(s => !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode).length > 0) && (
-                            <div className="p-6 bg-emerald-50/5" style={{ padding: "10px" }}>
-                                <h4 className="flex items-center gap-2.5 text-sm font-bold text-emerald-800 mb-4 px-1" style={{ padding: "10px" }}>
+                    {addedUpdatedSchedules.length > 0 && (
+                        <div className="bg-emerald-50/5 overflow-hidden">
+                            <button
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => toggleSub('added')}
+                                className="w-full flex items-center justify-between p-4 px-6 hover:bg-emerald-50/30 transition-colors group/sub"
+                            >
+                                <div className="flex items-center gap-2.5 text-sm font-bold text-emerald-800" style={{ padding: "10px" }}>
+                                    <div className={`transition-transform duration-200 ${subExpanded.added ? 'rotate-90' : ''}`}>
+                                        <ChevronRight size={18} className="text-emerald-400" />
+                                    </div>
                                     <div className="p-1 rounded bg-emerald-100 text-emerald-600"><Plus size={14} strokeWidth={3} /></div>
-                                    새로 추가/변경된 일정 <span className="text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-emerald-100">정상 처리</span>
-                                </h4>
-                                <div className="overflow-x-auto rounded-xl border border-emerald-100 bg-emerald-50/30" style={{ padding: "0" }}>
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-emerald-50/80 text-xs text-emerald-600 uppercase font-semibold border-b border-emerald-100">
-                                            <tr>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>일자</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>시간</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>구분</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>담당</th>
-                                                <th className="px-6 py-4 text-left" style={{ color: '#059669', padding: "10px" }}>사유</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-emerald-100 bg-white">
-                                            {[...(details.added || []), ...(details.updated || []).map(u => u.after)]
-                                                .filter(s => !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode)
-                                                .map((s, i) => (
+                                    새로 추가/변경된 일정 <span className="text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-emerald-100" style={{ padding: "5px" }}>정상 처리 ({addedUpdatedSchedules.length})</span>
+                                </div>
+                            </button>
+
+                            {subExpanded.added && (
+                                <div className="p-6 pt-0" style={{ padding: "10px", paddingTop: "0" }}>
+                                    <div className="overflow-x-auto rounded-xl border border-emerald-100 bg-emerald-50/30">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-emerald-50/80 text-xs text-emerald-600 uppercase font-semibold border-b border-emerald-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>일자</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>시간</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>구분</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>담당</th>
+                                                    <th className="px-6 py-4 text-left" style={{ color: '#059669', padding: "10px" }}>사유</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-emerald-100 bg-white">
+                                                {addedUpdatedSchedules.map((s, i) => (
                                                     <tr key={i} className="hover:bg-emerald-50/50 transition-colors">
                                                         <td className="px-6 py-4 font-medium text-emerald-900 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.scheduleDate(s.date)}</td>
                                                         <td className="px-6 py-4 text-emerald-600/70 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.time(s.date)}</td>
@@ -146,73 +164,98 @@ function LogItem({ log, index }) {
                                                         <td className="px-6 py-4 text-emerald-600 text-xs font-semibold" style={{ color: '#059669', padding: "10px" }}>정상 등록</td>
                                                     </tr>
                                                 ))}
-                                        </tbody>
-                                    </table>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-
-                    {/* 2. 삭제된 일정 (Red) */}
-                    {details?.deleted?.length > 0 && (
-                        <div className="p-6 bg-rose-50/5" style={{ padding: "10px" }}>
-                            <h4 className="flex items-center gap-2.5 text-sm font-bold text-gray-800 mb-4 px-1" style={{ padding: "10px" }}>
-                                <div className="p-1 rounded bg-rose-100 text-rose-600"><Trash2 size={14} strokeWidth={3} /></div>
-                                삭제된 일정 <span className="text-rose-600 text-xs bg-rose-50 px-2 py-0.5 rounded-full ml-1 font-bold">{details.deleted.length}건</span>
-                            </h4>
-                            <div className="overflow-x-auto rounded-xl border border-rose-100 bg-rose-50/30" style={{ padding: "0" }}>
-                                <table className="w-full text-sm">
-                                    <thead className="bg-rose-50/80 text-xs text-rose-600 uppercase font-semibold border-b border-rose-100">
-                                        <tr>
-                                            <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>일자</th>
-                                            <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>시간</th>
-                                            <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>구분</th>
-                                            <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>담당</th>
-                                            <th className="px-6 py-4 text-left" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>사유</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-rose-100 bg-white">
-                                        {details.deleted.map((s, i) => (
-                                            <tr key={i} className="hover:bg-rose-50/50 transition-colors group">
-                                                <td className="px-6 py-4 font-medium text-rose-800 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{formatters.scheduleDate(s.date)}</td>
-                                                <td className="px-6 py-4 text-rose-600/70 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{formatters.time(s.date)}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>
-                                                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-600 border border-rose-100 line-through">
-                                                        {s.typeName || s.typeCode}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{s.consultantName}</td>
-                                                <td className="px-6 py-4 text-rose-400 text-xs italic line-through" style={{ padding: "10px" }}>엑셀 명단에 없음</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                            )}
                         </div>
                     )}
 
-                    {/* 3. 추가 되지 않은 일정 (Orange - 확인 필요) */}
-                    {([...(details.added || []), ...(details.updated || []).map(u => u.after)]
-                        .filter(s => s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode).length > 0) && (
-                            <div className="p-6 bg-orange-50/5" style={{ padding: "10px" }}>
-                                <h4 className="flex items-center gap-2.5 text-sm font-bold text-gray-800 mb-4 px-1" style={{ padding: "10px" }}>
+                    {/* 2. 삭제된 일정 (Red) */}
+                    {details?.deleted?.length > 0 && (
+                        <div className="bg-rose-50/5 overflow-hidden">
+                            <button
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => toggleSub('deleted')}
+                                className="w-full flex items-center justify-between p-4 px-6 hover:bg-rose-50/30 transition-colors group/sub"
+                            >
+                                <div className="flex items-center gap-2.5 text-sm font-bold text-rose-600" style={{ padding: "10px" }}>
+                                    <div className={`transition-transform duration-200 ${subExpanded.deleted ? 'rotate-90' : ''}`}>
+                                        <ChevronRight size={18} className="text-rose-400" />
+                                    </div>
+                                    <div className="p-1 rounded bg-rose-100 text-rose-600"><Trash2 size={14} strokeWidth={3} /></div>
+                                    삭제된 일정 <span className="text-rose-600 text-xs bg-rose-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-rose-100" style={{ padding: "5px" }}>{details.deleted.length}건</span>
+                                </div>
+                            </button>
+
+                            {subExpanded.deleted && (
+                                <div className="p-6 pt-0" style={{ padding: "10px", paddingTop: "0" }}>
+                                    <div className="overflow-x-auto rounded-xl border border-rose-100 bg-rose-50/30">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-rose-50/80 text-xs text-rose-600 uppercase font-semibold border-b border-rose-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>일자</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>시간</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>구분</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>담당</th>
+                                                    <th className="px-6 py-4 text-left" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>사유</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-rose-100 bg-white">
+                                                {details.deleted.map((s, i) => (
+                                                    <tr key={i} className="hover:bg-rose-50/50 transition-colors group">
+                                                        <td className="px-6 py-4 font-medium text-rose-800 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{formatters.scheduleDate(s.date)}</td>
+                                                        <td className="px-6 py-4 text-rose-600/70 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{formatters.time(s.date)}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>
+                                                            <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-600 border border-rose-100 line-through">
+                                                                {s.typeName || s.typeCode}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-gray-600 line-through whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-rose-600) 70%, transparent)', }}>{s.consultantName}</td>
+                                                        <td className="px-6 py-4 text-rose-400 text-xs italic line-through" style={{ padding: "10px" }}>엑셀 명단에 없음</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 3. 일정은 추가되었지만 추가되지 않은 데이터 존재 (Orange) */}
+                    {warningSchedules.length > 0 && (
+                        <div className="bg-orange-50/5 overflow-hidden">
+                            <button
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => toggleSub('warning')}
+                                className="w-full flex items-center justify-between p-4 px-6 hover:bg-orange-50/30 transition-colors group/sub"
+                            >
+                                <div className="flex items-center gap-2.5 text-sm font-bold text-orange-600" style={{ padding: "10px" }}>
+                                    <div className={`transition-transform duration-200 ${subExpanded.warning ? 'rotate-90' : ''}`}>
+                                        <ChevronRight size={18} className="text-orange-400" />
+                                    </div>
                                     <div className="p-1 rounded bg-orange-100 text-orange-600"><AlertCircle size={14} strokeWidth={3} /></div>
-                                    추가 되지 않은 일정 <span className="text-orange-600 text-xs bg-orange-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-orange-200">데이터 불일치</span>
-                                </h4>
-                                <div className="overflow-x-auto rounded-xl border border-orange-200 bg-orange-50/30" style={{ padding: "0" }}>
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-orange-50/80 text-xs text-orange-600 uppercase font-semibold border-b border-orange-200">
-                                            <tr>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>일자</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>시간</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>구분</th>
-                                                <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>담당</th>
-                                                <th className="px-6 py-4 text-left" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>사유</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-orange-100 bg-white">
-                                            {[...(details.added || []), ...(details.updated || []).map(u => u.after)]
-                                                .filter(s => s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode)
-                                                .map((s, i) => {
+                                    일정은 추가되었지만 추가되지 않은 데이터 존재 <span className="text-orange-600 text-xs bg-orange-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-orange-200" style={{ padding: "5px" }}>확인 필요 ({warningSchedules.length})</span>
+                                </div>
+                            </button>
+
+                            {subExpanded.warning && (
+                                <div className="p-6 pt-0" style={{ padding: "10px", paddingTop: "0" }}>
+                                    <div className="overflow-x-auto rounded-xl border border-orange-200 bg-orange-50/30">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-orange-50/80 text-xs text-orange-600 uppercase font-semibold border-b border-orange-200">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>일자</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>시간</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>구분</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>담당</th>
+                                                    <th className="px-6 py-4 text-left" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>사유</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-orange-100 bg-white">
+                                                {warningSchedules.map((s, i) => {
                                                     const isMissingUser = s.consultantId?.startsWith('unknown_');
                                                     const isMissingType = s.typeName === s.typeCode;
                                                     return (
@@ -220,24 +263,26 @@ function LogItem({ log, index }) {
                                                             <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>{formatters.scheduleDate(s.date)}</td>
                                                             <td className="px-6 py-4 text-gray-600/70 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>{formatters.time(s.date)}</td>
                                                             <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>
-                                                                <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium border ${isMissingType ? 'bg-gray-50 text-gray-600 border-gray-100 line-through' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                                <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium border ${isMissingType ? 'bg-orange-50/50 text-gray-500 border-gray-100 line-through' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
                                                                     {s.typeName}
                                                                 </span>
                                                             </td>
-                                                            <td className={`px-6 py-4 font-medium whitespace-nowrap ${isMissingUser ? 'line-through' : 'text-orange-700'}`} style={{ padding: "10px" }}>
+                                                            <td className={`px-6 py-4 font-medium whitespace-nowrap ${isMissingUser ? 'text-gray-500 line-through' : 'text-orange-700'}`} style={{ padding: "10px" }}>
                                                                 {s.consultantName}
                                                             </td>
-                                                            <td className="px-6 py-4 text-orange-500 text-xs font-semibold italic" style={{ padding: "10px" }}>
-                                                                {isMissingUser && isMissingType ? '미등록 상담사 및 유형' : isMissingUser ? '미등록 상담사(정보 확인 필요)' : '미등록 유형(코드 확인 필요)'}
+                                                            <td className="px-6 py-4 text-orange-600 text-[11px] font-semibold italic" style={{ padding: "10px" }}>
+                                                                {isMissingUser && isMissingType ? '미등록 상담사 및 유형 (일정 등록됨)' : isMissingUser ? '미등록 상담사 (일정 등록됨)' : '미등록 유형 (일정 등록됨)'}
                                                             </td>
                                                         </tr>
                                                     );
                                                 })}
-                                        </tbody>
-                                    </table>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -769,7 +814,7 @@ export default function SchedulesPage() {
                     >
                         <Calendar size={16} strokeWidth={2.5} />
                         전체 일정 목록
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'list' ? 'bg-[#00462A]/10 text-[#00462A]' : 'bg-gray-200 text-gray-500'}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'list' ? 'bg-[#00462A]/10 text-[#00462A]' : 'bg-gray-200 text-gray-500'}`} style={{ padding: "5px", borderRadius: "50%" }}>
                             {schedules.length}
                         </span>
                     </button>

@@ -110,6 +110,7 @@ export function DataProvider({ children }) {
                 { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy' },
                 { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys' },
                 { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana' },
+                { uid: 'user_bhn', name: '범하나', role: 'consultant', userId: 'bhan' },
                 { uid: 'user_lsh', name: '이상환', role: 'consultant', userId: 'lsh' },
                 { uid: 'user_ksh', name: '김세희', role: 'consultant', userId: 'ksh' },
                 { uid: 'user_kmk', name: '김민경', role: 'consultant', userId: 'kmk' },
@@ -118,12 +119,13 @@ export function DataProvider({ children }) {
                 { uid: 'user_sjw', name: '성지우', role: 'consultant', userId: 'sjw' },
                 { uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi' },
                 { uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa' },
+                { uid: 'user_ywh', name: '최윤호', role: 'consultant', userId: 'ywh' },
                 { uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws' },
                 { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin', status: 'approved' },
                 { uid: 'user_kjh', name: '김지현', role: 'consultant', userId: 'kjh' },
                 { uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs' },
-                { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy' },
-                { uid: 'user_jms', name: '지명선', role: 'consultant', userId: 'jms' },
+                // { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy' },
+                // { uid: 'user_jms', name: '지명선', role: 'consultant', userId: 'jms' },
                 { uid: 'user_mhj', name: '민현정', role: 'consultant', userId: 'mhj' }
             ]);
             setUsersLoading(false);
