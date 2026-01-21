@@ -141,6 +141,7 @@ export default function CalendarPage() {
         return filteredSchedules.map(schedule => {
             const typeCode = codes.find(c => c.code === schedule.typeCode);
             const consultant = users.find(u => u.uid === schedule.consultantId);
+            const consultantName = consultant?.name || schedule.consultantName || '미배정';
             const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
 
             const date = new Date(schedule.date);
@@ -150,7 +151,7 @@ export default function CalendarPage() {
 
             return {
                 id: schedule.id,
-                title: `${timeStr} ${typeCode?.name || '미분류'} (${consultant?.name || '미배정'})`,
+                title: `${timeStr} ${typeCode?.name || '미분류'} (${consultantName})`,
                 start: schedule.date,
                 end: schedule.endDate || schedule.date,
                 backgroundColor: chipStyle.bg,
@@ -159,7 +160,7 @@ export default function CalendarPage() {
                 extendedProps: {
                     ...schedule,
                     typeName: typeCode?.name,
-                    consultantName: consultant?.name,
+                    consultantName: consultantName,
                     chipStyle: chipStyle
                 }
             };
