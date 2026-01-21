@@ -649,17 +649,13 @@ export default function SchedulesPage() {
                                     // 코드 매칭 (더미 코드 사용)
                                     const normType = normalize(typeName);
                                     const typeCodeObj = codes.find(c =>
-                                        normalize(c.name) === normType ||
-                                        normalize(c.name).includes(normType) ||
-                                        normType.includes(normalize(c.name))
+                                        normalize(c.name) === normType
                                     );
 
-                                    // 컨설턴트 매칭 (더미 유저 사용)
+                                    // 컨설턴터 매칭 (정확히 일치하는 이름 찾기)
                                     const normUser = normalize(consultantName);
                                     const consultantObj = users.find(u =>
-                                        normalize(u.name) === normUser ||
-                                        normalize(u.name).includes(normUser) ||
-                                        normUser.includes(normalize(u.name))
+                                        normalize(u.name) === normUser
                                     );
 
                                     totalParsed++;
@@ -669,7 +665,7 @@ export default function SchedulesPage() {
                                             date: dateStr,
                                             typeCode: typeCodeObj.code,
                                             typeName: typeCodeObj.name,
-                                            consultantId: consultantObj?.uid || `unknown_${normalize(consultantName)}`,
+                                            consultantId: consultantObj?.uid || consultantObj?.id || `unknown_${normalize(consultantName)}`,
                                             consultantName: consultantName.trim(),
                                             location: note || '',
                                             memo: note || ''
@@ -680,7 +676,7 @@ export default function SchedulesPage() {
                                             date: dateStr,
                                             typeCode: typeName.trim(),
                                             typeName: typeName.trim(),
-                                            consultantId: consultantObj?.uid || `unknown_${normalize(consultantName)}`,
+                                            consultantId: consultantObj?.uid || consultantObj?.id || `unknown_${normalize(consultantName)}`,
                                             consultantName: consultantName.trim(),
                                             location: note || '',
                                             memo: note || ''
