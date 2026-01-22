@@ -1,9 +1,8 @@
-import { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
     collection,
     query,
     orderBy,
-    onSnapshot,
     addDoc,
     updateDoc,
     deleteDoc,
@@ -11,7 +10,8 @@ import {
     getDocs,
     serverTimestamp,
     where,
-    writeBatch
+    writeBatch,
+    limit
 } from 'firebase/firestore';
 import { db, DISABLE_FIRESTORE } from '../firebase/config';
 
@@ -33,6 +33,7 @@ function generateScheduleKey(schedule) {
     const type = (schedule.typeCode || schedule.type || '').toString().trim();
     return `${dateStr}_${consultant}_${type}`;
 }
+
 export function DataProvider({ children }) {
     // DataProvider State
     const [schedules, setSchedules] = useState([]);
@@ -51,10 +52,11 @@ export function DataProvider({ children }) {
     const [codesLoading, setCodesLoading] = useState(true);
     const [codesError, setCodesError] = useState(null);
 
-    // --- Listeners Setup ---
+    // --- Fetch Functions (getDocs) ---
 
-    // 1. Schedules Listener
-    useEffect(() => {
+    // 1. Fetch Schedules
+    const fetchSchedules = useCallback(async () => {
+        setSchedulesLoading(true);
         if (DISABLE_FIRESTORE) {
             const dummySchedules = [
                 { id: 'dev_1', date: '2026-01-05T10:30:00', consultantId: 'user_kjh', typeCode: 'EDU', location: '비대면 (Zoom)', memo: '진로 설정 상담' },
@@ -68,42 +70,49 @@ export function DataProvider({ children }) {
                 { id: 'dev_9', date: '2026-02-02T10:30:00', consultantId: 'user_sys', typeCode: 'EDU', location: '비대면 (줌)', memo: '신학기 진로 로드맵' },
                 { id: 'dev_10', date: '2026-02-05T14:00:00', consultantId: 'user_kjh', typeCode: 'RES', location: 'ECC B215', memo: '실전 면접 코칭' }
             ];
-            setSchedules(dummySchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
+            // 더미 데이터가 계속 추가되는 것을 막기 위해 초기 로딩 시에만 설정하거나, 
+            // setSchedules(prev => prev.length ? prev : dummySchedules); 같은 처리가 필요하지만
+            // 여기선 단순화를 위해 항상 초기화 (로컬 개발용)
+            if (schedules.length === 0) {
+                setSchedules(dummySchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
+            }
             setSchedulesLoading(false);
         } else {
-            const unsub = onSnapshot(query(collection(db, 'schedules'), orderBy('date', 'asc')),
-                snapshot => {
-                    setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    setSchedulesLoading(false);
-                }, err => {
-                    setSchedulesError(err.message);
-                    setSchedulesLoading(false);
-                }
-            );
-            return () => unsub();
+            try {
+                // 필요하다면 여기서 where('date', '>=', '2026-01-01') 등을 추가하여 범위를 제한할 수 있음
+                const q = query(collection(db, 'schedules'), orderBy('date', 'asc'));
+                const snapshot = await getDocs(q);
+                setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                setSchedulesLoading(false);
+            } catch (err) {
+                setSchedulesError(err.message);
+                setSchedulesLoading(false);
+            }
         }
-    }, []);
+    }, []); // 의존성 없음 (최초 정의)
 
-    // 2. Change Logs Listener (History)
-    useEffect(() => {
+    // 2. Fetch Logs
+    const fetchLogs = useCallback(async () => {
+        setLogsLoading(true);
         if (DISABLE_FIRESTORE) {
             setLogsLoading(false);
         } else {
-            const unsub = onSnapshot(query(collection(db, 'change_logs'), orderBy('timestamp', 'desc')),
-                snapshot => {
-                    setChangeLog(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    setLogsLoading(false);
-                }, err => {
-                    console.error('Logs Error:', err);
-                    setLogsLoading(false);
-                }
-            );
-            return () => unsub();
+            try {
+                // 최신 30개만 가져오도록 제한 (읽기 비용 절감 핵심)
+                const q = query(collection(db, 'change_logs'), orderBy('timestamp', 'desc'), limit(30));
+                const snapshot = await getDocs(q);
+                setChangeLog(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                setLogsLoading(false);
+            } catch (err) {
+                console.error('Logs Error:', err);
+                setLogsLoading(false);
+            }
         }
     }, []);
 
-    useEffect(() => {
-        // --- Users Listener ---
+    // 3. Fetch Users
+    const fetchUsers = useCallback(async () => {
+        setUsersLoading(true);
         if (DISABLE_FIRESTORE) {
             setUsers([
                 { uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin' },
@@ -130,20 +139,21 @@ export function DataProvider({ children }) {
             ]);
             setUsersLoading(false);
         } else {
-            const usersRef = collection(db, 'users');
-            const unsubscribe = onSnapshot(query(usersRef), (snapshot) => {
+            try {
+                const usersRef = collection(db, 'users');
+                const snapshot = await getDocs(query(usersRef));
                 setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setUsersLoading(false);
-            }, (err) => {
+            } catch (err) {
                 setUsersError(err.message);
                 setUsersLoading(false);
-            });
-            return () => unsubscribe();
+            }
         }
     }, []);
 
-    useEffect(() => {
-        // --- Codes Listener ---
+    // 4. Fetch Codes
+    const fetchCodes = useCallback(async () => {
+        setCodesLoading(true);
         if (DISABLE_FIRESTORE) {
             setCodes([
                 { code: 'WELCOME', name: '웰컴세션', color: '#e1f5fe', borderColor: '#03a9f4' },
@@ -158,18 +168,27 @@ export function DataProvider({ children }) {
             ]);
             setCodesLoading(false);
         } else {
-            const codesRef = collection(db, 'common_codes');
-            const q = query(codesRef, orderBy('code', 'asc'));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
+            try {
+                const codesRef = collection(db, 'common_codes');
+                const q = query(codesRef, orderBy('code', 'asc'));
+                const snapshot = await getDocs(q);
                 setCodes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setCodesLoading(false);
-            }, (err) => {
+            } catch (err) {
                 setCodesError(err.message);
                 setCodesLoading(false);
-            });
-            return () => unsubscribe();
+            }
         }
     }, []);
+
+    // --- Effects (Initial Load) ---
+    useEffect(() => {
+        fetchSchedules();
+        fetchLogs();
+        fetchUsers();
+        fetchCodes();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // 최초 1회만 실행
 
     // --- Actions ---
 
@@ -186,7 +205,9 @@ export function DataProvider({ children }) {
             return newSchedule;
         }
         const schedulesRef = collection(db, 'schedules');
-        return await addDoc(schedulesRef, { ...scheduleData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        const res = await addDoc(schedulesRef, { ...scheduleData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        fetchSchedules(); // 데이터 갱신
+        return res;
     };
 
     const updateSchedule = async (id, scheduleData) => {
@@ -196,7 +217,9 @@ export function DataProvider({ children }) {
             return { id, ...scheduleData };
         }
         const scheduleRef = doc(db, 'schedules', id);
-        return await updateDoc(scheduleRef, { ...scheduleData, updatedAt: serverTimestamp() });
+        const res = await updateDoc(scheduleRef, { ...scheduleData, updatedAt: serverTimestamp() });
+        fetchSchedules(); // 데이터 갱신
+        return res;
     };
 
     const deleteSchedule = async (id) => {
@@ -207,7 +230,9 @@ export function DataProvider({ children }) {
             return { id };
         }
         const scheduleRef = doc(db, 'schedules', id);
-        return await deleteDoc(scheduleRef);
+        const res = await deleteDoc(scheduleRef);
+        fetchSchedules(); // 데이터 갱신
+        return res;
     };
 
     const batchAddSchedules = async (schedulesArray) => {
@@ -225,13 +250,18 @@ export function DataProvider({ children }) {
             const newDocRef = doc(schedulesRef);
             batch.set(newDocRef, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         });
-        return await batch.commit();
+        const res = await batch.commit();
+        fetchSchedules(); // 데이터 갱신
+        return res;
     };
 
     const mergeSchedules = async (newSchedules, replaceAll = false) => {
         const result = { added: [], updated: [], deleted: [], unchanged: [] };
         const schedulesRef = collection(db, 'schedules');
         const batch = DISABLE_FIRESTORE ? null : writeBatch(db);
+
+        // 중요: fetchSchedules를 통해 최신 데이터를 가져온 후 병합 로직 수행 권장하지만, 
+        // 성능을 위해 현재 state인 schedules를 기준으로 판단 (동시성 이슈 가능성 있음)
 
         if (replaceAll) {
             result.deleted = [...schedules];
@@ -245,7 +275,7 @@ export function DataProvider({ children }) {
             if (DISABLE_FIRESTORE) {
                 setSchedules(result.added.sort((a, b) => new Date(a.date) - new Date(b.date)));
             } else if (batch) {
-                // 이미 onSnapshot으로 관리 중인 'schedules' 상태 이용 (읽기 비용 발생 안함)
+                // 현재 로드된 schedules를 모두 삭제
                 schedules.forEach(s => {
                     batch.delete(doc(db, 'schedules', s.id));
                 });
@@ -326,7 +356,6 @@ export function DataProvider({ children }) {
                 setSchedules(processed.sort((a, b) => new Date(a.date) - new Date(b.date)));
             } else if (batch) {
                 await batch.commit();
-                // onSnapshot이 있으므로 setSchedules는 생략
             }
         }
 
@@ -358,6 +387,11 @@ export function DataProvider({ children }) {
             }
         }
 
+        if (!DISABLE_FIRESTORE) {
+            fetchSchedules(); // 스케줄 목록 갱신
+            fetchLogs();      // 로그 목록 갱신
+        }
+
         return result;
     };
 
@@ -370,7 +404,9 @@ export function DataProvider({ children }) {
         if (snapshot.empty) return;
         const batch = writeBatch(db);
         snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        return await batch.commit();
+        const res = await batch.commit();
+        fetchSchedules(); // 데이터 갱신
+        return res;
     };
 
     const updateUser = async (id, userData) => {
@@ -379,7 +415,9 @@ export function DataProvider({ children }) {
             return null;
         }
         const userRef = doc(db, 'users', id);
-        return await updateDoc(userRef, { ...userData, updatedAt: serverTimestamp() });
+        const res = await updateDoc(userRef, { ...userData, updatedAt: serverTimestamp() });
+        fetchUsers(); // 유저 목록 갱신
+        return res;
     };
 
     const deleteUser = async (id) => {
@@ -388,25 +426,33 @@ export function DataProvider({ children }) {
             return null;
         }
         const userRef = doc(db, 'users', id);
-        return await deleteDoc(userRef);
+        const res = await deleteDoc(userRef);
+        fetchUsers(); // 유저 목록 갱신
+        return res;
     };
 
     const addCode = async (codeData) => {
         if (DISABLE_FIRESTORE) return null;
         const codesRef = collection(db, 'common_codes');
-        return await addDoc(codesRef, { ...codeData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        const res = await addDoc(codesRef, { ...codeData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        fetchCodes(); // 코드 목록 갱신
+        return res;
     };
 
     const updateCode = async (id, codeData) => {
         if (DISABLE_FIRESTORE) return null;
         const codeRef = doc(db, 'common_codes', id);
-        return await updateDoc(codeRef, { ...codeData, updatedAt: serverTimestamp() });
+        const res = await updateDoc(codeRef, { ...codeData, updatedAt: serverTimestamp() });
+        fetchCodes(); // 코드 목록 갱신
+        return res;
     };
 
     const deleteCode = async (id) => {
         if (DISABLE_FIRESTORE) return null;
         const codeRef = doc(db, 'common_codes', id);
-        return await deleteDoc(codeRef);
+        const res = await deleteDoc(codeRef);
+        fetchCodes(); // 코드 목록 갱신
+        return res;
     };
 
     const value = {
@@ -435,7 +481,13 @@ export function DataProvider({ children }) {
         updateCode,
         deleteCode,
 
-        logsLoading
+        logsLoading,
+
+        // 수동 리프레시 필요시 사용할 함수들 노출
+        fetchSchedules,
+        fetchLogs,
+        fetchUsers,
+        fetchCodes
     };
 
     return (
