@@ -76,8 +76,8 @@ export default function Sidebar({ isOpen, onClose }) {
                             <Shield size={24} />
                         </div>
                         <div className="sidebar-logo-text">
-                            <h1 className="text-lg font-bold">EWH 컨설팅</h1>
-                            <p className="text-xs opacity-70">관리 시스템</p>
+                            <h1 className="text-lg font-bold">EWHA 컨설팅 일정</h1>
+                            <p className="text-xs opacity-70">관리자 모드</p>
                         </div>
                         {/* Mobile close button */}
                         <button
