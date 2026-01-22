@@ -138,7 +138,57 @@ export default function CalendarPage() {
 
     // FullCalendar 이벤트 형식으로 변환
     const calendarEvents = useMemo(() => {
-        return filteredSchedules.map(schedule => {
+        // 1. 날짜별로 그룹화
+        const eventsByDate = {};
+        filteredSchedules.forEach(schedule => {
+            if (!schedule.date) return;
+            const dateKey = schedule.date.split('T')[0];
+            if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+            eventsByDate[dateKey].push(schedule);
+        });
+
+        const sortedEventObjects = [];
+
+        // 2. 각 날짜별로 정렬 및 구분선 로직 적용
+        Object.keys(eventsByDate).forEach(dateKey => {
+            const dailySchedules = eventsByDate[dateKey];
+
+            // 정렬: 이름(가나다) -> 시간
+            dailySchedules.sort((a, b) => {
+                const consultantA = users.find(u => u.uid === a.consultantId)?.name || a.consultantName || '미배정';
+                const consultantB = users.find(u => u.uid === b.consultantId)?.name || b.consultantName || '미배정';
+
+                // 이름 비교
+                if (consultantA < consultantB) return -1;
+                if (consultantA > consultantB) return 1;
+
+                // 이름이 같으면 시간 비교
+                return new Date(a.date) - new Date(b.date);
+            });
+
+            // 구분선 마킹
+            dailySchedules.forEach((schedule, index) => {
+                let needsSeparator = false;
+                if (index > 0) {
+                    const prev = dailySchedules[index - 1];
+                    const prevName = users.find(u => u.uid === prev.consultantId)?.name || prev.consultantName || '미배정';
+                    const currName = users.find(u => u.uid === schedule.consultantId)?.name || schedule.consultantName || '미배정';
+
+                    if (prevName !== currName) {
+                        needsSeparator = true;
+                    }
+                }
+
+                sortedEventObjects.push({
+                    schedule,
+                    sortIndex: index, // 같은 날짜 내에서의 정렬 순서
+                    needsSeparator
+                });
+            });
+        });
+
+        // 3. FC 이벤트 객체로 변환
+        return sortedEventObjects.map(({ schedule, sortIndex, needsSeparator }) => {
             const typeCode = codes.find(c => c.code === schedule.typeCode);
             const consultant = users.find(u => u.uid === schedule.consultantId);
             const consultantName = consultant?.name || schedule.consultantName || '미배정';
@@ -161,7 +211,9 @@ export default function CalendarPage() {
                     ...schedule,
                     typeName: typeCode?.name,
                     consultantName: consultantName,
-                    chipStyle: chipStyle
+                    chipStyle: chipStyle,
+                    sortIndex: sortIndex,      // 정렬용 인덱스
+                    needsSeparator: needsSeparator // 구분선 표시 여부
                 }
             };
         });
@@ -439,10 +491,18 @@ export default function CalendarPage() {
         });
 
         // 파일명 생성
+        let consultantLabel = '전체';
+        if (!isAdmin && userProfile) {
+            consultantLabel = userProfile.name;
+        } else if (selectedConsultant !== 'all') {
+            const u = users.find(user => user.uid === selectedConsultant);
+            if (u) consultantLabel = u.name;
+        }
+
         let fileName = '컨설팅일정.xlsx';
-        if (downloadPeriod === 'monthly') fileName = `${currentYear}년_${currentMonth}월_컨설팅일정.xlsx`;
-        else if (downloadPeriod === 'yearly') fileName = `${currentYear}년_전체_컨설팅일정.xlsx`;
-        else if (downloadPeriod === 'custom') fileName = `컨설팅일정_${customStartDate}~${customEndDate}.xlsx`;
+        if (downloadPeriod === 'monthly') fileName = `${currentYear}년_${currentMonth}월_${consultantLabel} 컨설턴트 일정.xlsx`;
+        else if (downloadPeriod === 'yearly') fileName = `${currentYear}년_${consultantLabel} 컨설턴트 연간 일정.xlsx`;
+        else if (downloadPeriod === 'custom') fileName = `${consultantLabel} 컨설턴트 일정_${customStartDate}~${customEndDate}.xlsx`;
 
         // 파일 생성 및 다운로드
         const buffer = await workbook.xlsx.writeBuffer();
@@ -716,17 +776,27 @@ export default function CalendarPage() {
                                 allDaySlot={false}
                                 locale="ko"
                                 events={calendarEvents}
+                                eventOrder="extendedProps.sortIndex"
                                 eventContent={(eventInfo) => {
-                                    const { chipStyle } = eventInfo.event.extendedProps;
+                                    const { chipStyle, needsSeparator } = eventInfo.event.extendedProps;
                                     return (
-                                        <div
-                                            className="ewh-event-chip"
-                                            style={{
-                                                backgroundColor: chipStyle?.bg || '#e0f2f1',
-                                                borderLeft: `3px solid ${chipStyle?.border || '#00695c'}`,
-                                            }}
-                                        >
-                                            {eventInfo.event.title}
+                                        <div className="w-full">
+                                            {needsSeparator && (
+                                                <div style={{
+                                                    borderTop: '1px dashed #9ca3af',
+                                                    margin: '4px 0 2px 0',
+                                                    width: '100%'
+                                                }} />
+                                            )}
+                                            <div
+                                                className="ewh-event-chip"
+                                                style={{
+                                                    backgroundColor: chipStyle?.bg || '#e0f2f1',
+                                                    borderLeft: `3px solid ${chipStyle?.border || '#00695c'}`,
+                                                }}
+                                            >
+                                                {eventInfo.event.title}
+                                            </div>
                                         </div>
                                     );
                                 }}
