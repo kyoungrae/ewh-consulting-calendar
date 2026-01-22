@@ -44,19 +44,23 @@ function LogItem({ log, index }) {
         warning: true
     });
 
-    const { summary, details } = log;
-    const totalChanges = summary.added + summary.updated + summary.deleted;
+    const summary = log.summary || { added: 0, updated: 0, deleted: 0 };
+    const details = log.details || { added: [], updated: [], deleted: [] };
+    const totalChanges = (summary.added || 0) + (summary.updated || 0) + (summary.deleted || 0);
 
     const toggleSub = (key) => {
         setSubExpanded(prev => ({ ...prev, [key]: !prev[key] }));
     };
 
-    // ... (logic for added/updated list)
-    const addedUpdatedSchedules = [...(details.added || []), ...(details.updated || []).map(u => u.after)]
-        .filter(s => !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode);
+    // Safe access to added/updated items
+    const addedItems = details.added || [];
+    const updatedItems = (details.updated || []).map(u => u.after || u);
 
-    const warningSchedules = [...(details.added || []), ...(details.updated || []).map(u => u.after)]
-        .filter(s => s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode);
+    const addedUpdatedSchedules = [...addedItems, ...updatedItems]
+        .filter(s => s && !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode);
+
+    const warningSchedules = [...addedItems, ...updatedItems]
+        .filter(s => s && (s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode));
 
     return (
         <div className={`group border transition-all duration-200 rounded-xl bg-white overflow-hidden mb-8 ${isExpanded ? 'border-[#00462A] shadow-md ring-1 ring-[#00462A]/10' : 'border-gray-200 shadow-sm hover:border-gray-300'}`} style={{ padding: "10px" }}>
@@ -73,7 +77,12 @@ function LogItem({ log, index }) {
                     </div>
                     <div>
                         <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-bold text-gray-900 text-lg">엑셀 일정 업로드</h3>
+                            <h3 className="font-bold text-gray-900 text-lg">
+                                {log.type === 'MERGE' ? '엑셀 일정 업로드' :
+                                    log.type === 'ADD' ? '일정 직접 추가' :
+                                        log.type === 'UPDATE' ? '일정 내용 수정' :
+                                            log.type === 'DELETE' ? '일정 삭제' : '시스템 변경'}
+                            </h3>
                             {index === 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold tracking-tight" style={{ padding: "5px" }}>NEW</span>}
                         </div>
                         <p className="text-sm text-gray-500 font-medium">{formatters.timestamp(log.timestamp)}</p>
@@ -340,20 +349,40 @@ export default function SchedulesPage() {
     const loading = schedulesLoading || codesLoading || usersLoading;
 
     // --- 페이지네이션 및 필터 상태 ---
+    // 초기값을 'all'로 설정하여 전체 데이터 표시
+    const now = new Date();
     const [selectedYear, setSelectedYear] = useState('all');
     const [selectedMonth, setSelectedMonth] = useState('all');
+
     const [selectedDay, setSelectedDay] = useState('all');
     const [selectedType, setSelectedType] = useState('all');
     const [selectedConsultant, setSelectedConsultant] = useState('all');
     const [searchLocation, setSearchLocation] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+
+    const { fetchMonthSchedules } = useSchedules();
+
+    // 년/월 선택 시 데이터 로드 트리거
+    useEffect(() => {
+        if (selectedYear !== 'all' && selectedMonth !== 'all') {
+            const y = parseInt(selectedYear);
+            const m = parseInt(selectedMonth);
+            if (!isNaN(y) && !isNaN(m)) {
+                fetchMonthSchedules(y, m);
+            }
+        }
+    }, [selectedYear, selectedMonth, fetchMonthSchedules]);
+
     const itemsPerPage = 15;
 
-    // 년도 목록 추출
-    const availableYears = [...new Set(schedules.map(s => {
+    // 년도 목록 추출 (데이터에 있는 년도만)
+    const currentYear = new Date().getFullYear();
+    const dataYears = schedules.map(s => {
         if (!s.date) return null;
         return new Date(s.date).getFullYear();
-    }).filter(y => y !== null))].sort((a, b) => b - a);
+    }).filter(y => y !== null);
+
+    const availableYears = [...new Set(dataYears.length > 0 ? dataYears : [currentYear])].sort((a, b) => b - a);
 
     // 월 목록 (1~12)
     const availableMonths = Array.from({ length: 12 }, (_, i) => i + 1);

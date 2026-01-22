@@ -10,6 +10,7 @@ import SchedulesPage from './pages/schedules/SchedulesPage';
 import CodesPage from './pages/codes/CodesPage';
 import UsersPage from './pages/users/UsersPage';
 import { DataProvider } from './contexts/DataContext';
+import FirebaseMonitor from './components/common/FirebaseMonitor';
 import './index.css';
 
 function App() {
@@ -65,6 +66,7 @@ function App() {
               but for simplified UX we point to root */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <FirebaseMonitor />
         </DataProvider>
       </AuthProvider>
     </BrowserRouter>

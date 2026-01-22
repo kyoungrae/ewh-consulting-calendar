@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     collection,
     query,
@@ -11,7 +11,9 @@ import {
     serverTimestamp,
     where,
     writeBatch,
-    limit
+    limit,
+    runTransaction,
+    getDoc
 } from 'firebase/firestore';
 import { db, DISABLE_FIRESTORE } from '../firebase/config';
 
@@ -37,10 +39,23 @@ function generateScheduleKey(schedule) {
 export function DataProvider({ children }) {
     // DataProvider State
     const [schedules, setSchedules] = useState([]);
-    const [schedulesLoading, setSchedulesLoading] = useState(true);
+    const [schedulesLoading, setSchedulesLoading] = useState(false);
     const [schedulesError, setSchedulesError] = useState(null);
+
+    // 캐싱: 이미 불러온 연-월 정보를 저장 (예: "2026-03")
+    const [loadedMonths, setLoadedMonths] = useState(new Set());
+    // 중복 요청 방지용 (동시에 같은 달을 요청하면 무시)
+    const fetchingRef = useRef(new Set());
+
     const [changeLog, setChangeLog] = useState([]);
     const [logsLoading, setLogsLoading] = useState(true);
+
+    // Debug: Firebase Read Counter
+    const [totalReads, setTotalReads] = useState(0);
+    const resetReads = () => setTotalReads(0);
+    const incrementReads = (count) => {
+        if (count > 0) setTotalReads(prev => prev + count);
+    };
 
     // 2. Users State
     const [users, setUsers] = useState([]);
@@ -52,44 +67,142 @@ export function DataProvider({ children }) {
     const [codesLoading, setCodesLoading] = useState(true);
     const [codesError, setCodesError] = useState(null);
 
-    // --- Fetch Functions (getDocs) ---
+    // --- Fetch Functions ---
 
-    // 1. Fetch Schedules
+    // 1. Fetch Schedules by Month (Range) -> Monthly Doc 방식 (비용 절감)
+    // year: number (YYYY), month: number (1-12)
+    const fetchMonthSchedules = useCallback(async (year, month) => {
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+        // 1. Cache Check
+        if (loadedMonths.has(monthKey)) {
+            console.log(`⚡️ [Cache Hit] ${monthKey} (API Skip)`);
+            return;
+        }
+
+        // 2. Deduping
+        if (fetchingRef.current.has(monthKey)) return;
+
+        fetchingRef.current.add(monthKey);
+        setSchedulesLoading(true);
+        console.log(`📥 [Fetching] ${monthKey} 월 데이터 (단일 문서) 요청...`);
+
+        if (DISABLE_FIRESTORE) {
+            // ... Dummy Logic
+
+            // [Simulation] 실제라면 월별 문서 1개를 읽었을 것임
+            console.log(`🤖 [Simulated Read] ${monthKey} (가상 읽기 카운트 +1)`);
+            incrementReads(1);
+
+            setSchedulesLoading(false);
+            setLoadedMonths(prev => new Set(prev).add(monthKey));
+            fetchingRef.current.delete(monthKey);
+        } else {
+            try {
+                // [구조 변경] schedules 컬렉션 쿼리 -> schedules_by_month 문서 단건 조회
+                // 읽기 비용: N개 -> 1개
+                const docRef = doc(db, 'schedules_by_month', monthKey);
+                const docSnap = await getDoc(docRef);
+
+                let newSchedules = [];
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    newSchedules = data.items || []; // 배열 통째로 가져옴
+                    console.log(`🔥 [Firebase Read] ${monthKey} 문서 1개 읽음 (내부 일정 ${newSchedules.length}건)`);
+                    incrementReads(1); // 문서는 딱 1개 읽었음!
+                } else {
+                    console.log(`⚠️ [No Data] ${monthKey} 문서가 없음 (일정 없음)`);
+                    incrementReads(1); // 없는 것을 확인하는 것도 읽기 1회
+                }
+
+                setSchedules(prev => {
+                    // 기존 데이터에서 '해당 월'의 데이터는 모두 제거하고 (덮어쓰기 위해)
+                    // 새로 가져온 데이터로 교체해야 함. 
+                    // 하지만 사용자 경험을 위해 id 기반 병합을 하되, 
+                    // 월별 문서 방식은 "그 달의 전체"를 가져오므로, 그 달의 기존 데이터는 날리고 새로 넣는게 안전함.
+
+                    // 해당 월에 속하는 기존 데이터 제거 (YYYY-MM 문자열 매칭)
+                    const filteredPrev = prev.filter(s => {
+                        if (!s.date) return true;
+                        const d = new Date(s.date);
+                        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                        return k !== monthKey;
+                    });
+
+                    console.log(`🔄 상태 업데이트: 이전 ${prev.length} -> 교체 후 ${filteredPrev.length + newSchedules.length}`);
+                    return [...filteredPrev, ...newSchedules].sort((a, b) => new Date(a.date) - new Date(b.date));
+                });
+
+                setLoadedMonths(prev => new Set(prev).add(monthKey));
+            } catch (err) {
+                console.error("Fetch Error:", err);
+                setSchedulesError(err.message);
+            } finally {
+                setSchedulesLoading(false);
+                fetchingRef.current.delete(monthKey);
+            }
+        }
+    }, [loadedMonths, incrementReads]);
+
+    // 0. Fetch ALL Schedules (Restore full list view)
     const fetchSchedules = useCallback(async () => {
         setSchedulesLoading(true);
         if (DISABLE_FIRESTORE) {
-            const dummySchedules = [
-                { id: 'dev_1', date: '2026-01-05T10:30:00', consultantId: 'user_kjh', typeCode: 'EDU', location: '비대면 (Zoom)', memo: '진로 설정 상담' },
-                { id: 'dev_2', date: '2026-01-05T13:30:00', consultantId: 'user_lhj', typeCode: 'RES', location: 'ECC B215', memo: '자기소개서 첨삭' },
-                { id: 'dev_3', date: '2026-01-07T14:00:00', consultantId: 'user_sys', typeCode: 'PUB', location: '비대면 (Zoom)', memo: 'NCS 기반 면접 준비' },
-                { id: 'dev_4', date: '2026-01-12T11:00:00', consultantId: 'user_kjh', typeCode: 'CON', location: '학생문화관 203호', memo: '엔터테인먼트 마케팅 직무 상담' },
-                { id: 'dev_5', date: '2026-01-15T15:30:00', consultantId: 'user_lhj', typeCode: 'SCI', location: '비대면 (줌)', memo: '반도체 공정 기술 면접' },
-                { id: 'dev_6', date: '2026-01-20T10:00:00', consultantId: 'user_sys', typeCode: 'GLO', location: 'ECC B216', memo: '영문 레쥬메 검토' },
-                { id: 'dev_7', date: '2026-01-21T13:00:00', consultantId: 'user_kjh', typeCode: 'EXE', location: '비대면 (Zoom)', memo: '모의 면접 실전' },
-                { id: 'dev_8', date: '2026-01-21T15:00:00', consultantId: 'user_lhj', typeCode: 'JOB', location: '학생문화관 204호', memo: '채용 공고 분석' },
-                { id: 'dev_9', date: '2026-02-02T10:30:00', consultantId: 'user_sys', typeCode: 'EDU', location: '비대면 (줌)', memo: '신학기 진로 로드맵' },
-                { id: 'dev_10', date: '2026-02-05T14:00:00', consultantId: 'user_kjh', typeCode: 'RES', location: 'ECC B215', memo: '실전 면접 코칭' }
-            ];
-            // 더미 데이터가 계속 추가되는 것을 막기 위해 초기 로딩 시에만 설정하거나, 
-            // setSchedules(prev => prev.length ? prev : dummySchedules); 같은 처리가 필요하지만
-            // 여기선 단순화를 위해 항상 초기화 (로컬 개발용)
-            if (schedules.length === 0) {
-                setSchedules(dummySchedules.sort((a, b) => new Date(a.date) - new Date(b.date)));
-            }
+            // 더미 모드: 약 12개월치 데이터가 있다고 가정
+            console.log("🤖 [Simulated Read] 전체 월별 문서 조회 (약 12개 가정)");
+            incrementReads(12);
+
+            // 더미 데이터 생성 (현재 월 기준)
+            const dummyList = [];
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth(); // 0-indexed
+
+            // 예시: 이번 달에 3개, 다음 달에 2개
+            dummyList.push({ id: 'dummy_1', date: new Date(year, month, 5, 10, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'EDU', memo: '더미 데이터 1' });
+            dummyList.push({ id: 'dummy_2', date: new Date(year, month, 12, 14, 0).toISOString(), consultantId: 'user_lhj', typeCode: 'RES', memo: '더미 데이터 2' });
+            dummyList.push({ id: 'dummy_3', date: new Date(year, month, 20, 16, 0).toISOString(), consultantId: 'user_sys', typeCode: 'PUB', memo: '더미 데이터 3' });
+            dummyList.push({ id: 'dummy_4', date: new Date(year, month + 1, 3, 11, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'CON', memo: '다음달 데이터' });
+
+            setSchedules(dummyList);
+            // 모든 달이 로드된 것으로 간주 (캐시 회피 등 복잡한 로직 없이 단순화)
             setSchedulesLoading(false);
-        } else {
-            try {
-                // 필요하다면 여기서 where('date', '>=', '2026-01-01') 등을 추가하여 범위를 제한할 수 있음
-                const q = query(collection(db, 'schedules'), orderBy('date', 'asc'));
-                const snapshot = await getDocs(q);
-                setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                setSchedulesLoading(false);
-            } catch (err) {
-                setSchedulesError(err.message);
-                setSchedulesLoading(false);
-            }
+            return;
         }
-    }, []); // 의존성 없음 (최초 정의)
+
+        try {
+            console.log("📥 [Fetching] 전체 일정(모든 월) 데이터 로드 중...");
+            // 전체 월 문서 조회
+            const q = query(collection(db, 'schedules_by_month'));
+            const snapshot = await getDocs(q);
+
+            console.log(`🔥 [Firebase Read] 전체 월별 문서 ${snapshot.size}개 읽음`);
+            incrementReads(snapshot.size);
+
+            let allSchedules = [];
+            const newLoadedMonths = new Set();
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.items && Array.isArray(data.items)) {
+                    allSchedules.push(...data.items);
+                }
+                newLoadedMonths.add(doc.id); // 'YYYY-MM'
+            });
+
+            // 날짜순 정렬
+            allSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            setSchedules(allSchedules);
+            setLoadedMonths(newLoadedMonths);
+
+        } catch (err) {
+            console.error("Fetch All Error:", err);
+            setSchedulesError(err.message);
+        } finally {
+            setSchedulesLoading(false);
+        }
+    }, [incrementReads]);
 
     // 2. Fetch Logs
     const fetchLogs = useCallback(async () => {
@@ -101,6 +214,8 @@ export function DataProvider({ children }) {
                 // 최신 30개만 가져오도록 제한 (읽기 비용 절감 핵심)
                 const q = query(collection(db, 'change_logs'), orderBy('timestamp', 'desc'), limit(30));
                 const snapshot = await getDocs(q);
+                console.log(`🔥 [Firebase Read] ChangeLogs: ${snapshot.size} docs read`);
+                incrementReads(snapshot.size); // 카운트 증가
                 setChangeLog(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setLogsLoading(false);
             } catch (err) {
@@ -142,6 +257,8 @@ export function DataProvider({ children }) {
             try {
                 const usersRef = collection(db, 'users');
                 const snapshot = await getDocs(query(usersRef));
+                console.log(`🔥 [Firebase Read] Users: ${snapshot.size} docs read`);
+                incrementReads(snapshot.size); // 카운트 증가
                 setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setUsersLoading(false);
             } catch (err) {
@@ -172,6 +289,8 @@ export function DataProvider({ children }) {
                 const codesRef = collection(db, 'common_codes');
                 const q = query(codesRef, orderBy('code', 'asc'));
                 const snapshot = await getDocs(q);
+                console.log(`🔥 [Firebase Read] Codes: ${snapshot.size} docs read`);
+                incrementReads(snapshot.size); // 카운트 증가
                 setCodes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setCodesLoading(false);
             } catch (err) {
@@ -183,7 +302,11 @@ export function DataProvider({ children }) {
 
     // --- Effects (Initial Load) ---
     useEffect(() => {
-        fetchSchedules();
+        fetchSchedules(); // 전체 로드 (월별 문서 구조 유지하면서 전체 가져오기)
+        // 앱 시작 시 "오늘" 기준 이번 달 데이터만 로드 -> 전체 로드로 변경
+        // const now = new Date();
+        // fetchMonthSchedules(now.getFullYear(), now.getMonth() + 1);
+
         fetchLogs();
         fetchUsers();
         fetchCodes();
@@ -201,247 +324,421 @@ export function DataProvider({ children }) {
                 updatedAt: new Date().toISOString()
             };
             setSchedules(prev => [...prev, newSchedule].sort((a, b) => new Date(a.date) - new Date(b.date)));
-            setChangeLog(prev => [...prev, { type: 'ADD', schedule: newSchedule, timestamp: new Date().toISOString() }]);
+            setChangeLog(prev => [{
+                type: 'ADD',
+                summary: { added: 1, updated: 0, deleted: 0 },
+                details: { added: [newSchedule], updated: [], deleted: [] },
+                timestamp: new Date().toISOString()
+            }, ...prev]);
             return newSchedule;
         }
-        const schedulesRef = collection(db, 'schedules');
-        const res = await addDoc(schedulesRef, { ...scheduleData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        fetchSchedules(); // 데이터 갱신
-        return res;
-    };
 
-    const updateSchedule = async (id, scheduleData) => {
-        if (DISABLE_FIRESTORE) {
-            setSchedules(prev => prev.map(s => s.id === id ? { ...s, ...scheduleData, updatedAt: new Date().toISOString() } : s));
-            setChangeLog(prev => [...prev, { type: 'UPDATE', id, changes: scheduleData, timestamp: new Date().toISOString() }]);
-            return { id, ...scheduleData };
+        const d = new Date(scheduleData.date);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const docRef = doc(db, 'schedules_by_month', monthKey);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                let currentItems = [];
+                if (sfDoc.exists()) {
+                    currentItems = sfDoc.data().items || [];
+                }
+                const newId = doc(collection(db, 'temp')).id;
+                const newSchedule = { ...scheduleData, id: newId };
+                currentItems.push(newSchedule);
+                currentItems.sort((a, b) => new Date(a.date) - new Date(b.date));
+                transaction.set(docRef, { items: currentItems }, { merge: true });
+            });
+
+            // [Log] 변경 이력 기록
+            await addDoc(collection(db, 'change_logs'), {
+                type: 'ADD',
+                schedule: scheduleData,
+                timestamp: new Date().toISOString(),
+                createdAt: serverTimestamp()
+            });
+
+            console.log(`✅ [Add] ${monthKey} 문서에 일정 추가 완료`);
+
+            // 로컬 상태 업데이트 (전체 로드 모드를 가정하여 새로고침 대신 추가)
+            // 하지만 ID를 정확히 모르므로(트랜잭션 내부 생성), 전체 리로드나 fetchSchedules 호출 권장
+            // 여기선 fetchSchedules 호출
+            fetchSchedules();
+
+            return { result: 'success' };
+        } catch (error) {
+            console.error("Error adding document: ", error);
+            throw error;
         }
-        const scheduleRef = doc(db, 'schedules', id);
-        const res = await updateDoc(scheduleRef, { ...scheduleData, updatedAt: serverTimestamp() });
-        fetchSchedules(); // 데이터 갱신
-        return res;
     };
 
-    const deleteSchedule = async (id) => {
-        if (DISABLE_FIRESTORE) {
-            const deletedSchedule = schedules.find(s => s.id === id);
-            setSchedules(prev => prev.filter(s => s.id !== id));
-            setChangeLog(prev => [...prev, { type: 'DELETE', schedule: deletedSchedule, timestamp: new Date().toISOString() }]);
-            return { id };
-        }
-        const scheduleRef = doc(db, 'schedules', id);
-        const res = await deleteDoc(scheduleRef);
-        fetchSchedules(); // 데이터 갱신
-        return res;
-    };
 
-    const batchAddSchedules = async (schedulesArray) => {
+
+    // 4. Batch Add Schedules (Monthly)
+    const batchAddSchedules = useCallback(async (newSchedules) => {
         if (DISABLE_FIRESTORE) {
-            const newSchedules = schedulesArray.map(s => ({
-                ...s, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-            }));
             setSchedules(prev => [...prev, ...newSchedules].sort((a, b) => new Date(a.date) - new Date(b.date)));
-            return newSchedules;
+            return;
         }
-        const batch = writeBatch(db);
-        const schedulesRef = collection(db, 'schedules');
-        schedulesArray.forEach(data => {
-            const newDocRef = doc(schedulesRef);
-            batch.set(newDocRef, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+
+        // 월별로 그룹화
+        const groups = {};
+        newSchedules.forEach(s => {
+            const d = new Date(s.date);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(s);
         });
-        const res = await batch.commit();
-        fetchSchedules(); // 데이터 갱신
-        return res;
+
+        const promises = Object.keys(groups).map(async (monthKey) => {
+            const itemsToAdd = groups[monthKey];
+            const docRef = doc(db, 'schedules_by_month', monthKey);
+
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                let currentItems = [];
+                if (sfDoc.exists()) {
+                    currentItems = sfDoc.data().items || [];
+                }
+
+                // 병합
+                currentItems.push(...itemsToAdd);
+                currentItems.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                transaction.set(docRef, { items: currentItems }, { merge: true });
+            });
+        });
+
+        try {
+            await Promise.all(promises);
+            console.log("Batch Add Complete");
+        } catch (error) {
+            console.error("Batch Add Error", error);
+            throw error;
+        }
+    }, []);
+
+    // 고유 키 생성 유틸
+    const generateScheduleKey = (s) => {
+        return `${s.date}_${s.consultantId}_${s.typeCode}`;
     };
 
-    const mergeSchedules = async (newSchedules, replaceAll = false) => {
-        const result = { added: [], updated: [], deleted: [], unchanged: [] };
-        const schedulesRef = collection(db, 'schedules');
-        const batch = DISABLE_FIRESTORE ? null : writeBatch(db);
-
-        // 중요: fetchSchedules를 통해 최신 데이터를 가져온 후 병합 로직 수행 권장하지만, 
-        // 성능을 위해 현재 state인 schedules를 기준으로 판단 (동시성 이슈 가능성 있음)
-
-        if (replaceAll) {
-            result.deleted = [...schedules];
-            result.added = newSchedules.map(s => ({
-                ...s,
-                id: DISABLE_FIRESTORE ? `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : null,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            }));
-
-            if (DISABLE_FIRESTORE) {
-                setSchedules(result.added.sort((a, b) => new Date(a.date) - new Date(b.date)));
-            } else if (batch) {
-                // 현재 로드된 schedules를 모두 삭제
-                schedules.forEach(s => {
-                    batch.delete(doc(db, 'schedules', s.id));
-                });
-
-                newSchedules.forEach(data => {
-                    const newDocRef = doc(schedulesRef);
-                    batch.set(newDocRef, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-                });
-
-                await batch.commit();
-            }
-        } else {
-            const existingMap = new Map();
-            schedules.forEach(s => existingMap.set(generateScheduleKey(s), s));
-            const newMap = new Map();
-            const processed = [];
-
-            // 1. 업로드된 데이터가 커버하는 '년-월' 집합 추출 (범위 밖 데이터 보존용)
-            // 예: 2026-03 데이터가 올라오면, 2026-03에 해당하는 기존 데이터 중 엑셀에 없는 것만 삭제.
-            // 2025년 데이터나 2026-04 데이터는 건드리지 않음.
-            const affectedMonths = new Set();
+    // 8. Merge Schedules (Excel Upload - Monthly Structure)
+    const mergeSchedules = useCallback(async (newSchedules) => {
+        if (DISABLE_FIRESTORE) {
+            // 1. 업로드된 데이터를 월별로 그룹화
+            const uploadGroups = {};
             newSchedules.forEach(s => {
-                if (s.date) {
+                if (!s.date) return;
+                const d = new Date(s.date);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!uploadGroups[key]) uploadGroups[key] = [];
+                uploadGroups[key].push(s);
+            });
+            const uploadedMonths = new Set(Object.keys(uploadGroups));
+
+            const summary = { added: 0, updated: 0, deleted: 0, unchanged: 0 };
+            const details = { added: [], updated: [], deleted: [] };
+
+            setSchedules(prev => {
+                const finalSchedules = [];
+
+                // A. 업로드된 파일에 해당하지 않는 월의 데이터는 그대로 유지
+                prev.forEach(s => {
                     const d = new Date(s.date);
-                    // YYYY-MM 형식 키
-                    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-                    affectedMonths.add(key);
-                }
+                    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    if (!uploadedMonths.has(key)) {
+                        finalSchedules.push(s);
+                    }
+                });
+
+                // B. 업로드된 파일에 포함된 각 월별로 병합 로직 수행
+                Object.keys(uploadGroups).forEach(monthKey => {
+                    const uploadedItems = uploadGroups[monthKey];
+                    const existingInMonth = prev.filter(s => {
+                        const d = new Date(s.date);
+                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey;
+                    });
+
+                    const newMap = new Map();
+                    uploadedItems.forEach(item => newMap.set(generateScheduleKey(item), item));
+
+                    // 기존 데이터 대조
+                    existingInMonth.forEach(existing => {
+                        const key = generateScheduleKey(existing);
+                        if (newMap.has(key)) {
+                            const newItem = newMap.get(key);
+                            const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
+
+                            if (isChanged) {
+                                summary.updated++;
+                                const merged = { ...existing, ...newItem };
+                                details.updated.push({ before: existing, after: merged });
+                                finalSchedules.push(merged);
+                            } else {
+                                summary.unchanged++;
+                                finalSchedules.push(existing);
+                            }
+                            newMap.delete(key);
+                        } else {
+                            // 엑셀에 없으므로 삭제
+                            summary.deleted++;
+                            details.deleted.push(existing);
+                        }
+                    });
+
+                    // 신규 데이터 추가
+                    newMap.forEach(newItem => {
+                        summary.added++;
+                        const itemWithId = { ...newItem, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` };
+                        details.added.push(itemWithId);
+                        finalSchedules.push(itemWithId);
+                    });
+                });
+
+                return finalSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
             });
 
-            newSchedules.forEach(newSched => {
-                const key = generateScheduleKey(newSched);
-                newMap.set(key, newSched);
-
-                if (existingMap.has(key)) {
-                    const existing = existingMap.get(key);
-                    const normalizeStr = (s) => (s || '').toString().trim();
-
-                    const hasChanges =
-                        normalizeStr(existing.location) !== normalizeStr(newSched.location) ||
-                        normalizeStr(existing.memo) !== normalizeStr(newSched.memo) ||
-                        normalizeStr(existing.consultantName) !== normalizeStr(newSched.consultantName) ||
-                        normalizeStr(existing.typeName) !== normalizeStr(newSched.typeName) ||
-                        normalizeStr(existing.endDate) !== normalizeStr(newSched.endDate);
-
-                    if (hasChanges) {
-                        const updated = {
-                            ...existing,
-                            ...newSched,
-                            updatedAt: new Date().toISOString()
-                        };
-                        result.updated.push({ before: existing, after: updated });
-                        processed.push(updated);
-
-                        if (batch) {
-                            const ref = doc(db, 'schedules', existing.id);
-                            const cleanUpdate = { ...newSched, updatedAt: serverTimestamp() };
-                            batch.update(ref, cleanUpdate);
-                        }
-                    } else {
-                        result.unchanged.push(existing);
-                        processed.push(existing);
-                    }
-                } else {
-                    const added = {
-                        ...newSched,
-                        id: DISABLE_FIRESTORE ? `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : null,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString()
-                    };
-                    result.added.push(added);
-                    processed.push(added);
-
-                    if (batch) {
-                        const newDocRef = doc(schedulesRef);
-                        batch.set(newDocRef, { ...newSched, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-                    }
-                }
-            });
-
-            // 2. 기존 데이터 처리 (삭제 여부 결정)
-            schedules.forEach(existing => {
-                const key = generateScheduleKey(existing);
-
-                // 엑셀에 없는 데이터인 경우
-                if (!newMap.has(key)) {
-                    let shouldDelete = false;
-
-                    if (existing.date) {
-                        const d = new Date(existing.date);
-                        const existingMonthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
-                        // 업로드된 파일에 포함된 월(Month)에 속하는 데이터라면 삭제 대상
-                        if (affectedMonths.has(existingMonthKey)) {
-                            shouldDelete = true;
-                        }
-                    }
-
-                    if (shouldDelete) {
-                        result.deleted.push(existing);
-                        if (batch) {
-                            batch.delete(doc(db, 'schedules', existing.id));
-                        }
-                    } else {
-                        // 업로드된 범위 밖의 데이터는 안전하게 보존
-                        processed.push(existing);
-                        // result.unchanged에는 넣지 않음 (로그가 너무 길어짐 + 실제 변경 대상이 아니었음)
-                    }
-                }
-            });
-
-            if (DISABLE_FIRESTORE) {
-                setSchedules(processed.sort((a, b) => new Date(a.date) - new Date(b.date)));
-            } else if (batch) {
-                await batch.commit();
-            }
-        }
-
-        // 변경 이력 기록 (상세 내역 포함) - replaceAll 모드에서도 저장
-        if (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0) {
-            const logData = {
-                type: replaceAll ? 'REPLACE' : 'MERGE',
-                summary: {
-                    added: result.added.length,
-                    updated: result.updated.length,
-                    deleted: result.deleted.length,
-                    unchanged: result.unchanged.length
-                },
-                details: {
-                    added: result.added,
-                    updated: result.updated,
-                    deleted: result.deleted
-                },
+            // [Simulation] 정확한 수치가 포함된 더미 로그 생성
+            const dummyLog = {
+                id: `dev_log_${Date.now()}`,
+                type: 'MERGE',
+                summary,
+                details,
                 timestamp: new Date().toISOString()
             };
+            setChangeLog(prev => [dummyLog, ...prev]);
 
-            if (DISABLE_FIRESTORE) {
-                setChangeLog(prev => [{ id: Date.now(), ...logData }, ...prev]);
-            } else {
+            return { added: details.added, updated: details.updated, deleted: details.deleted, unchanged: summary.unchanged };
+        }
+
+        // 1. Group by Month
+        const groups = {};
+        newSchedules.forEach(s => {
+            if (!s.date) return;
+            const d = new Date(s.date);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(s);
+        });
+
+        const result = {
+            processed: [],
+            added: [],
+            updated: [],
+            deleted: [],
+            unchanged: []
+        };
+
+        // 2. Process each month
+        const promises = Object.keys(groups).map(async (monthKey) => {
+            const uploadedItems = groups[monthKey]; // 엑셀에서 올라온 이 달의 목록
+            const docRef = doc(db, 'schedules_by_month', monthKey);
+
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                let existingItems = [];
+                if (sfDoc.exists()) {
+                    existingItems = sfDoc.data().items || [];
+                }
+
+                const newMap = new Map();
+                uploadedItems.forEach(s => newMap.set(generateScheduleKey(s), s));
+
+                const finalItems = [];
+
+                // A. 기존 아이템 처리 (수정 or 삭제 or 유지)
+                existingItems.forEach(existing => {
+                    const key = generateScheduleKey(existing);
+                    if (newMap.has(key)) {
+                        // 엑셀에도 있음 -> 변경사항 체크
+                        const newItem = newMap.get(key);
+                        const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
+
+                        if (isChanged) {
+                            result.updated.push({ before: existing, after: { ...existing, ...newItem } });
+                            finalItems.push({ ...existing, ...newItem });
+                        } else {
+                            result.unchanged.push(existing); // Count unchanged for log
+                            finalItems.push(existing);
+                        }
+                        newMap.delete(key);
+                    } else {
+                        // 엑셀에 없음 -> 삭제 대상
+                        result.deleted.push(existing);
+                    }
+                });
+
+                // B. 신규 아이템 처리 (나머지)
+                newMap.forEach((newItem) => {
+                    const itemWithId = { ...newItem, id: newItem.id || doc(collection(db, 'temp')).id };
+                    result.added.push(itemWithId);
+                    finalItems.push(itemWithId);
+                });
+
+                // 정렬
+                finalItems.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                // 저장
+                transaction.set(docRef, { items: finalItems }, { merge: true });
+            });
+        });
+
+        try {
+            await Promise.all(promises);
+
+            // 변경 이력 기록
+            if (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0) {
+                const logData = {
+                    type: 'MERGE',
+                    summary: {
+                        added: result.added.length,
+                        updated: result.updated.length,
+                        deleted: result.deleted.length,
+                        unchanged: result.unchanged.length
+                    },
+                    details: {
+                        added: result.added,
+                        updated: result.updated,
+                        deleted: result.deleted
+                    },
+                    timestamp: new Date().toISOString()
+                };
                 await addDoc(collection(db, 'change_logs'), {
                     ...logData,
                     createdAt: serverTimestamp()
                 });
             }
+
+            // 로컬 캐시 초기화 (다음 조회 시 다시 읽도록)
+            setLoadedMonths(new Set());
+            // UI 갱신을 위해 현재 뷰 갱신 필요 (여기선 단순화)
+            fetchMonthSchedules(new Date().getFullYear(), new Date().getMonth() + 1);
+
+            return result;
+        } catch (error) {
+            console.error("Merge Error", error);
+            throw error;
         }
+    }, [loadedMonths, fetchMonthSchedules]);
 
-        if (!DISABLE_FIRESTORE) {
-            fetchSchedules(); // 스케줄 목록 갱신
-            fetchLogs();      // 로그 목록 갱신
-        }
-
-        return result;
-    };
-
-    const clearAllSchedules = async () => {
+    // 9. Clear All Schedules (Monthly Doc Deletion)
+    // *주의: 월별 문서 전체를 삭제하는 것은 위험하므로, 여기서는 구현 생략하거나 신중히 처리해야 함.
+    // 관리자 기능으로만 사용.
+    const clearAllSchedules = useCallback(async () => {
         if (DISABLE_FIRESTORE) {
             setSchedules([]);
             return { deletedCount: schedules.length };
         }
-        const snapshot = await getDocs(collection(db, 'schedules'));
-        if (snapshot.empty) return;
-        const batch = writeBatch(db);
-        snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        const res = await batch.commit();
-        fetchSchedules(); // 데이터 갱신
-        return res;
-    };
+        // 모든 월별 문서를 지우는 것은 비효율적/위험함.
+        // 필요하다면 컬렉션 전체 삭제 스크립트 사용 권장.
+        console.warn("Clear All Schedules is disabled for Monthly Aggregation mode.");
+        return { deletedCount: 0 };
+    }, []);
+
+    // 6. Update Schedule (Monthly Doc Transaction)
+    const updateSchedule = useCallback(async (id, updatedData) => {
+        // 1. 기존 스케줄 찾기 (Old Date 확인용 및 더미 로그용)
+        const oldSchedule = schedules.find(s => s.id === id);
+        if (!oldSchedule) {
+            console.error("Schedule not found in local state");
+            if (DISABLE_FIRESTORE) return;
+            throw new Error("Schedule not found in local state");
+        }
+
+        if (DISABLE_FIRESTORE) {
+            setSchedules(prev => prev.map(schedule =>
+                schedule.id === id ? { ...schedule, ...updatedData } : schedule
+            ).sort((a, b) => new Date(a.date) - new Date(b.date)));
+
+            // [Simulation] 더미 로그 생성
+            setChangeLog(prev => [{
+                type: 'UPDATE',
+                summary: { added: 0, updated: 1, deleted: 0 },
+                details: { added: [], updated: [{ before: oldSchedule, after: { ...oldSchedule, ...updatedData } }], deleted: [] },
+                timestamp: new Date().toISOString()
+            }, ...prev]);
+
+            return;
+        }
+
+        const oldDate = new Date(oldSchedule.date);
+        const newDate = new Date(updatedData.date);
+
+        const oldMonthKey = `${oldDate.getFullYear()}-${String(oldDate.getMonth() + 1).padStart(2, '0')}`;
+        const newMonthKey = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}`;
+
+        const oldDocRef = doc(db, 'schedules_by_month', oldMonthKey);
+        const newDocRef = doc(db, 'schedules_by_month', newMonthKey);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                // Case A: 같은 달 내에서 수정
+                if (oldMonthKey === newMonthKey) {
+                    const sfDoc = await transaction.get(oldDocRef);
+                    if (!sfDoc.exists()) throw new Error("Document does not exist!");
+
+                    const items = sfDoc.data().items || [];
+                    const index = items.findIndex(s => s.id === id);
+                    if (index === -1) throw new Error("Schedule not found in document");
+
+                    // 업데이트
+                    items[index] = { ...items[index], ...updatedData };
+                    items.sort((a, b) => new Date(a.date) - new Date(b.date)); // 정렬 유지
+
+                    transaction.set(oldDocRef, { items }, { merge: true });
+                }
+                // Case B: 날짜가 변경되어 달이 바뀌는 경우 (이동)
+                else {
+                    const oldSFDoc = await transaction.get(oldDocRef);
+                    const newSFDoc = await transaction.get(newDocRef);
+
+                    // 1. Remove from Old
+                    let oldItems = [];
+                    if (oldSFDoc.exists()) {
+                        oldItems = oldSFDoc.data().items || [];
+                        const index = oldItems.findIndex(s => s.id === id);
+                        if (index !== -1) {
+                            oldItems.splice(index, 1);
+                        }
+                    }
+
+                    // 2. Add to New
+                    let newItems = [];
+                    if (newSFDoc.exists()) {
+                        newItems = newSFDoc.data().items || [];
+                    }
+                    // ID는 유지, 데이터는 업데이트
+                    const movedSchedule = { ...oldSchedule, ...updatedData };
+                    newItems.push(movedSchedule);
+                    newItems.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    transaction.set(oldDocRef, { items: oldItems }, { merge: true });
+                    transaction.set(newDocRef, { items: newItems }, { merge: true });
+                }
+            });
+
+            // [Log] 변경 이력 기록
+            await addDoc(collection(db, 'change_logs'), {
+                type: 'UPDATE',
+                id,
+                changes: updatedData,
+                timestamp: new Date().toISOString(),
+                createdAt: serverTimestamp()
+            });
+
+            // Local Update
+            setSchedules(prev => prev.map(schedule =>
+                schedule.id === id ? { ...schedule, ...updatedData } : schedule
+            ).sort((a, b) => new Date(a.date) - new Date(b.date)));
+
+            console.log(`✅ [Update] 일정 수정 완료 (${oldMonthKey} -> ${newMonthKey})`);
+        } catch (error) {
+            console.error("Error updating document: ", error);
+            throw error;
+        }
+    }, [schedules]); // schedules 의존성 필요 (oldSchedule 찾기 위해)
 
     const updateUser = async (id, userData) => {
         if (DISABLE_FIRESTORE) {
@@ -453,6 +750,60 @@ export function DataProvider({ children }) {
         fetchUsers(); // 유저 목록 갱신
         return res;
     };
+
+    // 7. Delete Schedule (Monthly Doc Transaction)
+    const deleteSchedule = useCallback(async (id) => {
+        const scheduleToDelete = schedules.find(s => s.id === id);
+        if (!scheduleToDelete) {
+            console.error("Schedule not found in local state");
+            return;
+        }
+
+        if (DISABLE_FIRESTORE) {
+            setSchedules(prev => prev.filter(schedule => schedule.id !== id));
+
+            // [Simulation] 더미 로그 생성
+            setChangeLog(prev => [{
+                type: 'DELETE',
+                summary: { added: 0, updated: 0, deleted: 1 },
+                details: { added: [], updated: [], deleted: [scheduleToDelete] },
+                timestamp: new Date().toISOString()
+            }, ...prev]);
+
+            return;
+        }
+
+        const d = new Date(scheduleToDelete.date);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const docRef = doc(db, 'schedules_by_month', monthKey);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                if (!sfDoc.exists()) throw new Error("Document does not exist!");
+
+                const items = sfDoc.data().items || [];
+                const newItems = items.filter(s => s.id !== id);
+
+                transaction.set(docRef, { items: newItems }, { merge: true });
+            });
+
+            // [Log] 변경 이력 기록
+            await addDoc(collection(db, 'change_logs'), {
+                type: 'DELETE',
+                id,
+                schedule: scheduleToDelete,
+                timestamp: new Date().toISOString(),
+                createdAt: serverTimestamp()
+            });
+
+            setSchedules(prev => prev.filter(schedule => schedule.id !== id));
+            console.log(`✅ [Delete] 일정 삭제 완료 (${monthKey})`);
+        } catch (error) {
+            console.error("Error deleting document: ", error);
+            // throw error; // UI 멈춤 방지 위해 에러 던지지 않음
+        }
+    }, [schedules]);
 
     const deleteUser = async (id) => {
         if (DISABLE_FIRESTORE) {
@@ -500,6 +851,7 @@ export function DataProvider({ children }) {
         batchAddSchedules,
         mergeSchedules,
         clearAllSchedules,
+        fetchMonthSchedules,
         setSchedules,
 
         users,
@@ -519,9 +871,14 @@ export function DataProvider({ children }) {
 
         // 수동 리프레시 필요시 사용할 함수들 노출
         fetchSchedules,
+        fetchMonthSchedules,
         fetchLogs,
         fetchUsers,
-        fetchCodes
+        fetchCodes,
+
+        // Debug
+        totalReads,
+        resetReads
     };
 
     return (

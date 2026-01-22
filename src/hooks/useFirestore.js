@@ -17,7 +17,9 @@ export function useSchedules() {
         batchAddSchedules: context.batchAddSchedules,
         mergeSchedules: context.mergeSchedules,
         clearAllSchedules: context.clearAllSchedules,
-        setSchedules: context.setSchedules
+        setSchedules: context.setSchedules,
+        fetchSchedules: context.fetchSchedules,
+        fetchMonthSchedules: context.fetchMonthSchedules
     };
 }
 

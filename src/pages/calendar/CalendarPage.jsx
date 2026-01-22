@@ -80,7 +80,7 @@ export default function CalendarPage() {
     }, []);
 
     const { userProfile, isAdmin } = useAuth();
-    const { schedules, loading: schedulesLoading } = useSchedules();
+    const { schedules, loading: schedulesLoading, fetchMonthSchedules } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
 
@@ -90,6 +90,17 @@ export default function CalendarPage() {
             setMainTab('consultants');
         }
     }, [isAdmin]);
+
+    // 데이터에 있는 년도들 추출 (+ 현재 보고 있는 년도)
+    const availableYears = useMemo(() => {
+        const years = schedules.map(s => {
+            if (!s.date) return null;
+            return new Date(s.date).getFullYear();
+        }).filter(y => y !== null);
+
+        // 현재 연도(currentYear)와 데이터 연도들을 합치고 중복 제거 후 내림차순 정렬
+        return [...new Set([new Date().getFullYear(), currentYear, ...years])].sort((a, b) => b - a);
+    }, [schedules, currentYear]);
 
     // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
     const filteredSchedules = useMemo(() => {
@@ -347,37 +358,55 @@ export default function CalendarPage() {
     const changeYear = (delta) => {
         const newYear = currentYear + delta;
         setCurrentYear(newYear);
-        if (calendarRef.current) {
+
+        if (calendarRef.current && viewMode === 'calendar') {
             const calendarApi = calendarRef.current.getApi();
             calendarApi.gotoDate(new Date(newYear, currentMonth - 1, 1));
+        } else {
+            // 목록 보기 모드나 달력이 없을 때 데이터 로드 트리거
+            fetchMonthSchedules(newYear, currentMonth);
         }
     };
 
     const handlePrev = () => {
-        if (calendarRef.current) {
+        if (calendarRef.current && viewMode === 'calendar') {
             calendarRef.current.getApi().prev();
         } else {
             // 목록 보기 모드에서는 수동으로 월 변경
+            let targetYear = currentYear;
+            let targetMonth = currentMonth;
+
             if (currentMonth === 1) {
-                setCurrentYear(prev => prev - 1);
-                setCurrentMonth(12);
+                targetYear = currentYear - 1;
+                targetMonth = 12;
             } else {
-                setCurrentMonth(prev => prev - 1);
+                targetMonth = currentMonth - 1;
             }
+
+            setCurrentYear(targetYear);
+            setCurrentMonth(targetMonth);
+            fetchMonthSchedules(targetYear, targetMonth);
         }
     };
 
     const handleNext = () => {
-        if (calendarRef.current) {
+        if (calendarRef.current && viewMode === 'calendar') {
             calendarRef.current.getApi().next();
         } else {
             // 목록 보기 모드에서는 수동으로 월 변경
+            let targetYear = currentYear;
+            let targetMonth = currentMonth;
+
             if (currentMonth === 12) {
-                setCurrentYear(prev => prev + 1);
-                setCurrentMonth(1);
+                targetYear = currentYear + 1;
+                targetMonth = 1;
             } else {
-                setCurrentMonth(prev => prev + 1);
+                targetMonth = currentMonth + 1;
             }
+
+            setCurrentYear(targetYear);
+            setCurrentMonth(targetMonth);
+            fetchMonthSchedules(targetYear, targetMonth);
         }
     };
 
@@ -615,7 +644,7 @@ export default function CalendarPage() {
                                 }
                             }}
                         >
-                            {[2024, 2025, 2026, 2027, 2028].map(y => (
+                            {availableYears.map(y => (
                                 <option key={y} value={y}>{y}년</option>
                             ))}
                         </select>
@@ -777,6 +806,21 @@ export default function CalendarPage() {
                                 locale="ko"
                                 events={calendarEvents}
                                 eventOrder="extendedProps.sortIndex"
+                                datesSet={(dateInfo) => {
+                                    handleDatesSet(dateInfo); // 기존 UI 상태 업데이트 로직 실행
+
+                                    // 현재 뷰의 중심 날짜 계산 (월간 뷰에서 정확한 월 파악 위함)
+                                    // start와 end의 중간 지점을 기준으로 월을 판단
+                                    const start = dateInfo.start;
+                                    const end = dateInfo.end;
+                                    const centerDate = new Date((start.getTime() + end.getTime()) / 2);
+
+                                    const year = centerDate.getFullYear();
+                                    const month = centerDate.getMonth() + 1;
+
+                                    console.log(`📅 [Calendar] View Changed: ${year}-${month}`);
+                                    fetchMonthSchedules(year, month);
+                                }}
                                 eventContent={(eventInfo) => {
                                     const { chipStyle, needsSeparator } = eventInfo.event.extendedProps;
                                     return (
@@ -809,7 +853,6 @@ export default function CalendarPage() {
                                     const d = String(eventDate.getDate()).padStart(2, '0');
                                     setSelectedDate(`${y}-${m}-${d}`);
                                 }}
-                                datesSet={handleDatesSet}
                                 height="100%"
                                 dayMaxEvents={false}
                                 fixedWeekCount={false}
