@@ -341,15 +341,13 @@ export default function SchedulesPage() {
 
     // --- 페이지네이션 및 필터 상태 ---
     const [selectedYear, setSelectedYear] = useState('all');
+    const [selectedMonth, setSelectedMonth] = useState('all');
+    const [selectedDay, setSelectedDay] = useState('all');
+    const [selectedType, setSelectedType] = useState('all');
+    const [selectedConsultant, setSelectedConsultant] = useState('all');
+    const [searchLocation, setSearchLocation] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 15;
-
-    // 필터 변경 시 페이지 초기화
-    if (selectedYear !== 'all' && currentPage !== 1) {
-        // useEffect 대신 렌더링 중 상태 변경 방지를 위해 로직 내에서 처리하거나, 
-        // 여기서는 단순화를 위해 useEffect를 쓰거나 렌더링 로직에서 처리.
-        // React 렌더링 사이클을 고려해 useEffect로 처리하는 것이 안전함.
-    }
 
     // 년도 목록 추출
     const availableYears = [...new Set(schedules.map(s => {
@@ -357,11 +355,36 @@ export default function SchedulesPage() {
         return new Date(s.date).getFullYear();
     }).filter(y => y !== null))].sort((a, b) => b - a);
 
+    // 월 목록 (1~12)
+    const availableMonths = Array.from({ length: 12 }, (_, i) => i + 1);
+
+    // 일 목록 (1~31)
+    const availableDays = Array.from({ length: 31 }, (_, i) => i + 1);
+
     // 필터링 및 정렬
     const filteredSchedules = schedules.filter(s => {
-        if (selectedYear === 'all') return true;
         if (!s.date) return false;
-        return new Date(s.date).getFullYear() === parseInt(selectedYear);
+        const d = new Date(s.date);
+
+        // 년도 필터
+        if (selectedYear !== 'all' && d.getFullYear() !== parseInt(selectedYear)) return false;
+
+        // 월 필터
+        if (selectedMonth !== 'all' && (d.getMonth() + 1) !== parseInt(selectedMonth)) return false;
+
+        // 일 필터
+        if (selectedDay !== 'all' && d.getDate() !== parseInt(selectedDay)) return false;
+
+        // 구분 필터
+        if (selectedType !== 'all' && s.typeCode !== selectedType) return false;
+
+        // 담당 컨설턴트 필터
+        if (selectedConsultant !== 'all' && s.consultantId !== selectedConsultant) return false;
+
+        // 장소 검색 (부분 일치)
+        if (searchLocation.trim() && !(s.location || '').toLowerCase().includes(searchLocation.toLowerCase().trim())) return false;
+
+        return true;
     }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // 페이지네이션 로직
@@ -376,11 +399,26 @@ export default function SchedulesPage() {
         setCurrentPage(page);
     };
 
-    // 년도 변경 핸들러
-    const handleYearChange = (e) => {
-        setSelectedYear(e.target.value);
+    // 필터 변경 핸들러들
+    const handleFilterChange = (setter) => (e) => {
+        setter(e.target.value);
         setCurrentPage(1);
     };
+
+    // 필터 초기화
+    const resetFilters = () => {
+        setSelectedYear('all');
+        setSelectedMonth('all');
+        setSelectedDay('all');
+        setSelectedType('all');
+        setSelectedConsultant('all');
+        setSearchLocation('');
+        setCurrentPage(1);
+    };
+
+    // 필터 활성화 여부
+    const hasActiveFilters = selectedYear !== 'all' || selectedMonth !== 'all' || selectedDay !== 'all' ||
+        selectedType !== 'all' || selectedConsultant !== 'all' || searchLocation.trim() !== '';
 
     // 폼 상태
     const [formData, setFormData] = useState({
@@ -835,30 +873,136 @@ export default function SchedulesPage() {
                 {/* Tab Content */}
                 {activeTab === 'list' ? (
                     <div className="animate-fade-in">
+
+
                         {/* Action Toolbar */}
-                        <div className="flex justify-between items-center mb-4" style={{ paddingBottom: "10px" }}>
-                            {/* Filter */}
-                            <div className="flex items-center gap-2">
-                                <div className="relative">
-                                    <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                                    <select
-                                        className="min-w-[150px] pl-12 pr-12 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
-                                        value={selectedYear}
-                                        onChange={handleYearChange}
-                                        style={{ paddingLeft: '45px' }}
-                                    >
-                                        <option value="all">전체 년도</option>
-                                        {availableYears.map(year => (
-                                            <option key={year} value={year}>{year}년</option>
-                                        ))}
-                                    </select>
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <div className="flex justify-between items-center mb-4" style={{ paddingBottom: "10px", marginTop: "5px" }}>
+                            {/* Filter Bar */}
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4" style={{ padding: "10px" }}>
+                                <div className="flex flex-wrap gap-3 items-center">
+                                    {/* 년도 필터 */}
+                                    <div className="relative">
+                                        <select
+                                            style={{ padding: "5px" }}
+                                            className="min-w-[110px] pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                            value={selectedYear}
+                                            onChange={handleFilterChange(setSelectedYear)}
+                                        >
+                                            <option value="all">전체 년도</option>
+                                            {availableYears.map(year => (
+                                                <option key={year} value={year}>{year}년</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    {/* 월 필터 */}
+                                    <div className="relative">
+                                        <select
+                                            style={{ padding: "5px" }}
+                                            className="min-w-[90px] pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                            value={selectedMonth}
+                                            onChange={handleFilterChange(setSelectedMonth)}
+                                        >
+                                            <option value="all">전체 월</option>
+                                            {availableMonths.map(month => (
+                                                <option key={month} value={month}>{month}월</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    {/* 일 필터 */}
+                                    <div className="relative">
+                                        <select
+                                            style={{ padding: "5px" }}
+                                            className="min-w-[80px] pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                            value={selectedDay}
+                                            onChange={handleFilterChange(setSelectedDay)}
+                                        >
+                                            <option value="all">전체 일</option>
+                                            {availableDays.map(day => (
+                                                <option key={day} value={day}>{day}일</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-px h-6 bg-gray-200"></div>
+
+                                    {/* 구분 필터 */}
+                                    <div className="relative">
+                                        <select
+                                            style={{ padding: "5px" }}
+                                            className="min-w-[110px] pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                            value={selectedType}
+                                            onChange={handleFilterChange(setSelectedType)}
+                                        >
+                                            <option value="all">전체 구분</option>
+                                            {codes.map(code => (
+                                                <option key={code.code} value={code.code}>{code.name}</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    {/* 담당 컨설턴트 필터 */}
+                                    <div className="relative">
+                                        <select
+                                            style={{ padding: "5px" }}
+                                            className="min-w-[130px] pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent appearance-none cursor-pointer hover:border-gray-300"
+                                            value={selectedConsultant}
+                                            onChange={handleFilterChange(setSelectedConsultant)}
+                                        >
+                                            <option value="all">전체 컨설턴트</option>
+                                            {consultants.map(c => (
+                                                <option key={c.uid || c.id} value={c.uid || c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    {/* 장소 검색 */}
+                                    <div className="relative flex-1 min-w-[150px] max-w-[200px]" >
+                                        <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                        <input
+                                            style={{ padding: "5px", textAlign: "center" }}
+                                            type="text"
+                                            placeholder="장소 검색"
+                                            className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00462A] focus:border-transparent hover:border-gray-300"
+                                            value={searchLocation}
+                                            onChange={(e) => { setSearchLocation(e.target.value); setCurrentPage(1); }}
+                                        />
+                                    </div>
+
+                                    {/* 필터 초기화 버튼 */}
+                                    {hasActiveFilters && (
+                                        <button
+                                            onClick={resetFilters}
+                                            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                            초기화
+                                        </button>
+                                    )}
+
+                                    {/* 결과 건수 */}
+                                    <div className="ml-auto">
+                                        <span className="text-sm text-gray-500 font-medium">
+                                            검색결과 <span className="text-[#00462A] font-bold">{filteredSchedules.length}</span>건
+                                        </span>
                                     </div>
                                 </div>
-                                <span className="text-sm text-gray-500 font-medium ml-2">
-                                    총 <span className="text-[#00462A] font-bold">{filteredSchedules.length}</span>건
-                                </span>
                             </div>
 
                             {/* Buttons */}

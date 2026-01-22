@@ -330,10 +330,10 @@ export function DataProvider({ children }) {
             }
         }
 
-        // 변경 이력 기록 (상세 내역 포함)
-        if (!replaceAll && (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0)) {
+        // 변경 이력 기록 (상세 내역 포함) - replaceAll 모드에서도 저장
+        if (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0) {
             const logData = {
-                type: 'MERGE',
+                type: replaceAll ? 'REPLACE' : 'MERGE',
                 summary: {
                     added: result.added.length,
                     updated: result.updated.length,

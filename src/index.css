@@ -2,8 +2,7 @@
 
 /* ===== EWHA WOMANS UNIVERSITY DESIGN SYSTEM ===== */
 
-/* Custom Fonts - Pretendard */
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+/* Custom Fonts - Pretendard is loaded via index.html for better performance */
 
 /* CSS Variables for Ewha University Theme */
 :root {
