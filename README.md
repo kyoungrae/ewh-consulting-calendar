@@ -1,6 +1,6 @@
-# 이화 컨설팅 관리 시스템 (EWH Consulting Management System)
+# 이화 컨설팅 일정
 
-이화여대 스타일의 내부 컨설팅 관리 시스템입니다. 컨설턴트와 관리자만 접속할 수 있는 일정 관리 플랫폼입니다.
+이화여대 스타일의 내부 컨설팅 일정 관리 시스템입니다. 컨설턴트와 관리자만 접속할 수 있는 일정 관리 플랫폼입니다.
 
 ![Ewha Green Theme](https://via.placeholder.com/800x400/00462A/FFFFFF?text=EWH+Consulting+Management+System)
 

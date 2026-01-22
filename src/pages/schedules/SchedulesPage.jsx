@@ -665,13 +665,30 @@ export default function SchedulesPage() {
                                 const match = cellStr.match(/(\d{1,2}[:.]\d{2})\s*([^(]+)\(([^)]+)\)/);
 
                                 if (match && currentWeekDates[colIdx]) {
-                                    const [, timeRaw, typeName, consultantName] = match;
+                                    const [, timeRaw, typeName, rawContentInParens] = match;
                                     const timeStr = timeRaw.replace('.', ':'); // 시간 형식을 콜론으로 통일
                                     const day = currentWeekDates[colIdx];
 
                                     // 비고(note)는 괄호 뒤에 오는 모든 텍스트로 처리
                                     const noteRaw = cellStr.split(')').slice(1).join(')').trim();
-                                    const note = noteRaw ? noteRaw.replace(/^\*/, '').trim() : '';
+                                    // 괄호 뒤에 * 로 시작하는 경우와 그렇지 않은 경우 모두 처리
+                                    let note = noteRaw ? noteRaw.replace(/^\*/, '').trim() : '';
+
+                                    // 괄호 안의 내용(rawContentInParens) 처리: "이름_장소" 또는 "이름"
+                                    let consultantName = rawContentInParens.trim();
+
+                                    // 언더스코어(_)가 있으면 분리
+                                    if (consultantName.includes('_')) {
+                                        const parts = consultantName.split('_');
+                                        consultantName = parts[0].trim();
+                                        const locationInParens = parts.slice(1).join('_').trim();
+
+                                        // 괄호 안 장소 정보가 있으면 note에 추가 (기존 note가 있으면 공백으로 구분)
+                                        if (locationInParens) {
+                                            note = note ? `${locationInParens} ${note}` : locationInParens;
+                                        }
+                                    }
+
                                     // 시간 파싱
                                     const timeParts = timeStr.split(':').map(Number);
                                     const hours = timeParts[0];
@@ -704,7 +721,7 @@ export default function SchedulesPage() {
                                             typeCode: typeCodeObj.code,
                                             typeName: typeCodeObj.name,
                                             consultantId: consultantObj?.uid || consultantObj?.id || `unknown_${normalize(consultantName)}`,
-                                            consultantName: consultantName.trim(),
+                                            consultantName: consultantName,
                                             location: note || '',
                                             memo: note || ''
                                         });
@@ -715,7 +732,7 @@ export default function SchedulesPage() {
                                             typeCode: typeName.trim(),
                                             typeName: typeName.trim(),
                                             consultantId: consultantObj?.uid || consultantObj?.id || `unknown_${normalize(consultantName)}`,
-                                            consultantName: consultantName.trim(),
+                                            consultantName: consultantName,
                                             location: note || '',
                                             memo: note || ''
                                         });
@@ -723,7 +740,7 @@ export default function SchedulesPage() {
                                     }
 
                                     if (!consultantObj) {
-                                        missingConsultants.add(consultantName.trim());
+                                        missingConsultants.add(consultantName);
                                     }
                                 }
                             }

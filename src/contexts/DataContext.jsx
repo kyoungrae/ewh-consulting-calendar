@@ -293,6 +293,19 @@ export function DataProvider({ children }) {
             const newMap = new Map();
             const processed = [];
 
+            // 1. 업로드된 데이터가 커버하는 '년-월' 집합 추출 (범위 밖 데이터 보존용)
+            // 예: 2026-03 데이터가 올라오면, 2026-03에 해당하는 기존 데이터 중 엑셀에 없는 것만 삭제.
+            // 2025년 데이터나 2026-04 데이터는 건드리지 않음.
+            const affectedMonths = new Set();
+            newSchedules.forEach(s => {
+                if (s.date) {
+                    const d = new Date(s.date);
+                    // YYYY-MM 형식 키
+                    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                    affectedMonths.add(key);
+                }
+            });
+
             newSchedules.forEach(newSched => {
                 const key = generateScheduleKey(newSched);
                 newMap.set(key, newSched);
@@ -343,11 +356,32 @@ export function DataProvider({ children }) {
                 }
             });
 
+            // 2. 기존 데이터 처리 (삭제 여부 결정)
             schedules.forEach(existing => {
-                if (!newMap.has(generateScheduleKey(existing))) {
-                    result.deleted.push(existing);
-                    if (batch) {
-                        batch.delete(doc(db, 'schedules', existing.id));
+                const key = generateScheduleKey(existing);
+
+                // 엑셀에 없는 데이터인 경우
+                if (!newMap.has(key)) {
+                    let shouldDelete = false;
+
+                    if (existing.date) {
+                        const d = new Date(existing.date);
+                        const existingMonthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                        // 업로드된 파일에 포함된 월(Month)에 속하는 데이터라면 삭제 대상
+                        if (affectedMonths.has(existingMonthKey)) {
+                            shouldDelete = true;
+                        }
+                    }
+
+                    if (shouldDelete) {
+                        result.deleted.push(existing);
+                        if (batch) {
+                            batch.delete(doc(db, 'schedules', existing.id));
+                        }
+                    } else {
+                        // 업로드된 범위 밖의 데이터는 안전하게 보존
+                        processed.push(existing);
+                        // result.unchanged에는 넣지 않음 (로그가 너무 길어짐 + 실제 변경 대상이 아니었음)
                     }
                 }
             });

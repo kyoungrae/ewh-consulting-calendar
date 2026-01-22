@@ -85,7 +85,7 @@ export default function LoginPage() {
                             <Shield size={32} className="text-white" />
                         </div>
                     </div>
-                    <h1 className="text-2xl font-bold text-[#00462A] tracking-tight mb-2">이화 컨설팅 관리 시스템</h1>
+                    <h1 className="text-2xl font-bold text-[#00462A] tracking-tight mb-2">이화 컨설팅 일정</h1>
                     <p className="text-sm text-gray-500 mb-8">등록된 컨설턴트와 관리자만 접속할 수 있습니다</p>
                 </div>
 
