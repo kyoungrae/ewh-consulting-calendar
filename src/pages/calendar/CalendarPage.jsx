@@ -63,6 +63,7 @@ export default function CalendarPage() {
     };
 
     const calendarRef = useRef(null);
+    const lastFetchedMonthRef = useRef(null); // 마지막으로 로드한 월 추적
     const { openSidebar } = useOutletContext();
     const navigate = useNavigate();
 
@@ -98,8 +99,11 @@ export default function CalendarPage() {
             return new Date(s.date).getFullYear();
         }).filter(y => y !== null);
 
-        // 현재 연도(currentYear)와 데이터 연도들을 합치고 중복 제거 후 내림차순 정렬
-        return [...new Set([new Date().getFullYear(), currentYear, ...years])].sort((a, b) => b - a);
+        // 현재 연도(currentYear), 오늘 연도, 데이터 연도들을 합치고 중복 제거 후 내림차순 정렬
+        // currentYear는 항상 포함되어야 함 (사용자가 보고 있는 년도)
+        const todayYear = new Date().getFullYear();
+        const allYears = [todayYear, currentYear, ...years];
+        return [...new Set(allYears)].sort((a, b) => b - a);
     }, [schedules, currentYear]);
 
     // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
@@ -357,7 +361,9 @@ export default function CalendarPage() {
 
     const changeYear = (delta) => {
         const newYear = currentYear + delta;
+        const monthKey = `${newYear}-${String(currentMonth).padStart(2, '0')}`;
         setCurrentYear(newYear);
+        lastFetchedMonthRef.current = monthKey; // ref 업데이트
 
         if (calendarRef.current && viewMode === 'calendar') {
             const calendarApi = calendarRef.current.getApi();
@@ -411,12 +417,6 @@ export default function CalendarPage() {
     };
 
     const handleDatesSet = (arg) => {
-        const date = arg.view.currentStart;
-        setCurrentYear(date.getFullYear());
-        setCurrentMonth(date.getMonth() + 1);
-        setCurrentDay(date.getDate());
-        setCurrentView(arg.view.type);
-
         // 오늘 날짜가 현재 달력 보기 범위 내에 있는지 확인
         const today = new Date();
         const start = arg.view.currentStart;
@@ -539,7 +539,8 @@ export default function CalendarPage() {
         saveAs(blob, fileName);
     };
 
-    if (schedulesLoading) {
+    // 초기 로딩만 스피너 표시 (이미 데이터가 있으면 달력 유지)
+    if (schedulesLoading && schedules.length === 0) {
         return (
             <>
                 <Header title="달력" onMenuClick={openSidebar} />
@@ -638,7 +639,9 @@ export default function CalendarPage() {
                             value={currentYear}
                             onChange={(e) => {
                                 const year = parseInt(e.target.value);
+                                const monthKey = `${year}-${String(currentMonth).padStart(2, '0')}`;
                                 setCurrentYear(year);
+                                lastFetchedMonthRef.current = monthKey; // ref 업데이트
                                 if (calendarRef.current) {
                                     calendarRef.current.getApi().gotoDate(new Date(year, currentMonth - 1, 1));
                                 }
@@ -662,7 +665,9 @@ export default function CalendarPage() {
                                 value={currentMonth - 1}
                                 onChange={(e) => {
                                     const month = parseInt(e.target.value) + 1;
+                                    const monthKey = `${currentYear}-${String(month).padStart(2, '0')}`;
                                     setCurrentMonth(month);
+                                    lastFetchedMonthRef.current = monthKey; // ref 업데이트
                                     if (calendarRef.current) {
                                         calendarRef.current.getApi().gotoDate(new Date(currentYear, month - 1, 1));
                                     }
@@ -807,8 +812,6 @@ export default function CalendarPage() {
                                 events={calendarEvents}
                                 eventOrder="extendedProps.sortIndex"
                                 datesSet={(dateInfo) => {
-                                    handleDatesSet(dateInfo); // 기존 UI 상태 업데이트 로직 실행
-
                                     // 현재 뷰의 중심 날짜 계산 (월간 뷰에서 정확한 월 파악 위함)
                                     // start와 end의 중간 지점을 기준으로 월을 판단
                                     const start = dateInfo.start;
@@ -817,9 +820,35 @@ export default function CalendarPage() {
 
                                     const year = centerDate.getFullYear();
                                     const month = centerDate.getMonth() + 1;
+                                    const day = start.getDate();
+                                    const viewType = dateInfo.view.type;
+                                    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+                                    // 이미 같은 월을 로드했는지 확인하여 중복 호출 방지 (ref만 사용)
+                                    if (lastFetchedMonthRef.current === monthKey) {
+                                        // 같은 월이면 상태만 업데이트하고 데이터 로드는 스킵
+                                        setCurrentYear(year);
+                                        setCurrentMonth(month);
+                                        setCurrentDay(day);
+                                        setCurrentView(viewType);
+                                        handleDatesSet(dateInfo);
+                                        return;
+                                    }
+
+                                    // 상태 업데이트를 한 번에 처리하여 중복 업데이트 방지
+                                    setCurrentYear(year);
+                                    setCurrentMonth(month);
+                                    setCurrentDay(day);
+                                    setCurrentView(viewType);
 
                                     console.log(`📅 [Calendar] View Changed: ${year}-${month}`);
+                                    
+                                    // 데이터 로드 (중복 방지)
+                                    lastFetchedMonthRef.current = monthKey;
                                     fetchMonthSchedules(year, month);
+                                    
+                                    // 날짜 선택 로직 실행 (오늘 날짜 자동 선택 등)
+                                    handleDatesSet(dateInfo);
                                 }}
                                 eventContent={(eventInfo) => {
                                     const { chipStyle, needsSeparator } = eventInfo.event.extendedProps;
