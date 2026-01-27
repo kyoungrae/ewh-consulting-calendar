@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
                 ? DUMMY_USERS.find(u => u.name === userIdOrEmailOrName)
                 : DUMMY_USERS.find(u => u.userId === userIdOrEmailOrName);
             if (dummyUser) {
-                console.log('⚡️ Dev Login with Dummy User:', dummyUser.name);
+                ß
                 const fakeUser = {
                     uid: dummyUser.uid,
                     email: `${dummyUser.userId}@ewha.dev`,
@@ -124,7 +124,7 @@ export function AuthProvider({ children }) {
 
         // DB에 저장된 비밀번호와 일치하는지 확인 (우선순위 1)
         if (userData.password && userData.password === password) {
-            console.log('✅ Firestore DB Password Match:', userData.name);
+
 
             // 사이트 종료 시 자동으로 로그아웃 되도록 세션 유지 방식 설정
             await setPersistence(auth, browserSessionPersistence);

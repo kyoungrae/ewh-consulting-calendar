@@ -587,9 +587,6 @@ export default function SchedulesPage() {
                         .replace(/[()]/g, '');     // 괄호 제거
                 };
 
-                console.log('📊 엑셀 파싱 시작...');
-                console.log('시트 목록:', workbook.SheetNames);
-
                 workbook.SheetNames.forEach(sheetName => {
                     const worksheet = workbook.Sheets[sheetName];
                     const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
@@ -655,14 +652,11 @@ export default function SchedulesPage() {
                     const baseDate = new Date(baseYear, baseMonth, 1);
 
                     if (!baseDate || isNaN(baseDate.getTime())) {
-                        console.log(`⚠️ ${sheetName}: 기준 날짜를 찾을 수 없음 (A1 셀이 날짜 형식이 아니고 시트명에도 '월'이 포함되지 않음), 스킵`);
                         return;
                     }
 
                     const confirmedMonth = baseDate.getMonth();
                     const confirmedYear = baseDate.getFullYear();
-
-                    console.log(`📅 ${sheetName}: 스케줄 기준 년월 확정 -> ${confirmedYear}년 ${confirmedMonth + 1}월 (출처: ${headerFound ? '헤더셀' : '시트명/현재시간'})`);
 
                     // 현재 주의 날짜 정보 (일~토 등 7개 이상의 열에 대응할 수 있도록 넉넉히 설정)
                     let currentWeekDates = new Array(10).fill(null);
@@ -776,8 +770,6 @@ export default function SchedulesPage() {
                         }
                     }
                 });
-
-                console.log(`📊 파싱 완료: ${allSchedules.length}건`);
 
                 if (allSchedules.length > 0) {
                     let resultMsg = '';

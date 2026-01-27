@@ -27,6 +27,7 @@ export default function CalendarPage() {
     const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
     const [currentDay, setCurrentDay] = useState(new Date().getDate());
     const [currentView, setCurrentView] = useState('dayGridMonth');
+    const [isDateDetailModalOpen, setIsDateDetailModalOpen] = useState(false);
 
     // List View State
     const [downloadPeriod, setDownloadPeriod] = useState('monthly'); // 'monthly', 'yearly', 'custom'
@@ -357,6 +358,10 @@ export default function CalendarPage() {
 
     const handleDateClick = (info) => {
         setSelectedDate(info.dateStr);
+        // 모바일에서만 팝업 표시 (1024px 이하)
+        if (window.innerWidth <= 1024) {
+            setIsDateDetailModalOpen(true);
+        }
     };
 
     const changeYear = (delta) => {
@@ -554,7 +559,7 @@ export default function CalendarPage() {
     return (
         <>
             <Header title="달력" onMenuClick={openSidebar} />
-            <div className="ewh-calendar-page">
+            <div className={`ewh-calendar-page ${viewMode === 'list' ? 'ewh-list-mode-page' : ''}`}>
                 {/* Header */}
                 <header className="ewh-header">
                     <div className="ewh-branded-title" onClick={() => navigate('/')}>
@@ -630,36 +635,35 @@ export default function CalendarPage() {
                 </div>
 
                 {/* Filter Bar */}
-                <div className="ewh-filter-bar">
-                    {/* Year Nav */}
-                    <div className="ewh-year-nav">
-                        <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(-1)}>◀</button>
-                        <select
-                            className="ewh-nav-select"
-                            value={currentYear}
-                            onChange={(e) => {
-                                const year = parseInt(e.target.value);
-                                const monthKey = `${year}-${String(currentMonth).padStart(2, '0')}`;
-                                setCurrentYear(year);
-                                lastFetchedMonthRef.current = monthKey; // ref 업데이트
-                                if (calendarRef.current) {
-                                    calendarRef.current.getApi().gotoDate(new Date(year, currentMonth - 1, 1));
-                                }
-                            }}
-                        >
-                            {availableYears.map(y => (
-                                <option key={y} value={y}>{y}년</option>
-                            ))}
-                        </select>
-                        <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(1)}>▶</button>
-                    </div>
+                <div className="ewh-filter-bar" style={{ margin: "10px", padding: "10px" }}>
+                    {/* Combined Navigation Group for Mobile */}
+                    <div className="ewh-nav-group">
+                        {/* Year Nav */}
+                        <div className="ewh-year-nav">
+                            <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(-1)}>◀</button>
+                            <select
+                                className="ewh-nav-select"
+                                value={currentYear}
+                                onChange={(e) => {
+                                    const year = parseInt(e.target.value);
+                                    const monthKey = `${year}-${String(currentMonth).padStart(2, '0')}`;
+                                    setCurrentYear(year);
+                                    lastFetchedMonthRef.current = monthKey; // ref 업데이트
+                                    if (calendarRef.current) {
+                                        calendarRef.current.getApi().gotoDate(new Date(year, currentMonth - 1, 1));
+                                    }
+                                }}
+                            >
+                                {availableYears.map(y => (
+                                    <option key={y} value={y}>{y}년</option>
+                                ))}
+                            </select>
+                            <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(1)}>▶</button>
+                        </div>
 
-                    {/* Period Nav (Central) */}
-                    <div className="ewh-month-nav">
-                        <button onClick={handlePrev}>◀</button>
-
-                        <div className="ewh-period-selectors">
-                            {/* Month Selector (Always) */}
+                        {/* Month Nav */}
+                        <div className="ewh-month-nav-inline">
+                            <button onClick={handlePrev}>◀</button>
                             <select
                                 className="ewh-nav-select"
                                 value={currentMonth - 1}
@@ -677,50 +681,10 @@ export default function CalendarPage() {
                                     <option key={i} value={i}>{m}</option>
                                 ))}
                             </select>
-
-                            {/* Week Selector (Only in Week View and Calendar Perspective) */}
-                            {currentView === 'timeGridWeek' && viewMode === 'calendar' && (
-                                <select
-                                    className="ewh-nav-select"
-                                    value={Math.ceil(currentDay / 7)}
-                                    onChange={(e) => {
-                                        const week = parseInt(e.target.value);
-                                        const day = (week - 1) * 7 + 1;
-                                        if (calendarRef.current) {
-                                            calendarRef.current.getApi().gotoDate(new Date(currentYear, currentMonth - 1, day));
-                                        }
-                                    }}
-                                >
-                                    {[1, 2, 3, 4, 5, 6].map(w => (
-                                        <option key={w} value={w}>{w}주</option>
-                                    ))}
-                                </select>
-                            )}
-
-                            {/* Day Selector (Only in Day View and Calendar Perspective) */}
-                            {currentView === 'timeGridDay' && viewMode === 'calendar' && (
-                                <select
-                                    className="ewh-nav-select"
-                                    value={currentDay}
-                                    onChange={(e) => {
-                                        const day = parseInt(e.target.value);
-                                        if (calendarRef.current) {
-                                            calendarRef.current.getApi().gotoDate(new Date(currentYear, currentMonth - 1, day));
-                                        }
-                                    }}
-                                >
-                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                                        <option key={d} value={d}>{d}일</option>
-                                    ))}
-                                </select>
-                            )}
+                            <button onClick={handleNext}>▶</button>
                         </div>
 
-                        <button onClick={handleNext}>▶</button>
-                    </div>
-
-                    <div className="ewh-right-controls">
-                        {/* View Type Nav (목록 보기에서는 숨김) */}
+                        {/* View Type Nav (Standalone now) */}
                         {viewMode === 'calendar' && (
                             <div className="ewh-view-type-nav">
                                 <button
@@ -751,54 +715,54 @@ export default function CalendarPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
 
-                        {/* Filters */}
-                        <div className="ewh-filters">
-                            <div className="ewh-filter-item">
-                                <label>컨설턴트:</label>
-                                <select
-                                    value={selectedConsultant}
-                                    onChange={(e) => setSelectedConsultant(e.target.value)}
-                                >
-                                    <option value="all">전체 보기</option>
-                                    {users.filter(u => u.role === 'consultant').map(user => (
-                                        <option key={user.uid} value={user.uid}>{user.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="ewh-filter-item">
-                                <label>유형:</label>
-                                <select
-                                    value={selectedType}
-                                    onChange={(e) => setSelectedType(e.target.value)}
-                                >
-                                    <option value="all">전체 유형</option>
-                                    {codes.map(code => (
-                                        <option key={code.code} value={code.code}>{code.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            {viewMode === 'list' && (
-                                <div className="ewh-filter-item">
-                                    <label>주차:</label>
-                                    <select
-                                        value={selectedWeek}
-                                        onChange={(e) => setSelectedWeek(e.target.value)}
-                                    >
-                                        <option value="all">전체 주차</option>
-                                        {[1, 2, 3, 4, 5, 6].map(w => (
-                                            <option key={w} value={w}>{w}주차</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
+                    {/* Filters Group */}
+                    <div className="ewh-filters">
+                        <div className="ewh-filter-item">
+                            <label>컨설턴트:</label>
+                            <select
+                                value={selectedConsultant}
+                                onChange={(e) => setSelectedConsultant(e.target.value)}
+                            >
+                                <option value="all">전체 보기</option>
+                                {users.filter(u => u.role === 'consultant').map(user => (
+                                    <option key={user.uid} value={user.uid}>{user.name}</option>
+                                ))}
+                            </select>
                         </div>
+                        <div className="ewh-filter-item">
+                            <label>유형:</label>
+                            <select
+                                value={selectedType}
+                                onChange={(e) => setSelectedType(e.target.value)}
+                            >
+                                <option value="all">전체 유형</option>
+                                {codes.map(code => (
+                                    <option key={code.code} value={code.code}>{code.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {viewMode === 'list' && (
+                            <div className="ewh-filter-item">
+                                <label>주차:</label>
+                                <select
+                                    value={selectedWeek}
+                                    onChange={(e) => setSelectedWeek(e.target.value)}
+                                >
+                                    <option value="all">전체 주차</option>
+                                    {[1, 2, 3, 4, 5, 6].map(w => (
+                                        <option key={w} value={w}>{w}주차</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Calendar Layout */}
-                <div className="ewh-calendar-layout">
-                    <div className="ewh-calendar-main">
+                <div className={`ewh-calendar-layout ${viewMode === 'list' ? 'ewh-list-mode-layout' : ''}`}>
+                    <div className={`ewh-calendar-main ${viewMode === 'list' ? 'ewh-list-view-mode' : ''}`}>
                         {viewMode === 'calendar' ? (
                             <FullCalendar
                                 ref={calendarRef}
@@ -841,12 +805,10 @@ export default function CalendarPage() {
                                     setCurrentDay(day);
                                     setCurrentView(viewType);
 
-                                    console.log(`📅 [Calendar] View Changed: ${year}-${month}`);
-                                    
                                     // 데이터 로드 (중복 방지)
                                     lastFetchedMonthRef.current = monthKey;
                                     fetchMonthSchedules(year, month);
-                                    
+
                                     // 날짜 선택 로직 실행 (오늘 날짜 자동 선택 등)
                                     handleDatesSet(dateInfo);
                                 }}
@@ -875,12 +837,28 @@ export default function CalendarPage() {
                                 }}
                                 dateClick={handleDateClick}
                                 eventClick={(info) => {
-                                    // 이벤트 클릭 시 해당 날짜 선택
-                                    const eventDate = info.event.start;
-                                    const y = eventDate.getFullYear();
-                                    const m = String(eventDate.getMonth() + 1).padStart(2, '0');
-                                    const d = String(eventDate.getDate()).padStart(2, '0');
-                                    setSelectedDate(`${y}-${m}-${d}`);
+                                    // 기본 동작 방지
+                                    info.jsEvent.preventDefault();
+
+                                    // 모바일(1024px 이하)에서는 상세 팝업을 띄움
+                                    if (window.innerWidth <= 1024) {
+                                        const eventDate = info.event.start;
+                                        const y = eventDate.getFullYear();
+                                        const m = String(eventDate.getMonth() + 1).padStart(2, '0');
+                                        const d = String(eventDate.getDate()).padStart(2, '0');
+                                        setSelectedDate(`${y}-${m}-${d}`);
+                                        setIsDateDetailModalOpen(true);
+                                    } else {
+                                        // 데스크탑에서는 기존처럼 개별 상세 모달 표시
+                                        setSelectedEvent({
+                                            ...info.event.extendedProps,
+                                            id: info.event.id,
+                                            title: info.event.title,
+                                            start: info.event.start,
+                                            end: info.event.end
+                                        });
+                                        setIsModalOpen(true);
+                                    }
                                 }}
                                 height="100%"
                                 dayMaxEvents={false}
@@ -903,57 +881,52 @@ export default function CalendarPage() {
                                 }}
                             />
                         ) : (
-                            <div className="ewh-list-view w-full px-6 pb-10">
-                                {/* Control Header - Exact User Design */}
-                                <div className="flex justify-between items-center mb-[15px] bg-[#f8f9fa] p-[15px] rounded-[8px] border border-[#eee]" style={{ padding: "15px", marginBottom: "15px" }}>
-                                    <div className="flex items-center gap-[15px] flex-wrap">
-                                        <div className="flex items-center gap-[8px]">
-                                            <label htmlFor="downloadPeriod" className="font-medium text-[0.95rem]">다운로드 기간:</label>
-                                            <select
-                                                style={{ padding: "5px" }}
-                                                id="downloadPeriod"
-                                                className="px-4 py-2 text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] cursor-pointer shadow-sm hover:bg-gray-50 transition-colors"
-                                                value={downloadPeriod}
-                                                onChange={(e) => setDownloadPeriod(e.target.value)}
-                                            >
-                                                <option value="monthly">월별 (현재 화면)</option>
-                                                <option value="yearly">년별 (전체 연도)</option>
-                                                <option value="custom">사용자 지정 기간</option>
-                                            </select>
-                                        </div>
-
-                                        {downloadPeriod === 'custom' && (
-                                            <div className="flex items-center gap-2 ml-2">
-                                                <input
-                                                    type="date"
-                                                    style={{ padding: "5px 12px" }}
-                                                    className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
-                                                    value={customStartDate}
-                                                    onChange={(e) => setCustomStartDate(e.target.value)}
-                                                />
-                                                <span className="text-gray-400 font-bold">~</span>
-                                                <input
-                                                    type="date"
-                                                    style={{ padding: "5px 12px" }}
-                                                    className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
-                                                    value={customEndDate}
-                                                    onChange={(e) => setCustomEndDate(e.target.value)}
-                                                />
-                                            </div>
-                                        )}
+                            <div className="ewh-list-view w-full px-6 pb-10" >
+                                {/* Download & Info Bar */}
+                                <div className="ewh-download-bar bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm flex items-center justify-between gap-4" style={{ margin: "10px", padding: "10px" }}>
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-gray-500 font-bold text-sm whitespace-nowrap">다운로드 기간:</div>
+                                        <select
+                                            className="ewh-nav-select"
+                                            value={downloadPeriod}
+                                            onChange={(e) => setDownloadPeriod(e.target.value)}
+                                        >
+                                            <option value="monthly">월별 (현재 화면)</option>
+                                            <option value="yearly">연별 (현재 연도)</option>
+                                            <option value="custom">직접 선택</option>
+                                        </select>
                                     </div>
 
-                                    <div className="flex items-center gap-[15px]">
-                                        <div className="font-semibold text-[#555]">
+                                    {downloadPeriod === 'custom' && (
+                                        <div className="flex items-center gap-2 ml-2">
+                                            <input
+                                                type="date"
+                                                style={{ padding: "5px 12px" }}
+                                                className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
+                                                value={customStartDate}
+                                                onChange={(e) => setCustomStartDate(e.target.value)}
+                                            />
+                                            <span className="text-gray-400 font-bold">~</span>
+                                            <input
+                                                type="date"
+                                                style={{ padding: "5px 12px" }}
+                                                className="h-[38px] text-sm font-bold text-[#00462A] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#00462A] shadow-sm uppercase"
+                                                value={customEndDate}
+                                                onChange={(e) => setCustomEndDate(e.target.value)}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-gray-600 font-bold text-sm whitespace-nowrap">
                                             {downloadPeriod === 'monthly' && `${currentYear}년 ${currentMonth}월`}
-                                            {downloadPeriod === 'yearly' && `${currentYear}년 전체`}
+                                            {downloadPeriod === 'yearly' && `${currentYear}년`}
                                             {downloadPeriod === 'custom' && '선택 기간'}
                                             - 총 {downloadTargetSchedules.length}건
                                         </div>
                                         <button
                                             onClick={handleExcelDownload}
-                                            className="px-[16px] py-[8px] text-[0.9rem] bg-[#006633] text-white border-none rounded-[4px] cursor-pointer flex items-center gap-[5px] hover:bg-[#00552b] transition-colors"
-                                            style={{ padding: "6px", fontWeight: "bold" }}
+                                            className="ewh-excel-btn"
                                         >
                                             <svg style={{ width: '16px', height: '16px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -964,15 +937,12 @@ export default function CalendarPage() {
                                 </div>
 
                                 {/* Summary Container Box */}
-                                <div className="bg-white rounded-2xl border border-gray-200 p-8 mb-8 shadow-[0_2px_8px_rgba(0,0,0,0.02)] flex flex-wrap gap-6 items-center" style={{ padding: "16px", marginBottom: "16px" }}>
+                                <div className="ewh-summary-container bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)] flex flex-wrap gap-4 items-center" style={{ margin: "10px", padding: "10px" }}>
                                     {/* Total Count Card */}
-                                    <div className="w-[180px] h-[110px] bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#00462A] shadow-sm relative overflow-hidden group">
+                                    <div className="ewh-summary-card total-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#00462A] shadow-sm relative overflow-hidden group">
                                         <div className="text-gray-500 text-sm font-bold mb-1">전체 세션</div>
                                         <div className="text-[#00462A] text-3xl font-extrabold">{downloadTargetSchedules.length}</div>
                                     </div>
-
-                                    {/* Divider */}
-                                    {downloadTargetSchedules.length > 0 && <div className="w-[1px] h-[60px] bg-gray-100"></div>}
 
                                     {/* Breakdown Cards */}
                                     {Object.entries(downloadTargetSchedules.reduce((acc, curr) => {
@@ -980,89 +950,92 @@ export default function CalendarPage() {
                                         acc[name] = (acc[name] || 0) + 1;
                                         return acc;
                                     }, {})).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, count]) => (
-                                        <div key={name} className="w-[180px] h-[110px] bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
+                                        <div key={name} className="ewh-summary-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
                                             <div className="text-gray-500 text-sm font-bold mb-1">{name}</div>
                                             <div className="text-[#00462A] text-3xl font-extrabold">{count}</div>
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* List Table */}
-                                <div className="ewh-list-table-container rounded-t-lg overflow-hidden border-t-0">
-                                    <table className="ewh-list-table w-full">
-                                        <thead>
-                                            <tr className="bg-[#00462A] text-white h-[50px]">
-                                                <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('date')}>
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        일자 {sortConfig.key === 'date' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
-                                                    </div>
-                                                </th>
-                                                <th className="py-2 text-center font-bold text-sm w-[10%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('time')}>
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        시간 {sortConfig.key === 'time' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
-                                                    </div>
-                                                </th>
-                                                <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('consultant')}>
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        컨설턴트 {sortConfig.key === 'consultant' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
-                                                    </div>
-                                                </th>
-                                                <th className="py-2 text-left px-8 font-bold text-sm w-[25%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('type')}>
-                                                    <div className="flex items-center gap-1">
-                                                        구분 {sortConfig.key === 'type' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
-                                                    </div>
-                                                </th>
-                                                <th className="py-2 text-center font-bold text-sm w-[15%]">방식</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {sortedSchedules.length > 0 ? (
-                                                sortedSchedules.map(schedule => {
-                                                    const typeCode = codes.find(c => c.code === schedule.typeCode);
-                                                    const consultant = users.find(u => u.uid === schedule.consultantId);
-                                                    const dateObj = new Date(schedule.date);
-                                                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-                                                    const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
-                                                    const isRemote = !schedule.location?.includes('대면');
-                                                    const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
-
-                                                    return (
-                                                        <tr key={schedule.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors h-[60px]">
-                                                            <td className="text-center font-bold text-gray-800 text-sm">{dateStr}</td>
-                                                            <td className="text-center text-gray-600 text-sm font-medium">{timeStr}</td>
-                                                            <td className="text-center text-gray-700 text-sm font-medium">{consultant ? consultant.name + 'T' : '-'}</td>
-                                                            <td className="px-8 text-left">
-                                                                <span
-                                                                    className="font-bold text-gray-800 text-[13px] px-3 py-1 rounded-md border"
-                                                                    style={{
-                                                                        backgroundColor: chipStyle.bg,
-                                                                        borderColor: chipStyle.border,
-                                                                        padding: '5px 10px',
-                                                                    }}
-                                                                >
-                                                                    {typeCode ? typeCode.name : '미분류'}
-                                                                </span>
-                                                            </td>
-                                                            <td className="text-center">
-                                                                <span style={{ padding: "5px 12px", borderRadius: "15px" }} className={`inline-flex px-3 py-1 rounded-md text-xs font-bold ${isRemote ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
-                                                                    {isRemote ? '비대면' : '대면'}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })
-                                            ) : (
-                                                <tr>
-                                                    <td colSpan="5" className="py-24 text-center text-gray-400">
-                                                        <div className="flex flex-col items-center gap-2">
-                                                            <Calendar size={40} className="text-gray-200 mb-2" />
-                                                            <span>조건에 맞는 일정이 없습니다.</span>
+                                {/* List Table Container */}
+                                <div className="ewh-list-table-wrapper rounded-t-lg border-t-0 shadow-sm overflow-hidden" style={{ margin: "10px", padding: "10px" }}>
+                                    <div className="ewh-list-table-scroll-container overflow-x-auto">
+                                        <table className="ewh-list-table w-full min-w-[600px]">
+                                            <thead>
+                                                <tr className="bg-[#00462A] text-white">
+                                                    <th className="py-2 text-center font-bold text-sm w-[20%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('date')}>
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            일자 {sortConfig.key === 'date' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
                                                         </div>
-                                                    </td>
+                                                    </th>
+                                                    <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('time')}>
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            시간 {sortConfig.key === 'time' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                        </div>
+                                                    </th>
+                                                    <th className="py-2 text-center font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('consultant')}>
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            컨설턴트 {sortConfig.key === 'consultant' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                        </div>
+                                                    </th>
+                                                    <th className="py-2 text-left px-4 font-bold text-sm w-[15%] cursor-pointer hover:bg-[#00331F] transition-colors" onClick={() => requestSort('type')}>
+                                                        <div className="flex items-center gap-1">
+                                                            구분 {sortConfig.key === 'type' ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '↕'}
+                                                        </div>
+                                                    </th>
+                                                    <th className="py-2 text-left px-4 font-bold text-sm w-[20%]">방식</th>
                                                 </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {sortedSchedules.length > 0 ? (
+                                                    sortedSchedules.map(schedule => {
+                                                        const typeCode = codes.find(c => c.code === schedule.typeCode);
+                                                        const consultant = users.find(u => u.uid === schedule.consultantId);
+                                                        const dateObj = new Date(schedule.date);
+                                                        const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                                                        const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+                                                        const isRemote = !schedule.location?.includes('대면');
+                                                        const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
+
+                                                        return (
+                                                            <tr key={schedule.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                                <td className="text-center font-bold text-gray-800 text-sm">{dateStr}</td>
+                                                                <td className="text-center text-gray-600 text-sm font-medium">{timeStr}</td>
+                                                                <td className="text-center text-gray-700 text-sm font-medium">{consultant ? consultant.name + 'T' : '-'}</td>
+                                                                <td className="px-4 text-left">
+                                                                    <span
+                                                                        className="font-bold text-gray-800 text-[13px] px-3 py-1 rounded-md border"
+                                                                        style={{
+                                                                            backgroundColor: chipStyle.bg,
+                                                                            borderColor: chipStyle.border,
+                                                                            padding: '2px 6px',
+                                                                            fontSize: '12px'
+                                                                        }}
+                                                                    >
+                                                                        {typeCode ? typeCode.name : '미분류'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="text-left px-4">
+                                                                    <span style={{ padding: "2px 8px", borderRadius: "15px", fontSize: "11px" }} className={`inline-flex px-3 py-1 rounded-md text-xs font-bold ${isRemote ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+                                                                        {isRemote ? '비대면' : '대면'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan="5" className="py-24 text-center text-gray-400">
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <Calendar size={40} className="text-gray-200 mb-2" />
+                                                                <span>조건에 맞는 일정이 없습니다.</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -1113,7 +1086,13 @@ export default function CalendarPage() {
                 {/* Modal */}
                 <Modal
                     isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
+                    onClose={() => {
+                        setIsModalOpen(false);
+                        // 모바일에서 상세를 닫으면 다시 날짜 요약으로 돌아감
+                        if (window.innerWidth <= 1024 && selectedDate) {
+                            setIsDateDetailModalOpen(true);
+                        }
+                    }}
                     title="일정 상세"
                 >
                     {selectedEvent && (
@@ -1132,6 +1111,9 @@ export default function CalendarPage() {
                                     <Clock size={18} className="text-gray-400" />
                                     <span className="text-gray-700 font-medium">
                                         {new Date(selectedEvent.date).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                                        <span className="ml-2 text-ewha-green-600">
+                                            {new Date(selectedEvent.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                        </span>
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-3 text-sm">
@@ -1144,10 +1126,81 @@ export default function CalendarPage() {
                                 </div>
                             </div>
                             <div className="pt-4 border-t border-gray-100 flex justify-end">
-                                <button onClick={() => setIsModalOpen(false)} className="btn btn-secondary px-6">닫기</button>
+                                <button
+                                    onClick={() => {
+                                        setIsModalOpen(false);
+                                        if (window.innerWidth <= 1024 && selectedDate) {
+                                            setIsDateDetailModalOpen(true);
+                                        }
+                                    }}
+                                    className="btn btn-secondary px-6"
+                                >
+                                    닫기
+                                </button>
                             </div>
                         </div>
                     )}
+                </Modal>
+
+                {/* Date Detail Modal (Mobile) */}
+                <Modal
+                    isOpen={isDateDetailModalOpen}
+                    onClose={() => setIsDateDetailModalOpen(false)}
+                    title={`${getDisplayDate} 일정 상세`}
+                    className="ewh-genie-modal"
+                >
+                    <div className="ewh-date-detail-container">
+                        {selectedDateSchedules.length > 0 ? (
+                            <div className="ewh-detail-list">
+                                {selectedDateSchedules.map((schedule, idx) => {
+                                    const typeCode = codes.find(c => c.code === schedule.typeCode);
+                                    const consultant = users.find(u => u.uid === schedule.consultantId);
+                                    const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
+                                    const date = new Date(schedule.date);
+                                    const timeStr = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+                                    return (
+                                        <div
+                                            key={schedule.id || idx}
+                                            className="ewh-detail-item"
+                                            onClick={() => {
+                                                setSelectedEvent({
+                                                    ...schedule,
+                                                    typeName: typeCode?.name,
+                                                    consultantName: consultant?.name || schedule.consultantName,
+                                                    chipStyle
+                                                });
+                                                setIsModalOpen(true);
+                                                setIsDateDetailModalOpen(false);
+                                            }}
+                                        >
+                                            <div className="ewh-detail-time">{timeStr}</div>
+                                            <div
+                                                className="ewh-detail-chip"
+                                                style={{
+                                                    backgroundColor: chipStyle.bg,
+                                                    borderLeft: `4px solid ${chipStyle.border}`
+                                                }}
+                                            >
+                                                {typeCode?.name || '미분류'}
+                                            </div>
+                                            <div className="ewh-detail-consultant">
+                                                {consultant?.name || schedule.consultantName || '미배정'}T
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="ewh-no-detail">일정이 없습니다.</div>
+                        )}
+                        <button
+                            className="ewh-detail-close-btn"
+                            onClick={() => setIsDateDetailModalOpen(false)}
+                        >
+                            닫기
+                        </button>
+                    </div>
                 </Modal>
             </div>
 
@@ -1334,6 +1387,7 @@ export default function CalendarPage() {
                     color: #fff;
                 }
 
+
                 /* Filter Bar */
                 .ewh-filter-bar {
                     padding: 10px 24px;
@@ -1443,6 +1497,31 @@ export default function CalendarPage() {
                     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                 }
 
+                .ewh-nav-group {
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                }
+
+                .ewh-month-nav-inline {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .ewh-month-nav-inline button {
+                    background: none;
+                    border: none;
+                    font-size: 1.1rem;
+                    cursor: pointer;
+                    color: #00462A;
+                    padding: 0 6px;
+                }
+
+                .ewh-month-nav-inline button:hover {
+                    opacity: 0.6;
+                }
+
                 .ewh-nav-select {
                     font-weight: 700;
                     font-size: 1rem;
@@ -1504,6 +1583,12 @@ export default function CalendarPage() {
                     background-color: #e8ebee;
                 }
 
+                .ewh-calendar-page.ewh-list-mode-page {
+                    height: auto !important;
+                    min-height: 100vh;
+                    overflow: visible !important;
+                }
+
                 /* Calendar Layout */
                 .ewh-calendar-layout {
                     display: flex;
@@ -1511,11 +1596,21 @@ export default function CalendarPage() {
                     overflow: hidden;
                 }
 
+                .ewh-calendar-layout.ewh-list-mode-layout {
+                    display: block;
+                    overflow: visible;
+                }
+
                 .ewh-calendar-main {
                     flex: 1;
                     padding: 16px 32px;
                     overflow-y: auto;
                     background: #fff;
+                }
+
+                .ewh-calendar-main.ewh-list-view-mode {
+                    padding: 0;
+                    overflow: visible;
                 }
 
                 /* Summary Sidebar */
@@ -1850,8 +1945,31 @@ export default function CalendarPage() {
 
                 /* Responsive */
                 @media (max-width: 1024px) {
+                    .ewh-calendar-page {
+                        height: auto;
+                        overflow: auto;
+                        display: block;
+                    }
+
                     .ewh-calendar-layout {
                         flex-direction: column;
+                        overflow: visible;
+                        display: block;
+                    }
+
+                    .ewh-calendar-main {
+                        height: 600px;
+                        flex: none;
+                        overflow: visible;
+                    }
+
+                    .ewh-calendar-main.ewh-list-view-mode {
+                        height: auto !important;
+                        min-height: 600px;
+                    }
+
+                    .ewh-calendar-main .fc {
+                        height: 600px !important;
                     }
 
                     .ewh-summary-sidebar {
@@ -1869,11 +1987,45 @@ export default function CalendarPage() {
                         padding: 16px;
                     }
 
+                    /* View Bar Mobile */
+                    .ewh-view-bar {
+                        flex-direction: column;
+                        height: auto;
+                        padding: 10px 16px;
+                        gap: 10px;
+                    }
+
+                    .ewh-sub-tabs-inline {
+                        display: none; /* 모바일에서 상반기/하반기 탭 숨김 */
+                    }
+
                     .ewh-main-tabs {
                         width: 100%;
                         justify-content: center;
                         position: static;
                         transform: none;
+                        display: flex;
+                        gap: 8px;
+                    }
+
+                    .ewh-main-tab-btn {
+                        flex: 1;
+                        justify-content: center;
+                        padding: 8px 12px;
+                        font-size: 0.85rem;
+                    }
+
+                    .ewh-view-toggle {
+                        width: 100%;
+                        justify-content: center;
+                    }
+
+                    .ewh-view-toggle-btn {
+                        flex: 1;
+                        justify-content: center;
+                        text-align: center;
+                        padding: 6px 8px;
+                        font-size: 0.8rem;
                     }
 
                     .ewh-controls {
@@ -1881,20 +2033,72 @@ export default function CalendarPage() {
                         justify-content: center;
                     }
 
+                    /* Filter Bar Mobile */
                     .ewh-filter-bar {
                         flex-direction: column;
-                        gap: 15px;
-                        padding: 16px;
+                        gap: 10px;
+                        padding: 10px 12px;
                     }
 
-                    .ewh-month-nav {
-                        position: static;
-                        transform: none;
+                    .ewh-nav-group {
+                        width: 100%;
+                        flex-wrap: wrap;
+                        justify-content: center;
+                        gap: 8px;
+                    }
+
+                    .ewh-year-nav {
+                        margin-right: 0;
+                        justify-content: center;
+                        flex: 0 0 auto;
+                    }
+
+                    .ewh-month-nav-inline {
+                        flex: 0 0 auto;
+                    }
+
+                    .ewh-view-type-nav {
+                        width: 100%;
+                        justify-content: center;
+                        margin-top: 2px;
+                    }
+
+                    .ewh-today-btn {
+                        padding: 6px 12px;
+                        font-size: 0.75rem;
+                    }
+
+                    .ewh-view-type-btn {
+                        padding: 4px 8px;
+                        font-size: 0.75rem;
                     }
 
                     .ewh-filters {
                         width: 100%;
-                        flex-wrap: wrap;
+                        flex-direction: row;
+                        gap: 8px;
+                        margin-top: 5px;
+                        border-top: 1px solid #f1f3f5;
+                        padding-top: 10px;
+                    }
+
+                    .ewh-filter-item {
+                        flex: 1;
+                        flex-direction: column;
+                        align-items: flex-start;
+                        gap: 2px;
+                    }
+
+                    .ewh-filters label {
+                        font-size: 0.7rem;
+                        color: #666;
+                    }
+
+                    .ewh-filters select {
+                        width: 100%;
+                        font-size: 0.75rem;
+                        padding: 4px 6px;
+                        min-width: 0;
                     }
 
                     .ewh-sub-tab-nav {
@@ -1913,17 +2117,302 @@ export default function CalendarPage() {
                     }
 
                     .ewh-calendar-main .fc-daygrid-day {
-                        min-height: 100px !important;
+                        min-height: 80px !important;
                     }
 
                     .ewh-calendar-main .fc-daygrid-day-frame {
-                        min-height: 100px !important;
+                        min-height: 80px !important;
                         padding: 4px;
                     }
 
                     .ewh-calendar-main .fc-event {
-                        font-size: 0.7rem !important;
-                        padding: 2px 4px !important;
+                        font-size: 0.65rem !important;
+                        padding: 1px 3px !important;
+                        pointer-events: none !important; /* 모바일에서 클릭 이벤트가 날짜 셀로 전달되도록 함 */
+                    }
+
+                    /* Summary Sidebar Mobile */
+                    .ewh-summary-sidebar {
+                        padding: 12px;
+                    }
+
+                    .ewh-sidebar-title {
+                        font-size: 1rem;
+                    }
+                }
+
+                /* Small Mobile (480px and below) */
+                @media (max-width: 480px) {
+                    .ewh-view-bar {
+                        padding: 8px 12px;
+                    }
+
+                    .ewh-main-tab-btn {
+                        font-size: 0.75rem;
+                        padding: 6px 8px;
+                    }
+
+                    .ewh-view-toggle-btn {
+                        font-size: 0.7rem;
+                        padding: 5px 6px;
+                    }
+
+                    .ewh-filter-bar {
+                        padding: 10px 12px;
+                    }
+
+                    .ewh-nav-select {
+                        font-size: 0.85rem;
+                    }
+
+                    .ewh-view-type-btn {
+                        padding: 4px 8px;
+                        font-size: 0.75rem;
+                    }
+
+                    .ewh-today-btn {
+                        font-size: 0.75rem;
+                        padding: 4px 10px;
+                    }
+
+                    .ewh-filters label {
+                        font-size: 0.75rem;
+                    }
+
+                    .ewh-filters select {
+                        font-size: 0.75rem;
+                        padding: 4px 6px;
+                    }
+
+                    .ewh-calendar-main {
+                        padding: 6px;
+                    }
+
+                    .ewh-calendar-main .fc-daygrid-day {
+                        min-height: 60px !important;
+                    }
+
+                    .ewh-calendar-main .fc-event {
+                        font-size: 0.6rem !important;
+                    }
+                }
+
+                /* Genie Effect Animation */
+                @keyframes genieIn {
+                    0% {
+                        transform: scale(0.6) translateY(200px);
+                        opacity: 0;
+                        filter: blur(10px);
+                    }
+                    70% {
+                        transform: scale(1.05) translateY(-10px);
+                        opacity: 1;
+                        filter: blur(0);
+                    }
+                    100% {
+                        transform: scale(1) translateY(0);
+                    }
+                }
+
+                .ewh-genie-modal {
+                    animation: genieIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+                    border-radius: 20px !important;
+                    overflow: hidden;
+                    box-shadow: 0 20px 50px rgba(0, 70, 42, 0.3) !important;
+                }
+
+                .ewh-genie-modal-overlay {
+                    backdrop-filter: blur(6px);
+                    background-color: rgba(0, 70, 42, 0.2) !important;
+                }
+
+                /* Date Detail Popup Styles */
+                .ewh-date-detail-container {
+                    padding: 4px 0;
+                }
+
+                .ewh-detail-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    max-height: 50vh;
+                    overflow-y: auto;
+                    margin-bottom: 24px;
+                    padding: 4px;
+                }
+
+                .ewh-detail-item {
+                    display: flex;
+                    align-items: center;
+                    padding: 14px 16px;
+                    background: #f8faf9;
+                    border-radius: 14px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    border: 1px solid #edf2f0;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+                }
+
+                .ewh-detail-item:active {
+                    background: #eef5f2;
+                    transform: scale(0.97);
+                    box-shadow: none;
+                }
+
+                .ewh-detail-time {
+                    font-weight: 800;
+                    color: #00462A;
+                    font-size: 0.95rem;
+                    min-width: 50px;
+                }
+
+                .ewh-detail-chip {
+                    flex: 1;
+                    padding: 6px 12px;
+                    border-radius: 8px;
+                    font-size: 0.85rem;
+                    font-weight: 700;
+                    color: #2c3e50;
+                    margin: 0 12px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .ewh-detail-consultant {
+                    font-size: 0.85rem;
+                    color: #666;
+                    font-weight: 700;
+                    background: #eee;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                }
+
+                .ewh-no-detail {
+                    text-align: center;
+                    padding: 40px 0;
+                    color: #888;
+                    font-weight: 500;
+                }
+
+                .ewh-detail-close-btn {
+                    width: 100%;
+                    padding: 16px;
+                    background: #00462A;
+                    color: #fff;
+                    border: none;
+                    border-radius: 14px;
+                    font-weight: 800;
+                    font-size: 1.05rem;
+                    cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(0, 70, 42, 0.2);
+                    transition: all 0.2s;
+                }
+
+                .ewh-detail-close-btn:active {
+                    transform: scale(0.98);
+                    opacity: 0.9;
+                }
+
+                /* List View Responsive Styles */
+                .ewh-excel-btn {
+                    padding: 8px 12px;
+                    font-size: 0.85rem;
+                    background-color: #006633;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-weight: 700;
+                    transition: all 0.2s;
+                }
+
+                .ewh-excel-btn:hover {
+                    background-color: #00552b;
+                }
+
+                .ewh-download-bar {
+                    padding: 18px 20px;
+                }
+
+                .ewh-summary-card {
+                    width: 180px;
+                    height: 110px;
+                    transition: all 0.2s;
+                }
+
+                @media (max-width: 1024px) {
+                    .ewh-download-bar {
+                        flex-direction: column;
+                        align-items: stretch;
+                        gap: 16px;
+                        padding: 20px !important;
+                    }
+
+                    .ewh-download-bar > div {
+                        justify-content: space-between;
+                        width: 100%;
+                    }
+
+                    .ewh-summary-container {
+                        display: grid !important;
+                        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                        gap: 12px;
+                        padding: 16px !important;
+                        align-items: stretch;
+                    }
+
+                    .ewh-summary-card {
+                        width: auto !important;
+                        height: 100px;
+                        flex: none;
+                    }
+
+                    .ewh-list-table {
+                        min-width: 500px !important;
+                    }
+
+                    .ewh-list-table th,
+                    .ewh-list-table td {
+                        padding: 6px 4px !important;
+                        font-size: 0.8rem !important;
+                    }
+
+                    .ewh-list-table th {
+                        padding: 8px 4px !important;
+                    }
+
+                    .ewh-list-table-wrapper {
+                        border: 1px solid #edf2f0;
+                        margin-bottom: 20px;
+                    }
+                    
+                    .ewh-list-table-scroll-container::-webkit-scrollbar {
+                        height: 6px;
+                    }
+                    
+                    .ewh-list-table-scroll-container::-webkit-scrollbar-thumb {
+                        background: #cbd5e0;
+                        border-radius: 3px;
+                    }
+                }
+
+                @media (max-width: 480px) {
+                    .ewh-summary-container {
+                        grid-template-columns: repeat(2, 1fr); /* 좁은 모바일에서는 확실하게 2열 보장 */
+                        padding: 12px !important;
+                    }
+
+                    .ewh-summary-card .text-3xl {
+                        font-size: 1.5rem;
+                    }
+
+                    .ewh-excel-btn {
+                        width: 100%;
+                        justify-content: center;
                     }
                 }
             `}</style>

@@ -26,7 +26,7 @@ const seedCodes = [
 ];
 
 async function seed() {
-    console.log('Starting to seed common codes...');
+
     const codesRef = collection(db, 'common_codes');
 
     for (const item of seedCodes) {
@@ -39,12 +39,12 @@ async function seed() {
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             });
-            console.log(`✅ Included: ${item.name} (${item.code})`);
+
         } else {
-            console.log(`ℹ️ Already exists: ${item.name} (${item.code})`);
+
         }
     }
-    console.log('Finished seeding.');
+    ß
 }
 
 seed().then(() => {

@@ -66,7 +66,7 @@ function App() {
               but for simplified UX we point to root */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          <FirebaseMonitor />
+          {/* <FirebaseMonitor /> */}
         </DataProvider>
       </AuthProvider>
     </BrowserRouter>

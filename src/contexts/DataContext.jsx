@@ -76,7 +76,6 @@ export function DataProvider({ children }) {
 
         // 1. Cache Check
         if (loadedMonths.has(monthKey)) {
-            console.log(`⚡️ [Cache Hit] ${monthKey} (API Skip)`);
             return;
         }
 
@@ -85,13 +84,11 @@ export function DataProvider({ children }) {
 
         fetchingRef.current.add(monthKey);
         setSchedulesLoading(true);
-        console.log(`📥 [Fetching] ${monthKey} 월 데이터 (단일 문서) 요청...`);
 
         if (DISABLE_FIRESTORE) {
             // ... Dummy Logic
 
             // [Simulation] 실제라면 월별 문서 1개를 읽었을 것임
-            console.log(`🤖 [Simulated Read] ${monthKey} (가상 읽기 카운트 +1)`);
             incrementReads(1);
 
             setSchedulesLoading(false);
@@ -108,10 +105,8 @@ export function DataProvider({ children }) {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     newSchedules = data.items || []; // 배열 통째로 가져옴
-                    console.log(`🔥 [Firebase Read] ${monthKey} 문서 1개 읽음 (내부 일정 ${newSchedules.length}건)`);
                     incrementReads(1); // 문서는 딱 1개 읽었음!
                 } else {
-                    console.log(`⚠️ [No Data] ${monthKey} 문서가 없음 (일정 없음)`);
                     incrementReads(1); // 없는 것을 확인하는 것도 읽기 1회
                 }
 
@@ -129,7 +124,6 @@ export function DataProvider({ children }) {
                         return k !== monthKey;
                     });
 
-                    console.log(`🔄 상태 업데이트: 이전 ${prev.length} -> 교체 후 ${filteredPrev.length + newSchedules.length}`);
                     return [...filteredPrev, ...newSchedules].sort((a, b) => new Date(a.date) - new Date(b.date));
                 });
 
@@ -149,7 +143,6 @@ export function DataProvider({ children }) {
         setSchedulesLoading(true);
         if (DISABLE_FIRESTORE) {
             // 더미 모드: 약 12개월치 데이터가 있다고 가정
-            console.log("🤖 [Simulated Read] 전체 월별 문서 조회 (약 12개 가정)");
             incrementReads(12);
 
             // 더미 데이터 생성 (현재 월 기준)
@@ -171,12 +164,9 @@ export function DataProvider({ children }) {
         }
 
         try {
-            console.log("📥 [Fetching] 전체 일정(모든 월) 데이터 로드 중...");
             // 전체 월 문서 조회
             const q = query(collection(db, 'schedules_by_month'));
             const snapshot = await getDocs(q);
-
-            console.log(`🔥 [Firebase Read] 전체 월별 문서 ${snapshot.size}개 읽음`);
             incrementReads(snapshot.size);
 
             let allSchedules = [];
@@ -214,12 +204,10 @@ export function DataProvider({ children }) {
                 // 최신 30개만 가져오도록 제한 (읽기 비용 절감 핵심)
                 const q = query(collection(db, 'change_logs'), orderBy('timestamp', 'desc'), limit(30));
                 const snapshot = await getDocs(q);
-                console.log(`🔥 [Firebase Read] ChangeLogs: ${snapshot.size} docs read`);
                 incrementReads(snapshot.size); // 카운트 증가
                 setChangeLog(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setLogsLoading(false);
             } catch (err) {
-                console.error('Logs Error:', err);
                 setLogsLoading(false);
             }
         }
@@ -257,7 +245,6 @@ export function DataProvider({ children }) {
             try {
                 const usersRef = collection(db, 'users');
                 const snapshot = await getDocs(query(usersRef));
-                console.log(`🔥 [Firebase Read] Users: ${snapshot.size} docs read`);
                 incrementReads(snapshot.size); // 카운트 증가
                 setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setUsersLoading(false);
@@ -289,7 +276,6 @@ export function DataProvider({ children }) {
                 const codesRef = collection(db, 'common_codes');
                 const q = query(codesRef, orderBy('code', 'asc'));
                 const snapshot = await getDocs(q);
-                console.log(`🔥 [Firebase Read] Codes: ${snapshot.size} docs read`);
                 incrementReads(snapshot.size); // 카운트 증가
                 setCodes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 setCodesLoading(false);
@@ -359,8 +345,6 @@ export function DataProvider({ children }) {
                 createdAt: serverTimestamp()
             });
 
-            console.log(`✅ [Add] ${monthKey} 문서에 일정 추가 완료`);
-
             // 로컬 상태 업데이트 (전체 로드 모드를 가정하여 새로고침 대신 추가)
             // 하지만 ID를 정확히 모르므로(트랜잭션 내부 생성), 전체 리로드나 fetchSchedules 호출 권장
             // 여기선 fetchSchedules 호출
@@ -412,7 +396,6 @@ export function DataProvider({ children }) {
 
         try {
             await Promise.all(promises);
-            console.log("Batch Add Complete");
         } catch (error) {
             console.error("Batch Add Error", error);
             throw error;
@@ -733,7 +716,6 @@ export function DataProvider({ children }) {
                 schedule.id === id ? { ...schedule, ...updatedData } : schedule
             ).sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-            console.log(`✅ [Update] 일정 수정 완료 (${oldMonthKey} -> ${newMonthKey})`);
         } catch (error) {
             console.error("Error updating document: ", error);
             throw error;
@@ -798,7 +780,6 @@ export function DataProvider({ children }) {
             });
 
             setSchedules(prev => prev.filter(schedule => schedule.id !== id));
-            console.log(`✅ [Delete] 일정 삭제 완료 (${monthKey})`);
         } catch (error) {
             console.error("Error deleting document: ", error);
             // throw error; // UI 멈춤 방지 위해 에러 던지지 않음
