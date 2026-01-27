@@ -851,7 +851,6 @@ export function DataProvider({ children }) {
         batchAddSchedules,
         mergeSchedules,
         clearAllSchedules,
-        fetchMonthSchedules,
         setSchedules,
 
         users,

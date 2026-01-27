@@ -13,21 +13,19 @@ export default function LoginPage() {
     const { login, currentUser } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const prefilledUserId = searchParams.get('userId');
-    const prefilledName = searchParams.get('name');
+    const role = searchParams.get('role'); // 'consultant' or 'admin' or null
+    const isConsultantLogin = role === 'consultant';
 
-    // 초기 마운트 시 저장된 아이디 불러오기 (localStorage)
+    // 초기 마운트 시 저장된 아이디 불러오기 (localStorage) - admin 모드에서만
     useEffect(() => {
-        if (prefilledUserId) {
-            setUserId(prefilledUserId);
-        } else {
+        if (!isConsultantLogin) {
             const savedId = localStorage.getItem('savedUserId');
             if (savedId) {
                 setUserId(savedId);
                 setRememberMe(true);
             }
         }
-    }, [prefilledUserId]);
+    }, [isConsultantLogin]);
 
     // 이미 로그인된 경우 리다이렉트
     if (currentUser) {
@@ -38,7 +36,7 @@ export default function LoginPage() {
         e.preventDefault();
 
         if (!userId || !password) {
-            setError('아이디와 비밀번호를 입력해주세요.');
+            setError(isConsultantLogin ? '성명과 비밀번호를 입력해주세요.' : '아이디와 비밀번호를 입력해주세요.');
             return;
         }
 
@@ -46,21 +44,23 @@ export default function LoginPage() {
             setError('');
             setLoading(true);
 
-            // 아이디 기억하기 처리
-            if (rememberMe) {
-                localStorage.setItem('savedUserId', userId);
-            } else {
-                localStorage.removeItem('savedUserId');
+            // 아이디 기억하기 처리 (admin 모드에서만)
+            if (!isConsultantLogin) {
+                if (rememberMe) {
+                    localStorage.setItem('savedUserId', userId);
+                } else {
+                    localStorage.removeItem('savedUserId');
+                }
             }
 
-            await login(userId, password);
+            await login(userId, password, isConsultantLogin);
             navigate('/calendar');
         } catch (err) {
             console.error('로그인 오류:', err);
             if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-                setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+                setError(isConsultantLogin ? '성명 또는 비밀번호가 올바르지 않습니다.' : '아이디 또는 비밀번호가 올바르지 않습니다.');
             } else if (err.code === 'auth/invalid-credential') {
-                setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+                setError(isConsultantLogin ? '성명 또는 비밀번호가 올바르지 않습니다.' : '아이디 또는 비밀번호가 올바르지 않습니다.');
             } else {
                 setError(err.message || '로그인에 실패했습니다. 다시 시도해주세요.');
             }
@@ -86,7 +86,9 @@ export default function LoginPage() {
                         </div>
                     </div>
                     <h1 className="text-2xl font-bold text-[#00462A] tracking-tight mb-2">이화 컨설팅 일정</h1>
-                    <p className="text-sm text-gray-500 mb-8">등록된 컨설턴트와 관리자만 접속할 수 있습니다</p>
+                    <p className="text-sm text-gray-500 mb-8">
+                        {isConsultantLogin ? '컨설턴트 로그인' : '등록된 컨설턴트와 관리자만 접속할 수 있습니다'}
+                    </p>
                 </div>
 
                 {/* Error Message */}
@@ -106,44 +108,25 @@ export default function LoginPage() {
 
                 {/* Login Form */}
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    {prefilledUserId ? (
-                        <div className="form-group mb-0">
-                            <label className="form-label mb-1.5 ml-1 text-gray-400">로그인 계정</label>
-                            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                <div className="w-10 h-10 rounded-full bg-[#00462A]/10 flex items-center justify-center text-[#00462A]">
-                                    <User size={20} />
-                                </div>
-                                <div className="flex-1 overflow-hidden">
-                                    <p className="text-sm font-bold text-[#333] truncate">{prefilledName || prefilledUserId}</p>
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/select-consultant')}
-                                        className="text-[11px] text-[#00462A] font-semibold hover:underline"
-                                    >
-                                        다른 컨설턴트 선택하기
-                                    </button>
-                                </div>
+                    <div className="form-group mb-0">
+                        <label className="form-label mb-1.5 ml-1">
+                            {isConsultantLogin ? '성명 (한글)' : '아이디 또는 이메일'}
+                        </label>
+                        <div className="relative group">
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00462A] transition-colors">
+                                <User size={18} />
                             </div>
+                            <input
+                                type="text"
+                                className="form-input !pl-12 h-12"
+                                placeholder={isConsultantLogin ? '성명을 입력하세요 (예: 홍길동)' : '아이디 또는 이메일을 입력하세요'}
+                                value={userId}
+                                onChange={(e) => setUserId(e.target.value)}
+                                disabled={loading}
+                                required
+                            />
                         </div>
-                    ) : (
-                        <div className="form-group mb-0">
-                            <label className="form-label mb-1.5 ml-1">아이디 또는 이메일</label>
-                            <div className="relative group">
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00462A] transition-colors">
-                                    <User size={18} />
-                                </div>
-                                <input
-                                    type="text"
-                                    className="form-input !pl-12 h-12"
-                                    placeholder="아이디 또는 이메일을 입력하세요"
-                                    value={userId}
-                                    onChange={(e) => setUserId(e.target.value)}
-                                    disabled={loading}
-                                    required
-                                />
-                            </div>
-                        </div>
-                    )}
+                    </div>
 
                     <div className="form-group mb-0">
                         <label className="form-label mb-1.5 ml-1">비밀번호</label>
@@ -163,7 +146,7 @@ export default function LoginPage() {
                         </div>
                     </div>
 
-                    {!prefilledUserId && (
+                    {!isConsultantLogin && (
                         <div className="flex items-center justify-between px-1" style={{ padding: '10px' }}>
                             <label className="flex items-center gap-2 cursor-pointer group">
                                 <input

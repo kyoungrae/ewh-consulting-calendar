@@ -68,11 +68,13 @@ export function AuthProvider({ children }) {
         { uid: 'user_mhj', name: '민현정', role: 'consultant', userId: 'mhj', status: 'approved' }
     ];
 
-    // 로그인 (ID 또는 이메일로 로그인)
-    async function login(userIdOrEmail, password) {
+    // 로그인 (ID 또는 이메일 또는 이름으로 로그인)
+    async function login(userIdOrEmailOrName, password, loginByName = false) {
         // 1. 더미 유저 체크 (개발 모드일 때만)
         if (DISABLE_FIRESTORE) {
-            const dummyUser = DUMMY_USERS.find(u => u.userId === userIdOrEmail);
+            const dummyUser = loginByName
+                ? DUMMY_USERS.find(u => u.name === userIdOrEmailOrName)
+                : DUMMY_USERS.find(u => u.userId === userIdOrEmailOrName);
             if (dummyUser) {
                 console.log('⚡️ Dev Login with Dummy User:', dummyUser.name);
                 const fakeUser = {
@@ -92,18 +94,23 @@ export function AuthProvider({ children }) {
 
         // 2. 실제 Firebase 로그인 진행 (Firestore 연동 모드)
         let userDoc = null;
-        let email = userIdOrEmail;
+        let email = userIdOrEmailOrName;
 
-        // 이메일 또는 ID로 사용자 조회
-        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userIdOrEmail);
+        // 이름, 이메일 또는 ID로 사용자 조회
+        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userIdOrEmailOrName);
         const usersRef = collection(db, 'users');
-        const q = isEmail
-            ? query(usersRef, where('email', '==', userIdOrEmail))
-            : query(usersRef, where('userId', '==', userIdOrEmail));
+        let q;
+        if (loginByName) {
+            q = query(usersRef, where('name', '==', userIdOrEmailOrName));
+        } else if (isEmail) {
+            q = query(usersRef, where('email', '==', userIdOrEmailOrName));
+        } else {
+            q = query(usersRef, where('userId', '==', userIdOrEmailOrName));
+        }
 
         const querySnapshot = await getDocs(q);
         if (querySnapshot.empty) {
-            throw new Error('등록되지 않은 아이디 또는 이메일입니다.');
+            throw new Error(loginByName ? '등록되지 않은 성명입니다.' : '등록되지 않은 아이디 또는 이메일입니다.');
         }
 
         userDoc = querySnapshot.docs[0];

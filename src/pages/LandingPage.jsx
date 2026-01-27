@@ -26,7 +26,7 @@ export default function LandingPage() {
                     </button>
 
                     <button
-                        onClick={() => navigate('/select-consultant')}
+                        onClick={() => navigate('/login?role=consultant')}
                         className="w-full md:w-80 h-40 border-2 border-white/40 rounded-3xl bg-white/5 hover:bg-white hover:text-[#00462A] hover:-translate-y-2 transition-all duration-300 flex flex-col items-center justify-center group shadow-xl cursor-pointer"
                     >
                         <span className="text-2xl font-bold transition-colors duration-300">
