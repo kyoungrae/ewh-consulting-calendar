@@ -640,7 +640,6 @@ export default function CalendarPage() {
                     <div className="ewh-nav-group">
                         {/* Year Nav */}
                         <div className="ewh-year-nav">
-                            <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(-1)}>◀</button>
                             <select
                                 className="ewh-nav-select"
                                 value={currentYear}
@@ -658,7 +657,6 @@ export default function CalendarPage() {
                                     <option key={y} value={y}>{y}년</option>
                                 ))}
                             </select>
-                            <button className="ewh-btn ewh-btn-outline small" onClick={() => changeYear(1)}>▶</button>
                         </div>
 
                         {/* Month Nav */}
@@ -719,18 +717,20 @@ export default function CalendarPage() {
 
                     {/* Filters Group */}
                     <div className="ewh-filters">
-                        <div className="ewh-filter-item">
-                            <label>컨설턴트:</label>
-                            <select
-                                value={selectedConsultant}
-                                onChange={(e) => setSelectedConsultant(e.target.value)}
-                            >
-                                <option value="all">전체 보기</option>
-                                {users.filter(u => u.role === 'consultant').map(user => (
-                                    <option key={user.uid} value={user.uid}>{user.name}</option>
-                                ))}
-                            </select>
-                        </div>
+                        {isAdmin && (
+                            <div className="ewh-filter-item">
+                                <label>컨설턴트:</label>
+                                <select
+                                    value={selectedConsultant}
+                                    onChange={(e) => setSelectedConsultant(e.target.value)}
+                                >
+                                    <option value="all">전체 보기</option>
+                                    {users.filter(u => u.role === 'consultant').map(user => (
+                                        <option key={user.uid} value={user.uid}>{user.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <div className="ewh-filter-item">
                             <label>유형:</label>
                             <select
