@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* CRITICAL: Dropdown styling for navigation */
+.ewh-nav-select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-color: #f3f4f6 !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 6px !important;
+  padding: 6px 32px 6px 12px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
+  cursor: pointer !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23374151'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+  background-size: 18px !important;
+  min-width: 100px !important;
+  display: inline-block !important;
+}
+
+.ewh-nav-select:hover {
+  background-color: #e5e7eb !important;
+}
+
+
 /* ===== EWHA WOMANS UNIVERSITY DESIGN SYSTEM ===== */
 
 /* Custom Fonts - Pretendard is loaded via index.html for better performance */

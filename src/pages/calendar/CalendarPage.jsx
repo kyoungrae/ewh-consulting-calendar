@@ -1523,11 +1523,14 @@ export default function CalendarPage() {
                 }
 
                 .ewh-nav-select {
+                    border : 1px solid #4444;
+                    border-radius : 6px;
+                    align-items: center;
+                    justify-content: center;
                     font-weight: 700;
                     font-size: 1rem;
                     margin: 0 4px;
-                    padding: 0;
-                    border: none;
+                    padding: 5px;
                     background: none;
                     cursor: pointer;
                     color: #00462A;
