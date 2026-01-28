@@ -704,12 +704,12 @@ export default function CalendarPage() {
                                     >
                                         주
                                     </button>
-                                    <button
+                                    {/* <button
                                         className={`ewh-view-type-btn ${currentView === 'timeGridDay' ? 'active' : ''}`}
                                         onClick={() => calendarRef.current?.getApi().changeView('timeGridDay')}
                                     >
                                         일
-                                    </button>
+                                    </button> */}
                                 </div>
                             </div>
                         )}
