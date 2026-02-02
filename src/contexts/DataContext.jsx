@@ -24,7 +24,7 @@ export function useData() {
 }
 
 /**
- * 스케줄 고유 키 생성 (날짜+컨설턴트+구분으로 중복 체크용)
+ * 스케줄 고유 키 생성 (날짜+컨설턴트로 중복 체크용)
  * 날짜는 'YYYY-MM-DDTHH:mm' 형식으로 정규화하여 초/밀리초 차이로 인한 매칭 실패 방지
  */
 function generateScheduleKey(schedule) {
@@ -32,8 +32,8 @@ function generateScheduleKey(schedule) {
     const d = new Date(schedule.date);
     const dateStr = isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16);
     const consultant = (schedule.consultantId || schedule.consultantName || '').toString().trim();
-    const type = (schedule.typeCode || schedule.type || '').toString().trim();
-    return `${dateStr}_${consultant}_${type}`;
+    // [의도] 날짜+시간+담당자만으로 고유 키를 생성하여, '상담 구분(구분)'이 변경된 경우에도 동일 일정임을 인지하도록 함
+    return `${dateStr}_${consultant}`;
 }
 
 export function DataProvider({ children }) {
@@ -402,109 +402,32 @@ export function DataProvider({ children }) {
         }
     }, []);
 
-    // 고유 키 생성 유틸
-    const generateScheduleKey = (s) => {
-        return `${s.date}_${s.consultantId}_${s.typeCode}`;
-    };
-
     // 8. Merge Schedules (Excel Upload - Monthly Structure)
-    const mergeSchedules = useCallback(async (newSchedules) => {
-        if (DISABLE_FIRESTORE) {
-            // 1. 업로드된 데이터를 월별로 그룹화
-            const uploadGroups = {};
-            newSchedules.forEach(s => {
-                if (!s.date) return;
-                const d = new Date(s.date);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                if (!uploadGroups[key]) uploadGroups[key] = [];
-                uploadGroups[key].push(s);
-            });
-            const uploadedMonths = new Set(Object.keys(uploadGroups));
-
-            const summary = { added: 0, updated: 0, deleted: 0, unchanged: 0 };
-            const details = { added: [], updated: [], deleted: [] };
-
-            setSchedules(prev => {
-                const finalSchedules = [];
-
-                // A. 업로드된 파일에 해당하지 않는 월의 데이터는 그대로 유지
-                prev.forEach(s => {
-                    const d = new Date(s.date);
-                    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                    if (!uploadedMonths.has(key)) {
-                        finalSchedules.push(s);
-                    }
-                });
-
-                // B. 업로드된 파일에 포함된 각 월별로 병합 로직 수행
-                Object.keys(uploadGroups).forEach(monthKey => {
-                    const uploadedItems = uploadGroups[monthKey];
-                    const existingInMonth = prev.filter(s => {
-                        const d = new Date(s.date);
-                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey;
-                    });
-
-                    const newMap = new Map();
-                    uploadedItems.forEach(item => newMap.set(generateScheduleKey(item), item));
-
-                    // 기존 데이터 대조
-                    existingInMonth.forEach(existing => {
-                        const key = generateScheduleKey(existing);
-                        if (newMap.has(key)) {
-                            const newItem = newMap.get(key);
-                            const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
-
-                            if (isChanged) {
-                                summary.updated++;
-                                const merged = { ...existing, ...newItem };
-                                details.updated.push({ before: existing, after: merged });
-                                finalSchedules.push(merged);
-                            } else {
-                                summary.unchanged++;
-                                finalSchedules.push(existing);
-                            }
-                            newMap.delete(key);
-                        } else {
-                            // 엑셀에 없으므로 삭제
-                            summary.deleted++;
-                            details.deleted.push(existing);
-                        }
-                    });
-
-                    // 신규 데이터 추가
-                    newMap.forEach(newItem => {
-                        summary.added++;
-                        const itemWithId = { ...newItem, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` };
-                        details.added.push(itemWithId);
-                        finalSchedules.push(itemWithId);
-                    });
-                });
-
-                return finalSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
-            });
-
-            // [Simulation] 정확한 수치가 포함된 더미 로그 생성
-            const dummyLog = {
-                id: `dev_log_${Date.now()}`,
-                type: 'MERGE',
-                summary,
-                details,
-                timestamp: new Date().toISOString()
-            };
-            setChangeLog(prev => [dummyLog, ...prev]);
-
-            return { added: details.added, updated: details.updated, deleted: details.deleted, unchanged: summary.unchanged };
-        }
-
+    const mergeSchedules = useCallback(async (newSchedules, isReplace = false) => {
         // 1. Group by Month
         const groups = {};
+        let targetYear = null;
+
         newSchedules.forEach(s => {
             if (!s.date) return;
             const d = new Date(s.date);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const y = d.getFullYear();
+            const key = `${y}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             if (!groups[key]) groups[key] = [];
             groups[key].push(s);
+
+            if (targetYear === null) targetYear = y;
         });
+
+        // 2. If isReplace is true, ensure all 12 months for the target year are covered
+        if (isReplace && targetYear !== null) {
+            for (let m = 1; m <= 12; m++) {
+                const key = `${targetYear}-${String(m).padStart(2, '0')}`;
+                if (!groups[key]) {
+                    groups[key] = []; // Empty month to be cleared
+                }
+            }
+        }
 
         const result = {
             processed: [],
@@ -514,9 +437,94 @@ export function DataProvider({ children }) {
             unchanged: []
         };
 
-        // 2. Process each month
+        if (DISABLE_FIRESTORE) {
+            const uploadedMonths = new Set(Object.keys(groups));
+
+            setSchedules(prev => {
+                const finalSchedules = [];
+
+                // A. Keep other years or months not affected by Replace/Merge
+                prev.forEach(s => {
+                    const d = new Date(s.date);
+                    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    if (!uploadedMonths.has(k)) {
+                        finalSchedules.push(s);
+                    }
+                });
+
+                // B. Process affected months
+                Object.keys(groups).forEach(monthKey => {
+                    const uploadedItems = groups[monthKey];
+                    const existingInMonth = prev.filter(s => {
+                        const d = new Date(s.date);
+                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey;
+                    });
+
+                    if (isReplace) {
+                        // All existing are deleted
+                        result.deleted.push(...existingInMonth);
+                        // All uploaded are added
+                        uploadedItems.forEach(item => {
+                            const itemWithId = { ...item, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` };
+                            result.added.push(itemWithId);
+                            finalSchedules.push(itemWithId);
+                        });
+                    } else {
+                        // Standard Merge Logic
+                        const newMap = new Map();
+                        uploadedItems.forEach(item => newMap.set(generateScheduleKey(item), item));
+
+                        existingInMonth.forEach(existing => {
+                            const key = generateScheduleKey(existing);
+                            if (newMap.has(key)) {
+                                const newItem = newMap.get(key);
+                                const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
+                                if (isChanged) {
+                                    const merged = { ...existing, ...newItem };
+                                    result.updated.push({ before: existing, after: merged });
+                                    finalSchedules.push(merged);
+                                } else {
+                                    result.unchanged.push(existing);
+                                    finalSchedules.push(existing);
+                                }
+                                newMap.delete(key);
+                            } else {
+                                result.deleted.push(existing);
+                            }
+                        });
+                        newMap.forEach(newItem => {
+                            const itemWithId = { ...newItem, id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` };
+                            result.added.push(itemWithId);
+                            finalSchedules.push(itemWithId);
+                        });
+                    }
+                });
+
+                return finalSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
+            });
+
+            // Simulation Log
+            const summary = {
+                added: result.added.length,
+                updated: result.updated.length,
+                deleted: result.deleted.length,
+                unchanged: result.unchanged.length
+            };
+            const logType = isReplace ? 'REPLACE' : 'MERGE';
+            setChangeLog(prev => [{
+                id: `dev_log_${Date.now()}`,
+                type: logType,
+                summary,
+                details: { added: result.added, updated: result.updated, deleted: result.deleted },
+                timestamp: new Date().toISOString()
+            }, ...prev]);
+
+            return result;
+        }
+
+        // --- Firebase Mode ---
         const promises = Object.keys(groups).map(async (monthKey) => {
-            const uploadedItems = groups[monthKey]; // 엑셀에서 올라온 이 달의 목록
+            const uploadedItemsForMonth = groups[monthKey];
             const docRef = doc(db, 'schedules_by_month', monthKey);
 
             await runTransaction(db, async (transaction) => {
@@ -526,44 +534,49 @@ export function DataProvider({ children }) {
                     existingItems = sfDoc.data().items || [];
                 }
 
-                const newMap = new Map();
-                uploadedItems.forEach(s => newMap.set(generateScheduleKey(s), s));
-
                 const finalItems = [];
 
-                // A. 기존 아이템 처리 (수정 or 삭제 or 유지)
-                existingItems.forEach(existing => {
-                    const key = generateScheduleKey(existing);
-                    if (newMap.has(key)) {
-                        // 엑셀에도 있음 -> 변경사항 체크
-                        const newItem = newMap.get(key);
-                        const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
+                if (isReplace) {
+                    // All existing in this month are deleted
+                    result.deleted.push(...existingItems);
+                    // All uploaded items for this month are added
+                    uploadedItemsForMonth.forEach(newItem => {
+                        const itemWithId = { ...newItem, id: newItem.id || doc(collection(db, 'temp')).id };
+                        result.added.push(itemWithId);
+                        finalItems.push(itemWithId);
+                    });
+                } else {
+                    // Standard Sync Logic
+                    const newMap = new Map();
+                    uploadedItemsForMonth.forEach(s => newMap.set(generateScheduleKey(s), s));
 
-                        if (isChanged) {
-                            result.updated.push({ before: existing, after: { ...existing, ...newItem } });
-                            finalItems.push({ ...existing, ...newItem });
+                    existingItems.forEach(existing => {
+                        const key = generateScheduleKey(existing);
+                        if (newMap.has(key)) {
+                            const newItem = newMap.get(key);
+                            const isChanged = JSON.stringify(existing) !== JSON.stringify({ ...existing, ...newItem, id: existing.id });
+                            if (isChanged) {
+                                const merged = { ...existing, ...newItem };
+                                result.updated.push({ before: existing, after: merged });
+                                finalItems.push(merged);
+                            } else {
+                                result.unchanged.push(existing);
+                                finalItems.push(existing);
+                            }
+                            newMap.delete(key);
                         } else {
-                            result.unchanged.push(existing); // Count unchanged for log
-                            finalItems.push(existing);
+                            result.deleted.push(existing);
                         }
-                        newMap.delete(key);
-                    } else {
-                        // 엑셀에 없음 -> 삭제 대상
-                        result.deleted.push(existing);
-                    }
-                });
+                    });
 
-                // B. 신규 아이템 처리 (나머지)
-                newMap.forEach((newItem) => {
-                    const itemWithId = { ...newItem, id: newItem.id || doc(collection(db, 'temp')).id };
-                    result.added.push(itemWithId);
-                    finalItems.push(itemWithId);
-                });
+                    newMap.forEach((newItem) => {
+                        const itemWithId = { ...newItem, id: newItem.id || doc(collection(db, 'temp')).id };
+                        result.added.push(itemWithId);
+                        finalItems.push(itemWithId);
+                    });
+                }
 
-                // 정렬
                 finalItems.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                // 저장
                 transaction.set(docRef, { items: finalItems }, { merge: true });
             });
         });
@@ -571,10 +584,9 @@ export function DataProvider({ children }) {
         try {
             await Promise.all(promises);
 
-            // 변경 이력 기록
             if (result.added.length > 0 || result.updated.length > 0 || result.deleted.length > 0) {
                 const logData = {
-                    type: 'MERGE',
+                    type: isReplace ? 'REPLACE' : 'MERGE',
                     summary: {
                         added: result.added.length,
                         updated: result.updated.length,
@@ -594,17 +606,18 @@ export function DataProvider({ children }) {
                 });
             }
 
-            // 로컬 캐시 초기화 (다음 조회 시 다시 읽도록)
             setLoadedMonths(new Set());
-            // UI 갱신을 위해 현재 뷰 갱신 필요 (여기선 단순화)
-            fetchMonthSchedules(new Date().getFullYear(), new Date().getMonth() + 1);
+            // Optionally refresh current visible range
+            if (targetYear) {
+                fetchMonthSchedules(targetYear, new Date().getMonth() + 1);
+            }
 
             return result;
         } catch (error) {
-            console.error("Merge Error", error);
+            console.error("Merge/Replace Error", error);
             throw error;
         }
-    }, [loadedMonths, fetchMonthSchedules]);
+    }, [fetchMonthSchedules]);
 
     // 9. Clear All Schedules (Monthly Doc Deletion)
     // *주의: 월별 문서 전체를 삭제하는 것은 위험하므로, 여기서는 구현 생략하거나 신중히 처리해야 함.

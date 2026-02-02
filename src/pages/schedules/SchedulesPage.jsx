@@ -52,15 +52,44 @@ function LogItem({ log, index }) {
         setSubExpanded(prev => ({ ...prev, [key]: !prev[key] }));
     };
 
+    // 도움말: 변경 데이터 비교 렌더링
+    const renderComparison = (beforeVal, afterVal, formatter = (v) => v, isOrange = false) => {
+        const noneSpan = <span className="text-gray-300 italic text-[11px]">(없음)</span>;
+        const b = formatter(beforeVal);
+        const a = formatter(afterVal);
+
+        const bDisplay = b ? b : noneSpan;
+        const aDisplay = a ? a : noneSpan;
+
+        if (b === a) {
+            return <span className={isOrange ? 'text-amber-800' : 'text-gray-800'}>{a ? a : noneSpan}</span>;
+        }
+
+        return (
+            <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-gray-400 line-through text-[11px] font-normal">{bDisplay}</span>
+                <span className={isOrange ? 'text-amber-500' : 'text-emerald-500'}>→</span>
+                <span className={`${isOrange ? 'text-amber-900' : 'text-emerald-900'} font-bold`}>{aDisplay}</span>
+            </div>
+        );
+    };
+
     // Safe access to added/updated items
-    const addedItems = details.added || [];
-    const updatedItems = (details.updated || []).map(u => u.after || u);
+    const rawAddedItems = details.added || [];
+    const rawUpdatedItems = details.updated || []; // { before, after } 객체 쌍 유지
 
-    const addedUpdatedSchedules = [...addedItems, ...updatedItems]
-        .filter(s => s && !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode);
+    // 정상 처리 항목들 분리
+    const addedItems = rawAddedItems.filter(s => s && !s.consultantId?.startsWith('unknown_') && s.typeName !== s.typeCode);
+    const updatedItems = rawUpdatedItems.filter(u => u.after && !u.after.consultantId?.startsWith('unknown_') && u.after.typeName !== u.after.typeCode);
 
-    const warningSchedules = [...addedItems, ...updatedItems]
-        .filter(s => s && (s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode));
+    // 정보 확인 필요 (경고) 항목들 - { before, after, isAdded } 구조로 통일
+    const warningSchedules = [
+        ...rawAddedItems.map(s => ({ after: s, isAdded: true })),
+        ...rawUpdatedItems.map(u => ({ before: u.before, after: u.after, isAdded: false }))
+    ].filter(item => {
+        const s = item.after;
+        return s && (s.consultantId?.startsWith('unknown_') || s.typeName === s.typeCode);
+    });
 
     return (
         <div className={`group border transition-all duration-200 rounded-xl bg-white overflow-hidden mb-8 ${isExpanded ? 'border-[#00462A] shadow-md ring-1 ring-[#00462A]/10' : 'border-gray-200 shadow-sm hover:border-gray-300'}`} style={{ padding: "10px" }}>
@@ -78,7 +107,7 @@ function LogItem({ log, index }) {
                     <div>
                         <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-bold text-gray-900 text-lg">
-                                {log.type === 'MERGE' ? '엑셀 일정 업로드' :
+                                {log.type === 'MERGE' || log.type === 'REPLACE' ? '엑셀 일정 업로드' :
                                     log.type === 'ADD' ? '일정 직접 추가' :
                                         log.type === 'UPDATE' ? '일정 내용 수정' :
                                             log.type === 'DELETE' ? '일정 삭제' : '시스템 변경'}
@@ -129,8 +158,8 @@ function LogItem({ log, index }) {
             {isExpanded && totalChanges > 0 && (
                 <div className="border-t border-gray-100 bg-white animate-fade-in divide-y divide-gray-100">
 
-                    {/* 1. 정상 추가/변경 된 일정 (Green) */}
-                    {addedUpdatedSchedules.length > 0 && (
+                    {/* 1. 새로 추가된 일정 (Green) */}
+                    {addedItems.length > 0 && (
                         <div className="bg-emerald-50/5 overflow-hidden">
                             <button
                                 style={{ cursor: 'pointer' }}
@@ -142,7 +171,7 @@ function LogItem({ log, index }) {
                                         <ChevronRight size={18} className="text-emerald-400" />
                                     </div>
                                     <div className="p-1 rounded bg-emerald-100 text-emerald-600"><Plus size={14} strokeWidth={3} /></div>
-                                    새로 추가/변경된 일정 <span className="text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-emerald-100" style={{ padding: "5px" }}>정상 처리 ({addedUpdatedSchedules.length})</span>
+                                    새로 추가된 일정 <span className="text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-emerald-100" style={{ padding: "5px" }}>신규 ({addedItems.length})</span>
                                 </div>
                             </button>
 
@@ -156,11 +185,12 @@ function LogItem({ log, index }) {
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>시간</th>
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>구분</th>
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>담당</th>
-                                                    <th className="px-6 py-4 text-left" style={{ color: '#059669', padding: "10px" }}>사유</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>장소</th>
+                                                    <th className="px-6 py-4 text-left" style={{ color: '#059669', padding: "10px" }}>상태</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-emerald-100 bg-white">
-                                                {addedUpdatedSchedules.map((s, i) => (
+                                                {addedItems.map((s, i) => (
                                                     <tr key={i} className="hover:bg-emerald-50/50 transition-colors">
                                                         <td className="px-6 py-4 font-medium text-emerald-900 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.scheduleDate(s.date)}</td>
                                                         <td className="px-6 py-4 text-emerald-600/70 whitespace-nowrap" style={{ padding: "10px" }}>{formatters.time(s.date)}</td>
@@ -169,10 +199,75 @@ function LogItem({ log, index }) {
                                                                 {s.typeName}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap" style={{ color: '#059669', padding: "10px" }}>{s.consultantName}</td>
+                                                        <td className="px-6 py-4 font-medium text-emerald-900 whitespace-nowrap" style={{ padding: "10px" }}>{s.consultantName}</td>
+                                                        <td className="px-6 py-4 text-emerald-600/70 whitespace-nowrap" style={{ padding: "10px" }}>{s.location || <span className="text-gray-300 italic text-[11px]">(없음)</span>}</td>
                                                         <td className="px-6 py-4 text-emerald-600 text-xs font-semibold" style={{ color: '#059669', padding: "10px" }}>정상 등록</td>
                                                     </tr>
                                                 ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 2. 수정된 일정 (Amber/Orange) */}
+                    {updatedItems.length > 0 && (
+                        <div className="bg-amber-50/5 overflow-hidden">
+                            <button
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => toggleSub('updated')}
+                                className="w-full flex items-center justify-between p-4 px-6 hover:bg-amber-50/30 transition-colors group/sub"
+                            >
+                                <div className="flex items-center gap-2.5 text-sm font-bold text-amber-800" style={{ padding: "10px" }}>
+                                    <div className={`transition-transform duration-200 ${subExpanded.updated ? 'rotate-90' : ''}`}>
+                                        <ChevronRight size={18} className="text-amber-400" />
+                                    </div>
+                                    <div className="p-1 rounded bg-amber-100 text-amber-600"><Edit2 size={14} strokeWidth={3} /></div>
+                                    변경된 일정 <span className="text-amber-600 text-xs bg-amber-50 px-2 py-0.5 rounded-full ml-1 font-bold border border-amber-100" style={{ padding: "5px" }}>수정됨 ({updatedItems.length})</span>
+                                </div>
+                            </button>
+
+                            {subExpanded.updated && (
+                                <div className="p-6 pt-0" style={{ padding: "10px", paddingTop: "0" }}>
+                                    <div className="overflow-x-auto rounded-xl border border-amber-100 bg-amber-50/30">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-amber-50/80 text-xs text-amber-600 uppercase font-semibold border-b border-amber-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#d97706', padding: "10px" }}>일자</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#d97706', padding: "10px" }}>시간</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#d97706', padding: "10px" }}>구분</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#d97706', padding: "10px" }}>담당</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ color: '#d97706', padding: "10px" }}>장소</th>
+                                                    <th className="px-6 py-4 text-left" style={{ color: '#d97706', padding: "10px" }}>상태</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-amber-100 bg-white">
+                                                {updatedItems.map((u, i) => {
+                                                    const { before, after } = u;
+
+                                                    return (
+                                                        <tr key={i} className="hover:bg-amber-50/50 transition-colors">
+                                                            <td className="px-6 py-4 font-medium whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {renderComparison(before.date, after.date, formatters.scheduleDate, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {renderComparison(before.date, after.date, formatters.time, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {renderComparison(before.typeName, after.typeName, undefined, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {renderComparison(before.consultantName, after.consultantName, undefined, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {renderComparison(before.location, after.location, undefined, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-amber-600 text-xs font-semibold" style={{ color: '#d97706', padding: "10px" }}>수정됨</td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -260,27 +355,44 @@ function LogItem({ log, index }) {
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>시간</th>
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>구분</th>
                                                     <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>담당</th>
+                                                    <th className="px-6 py-4 text-left whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>장소</th>
                                                     <th className="px-6 py-4 text-left" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>사유</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-orange-100 bg-white">
-                                                {warningSchedules.map((s, i) => {
+                                                {warningSchedules.map((item, i) => {
+                                                    const s = item.after;
+                                                    const b = item.before;
+                                                    const isAdded = item.isAdded;
                                                     const isMissingUser = s.consultantId?.startsWith('unknown_');
                                                     const isMissingType = s.typeName === s.typeCode;
+
                                                     return (
                                                         <tr key={i} className="hover:bg-orange-50/50 transition-colors">
-                                                            <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>{formatters.scheduleDate(s.date)}</td>
-                                                            <td className="px-6 py-4 text-gray-600/70 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>{formatters.time(s.date)}</td>
-                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px", color: 'color-mix(in oklab, var(--color-orange-600) 70%, transparent)', }}>
-                                                                <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium border ${isMissingType ? 'bg-orange-50/50 text-gray-500 border-gray-100 line-through' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                                                                    {s.typeName}
-                                                                </span>
+                                                            <td className="px-6 py-4 font-medium whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {isAdded ? formatters.scheduleDate(s.date) : renderComparison(b.date, s.date, formatters.scheduleDate, true)}
                                                             </td>
-                                                            <td className={`px-6 py-4 font-medium whitespace-nowrap ${isMissingUser ? 'text-gray-500 line-through' : 'text-orange-700'}`} style={{ padding: "10px" }}>
-                                                                {s.consultantName}
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {isAdded ? formatters.time(s.date) : renderComparison(b.date, s.date, formatters.time, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {isAdded ? (
+                                                                    <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium border ${isMissingType ? 'bg-orange-50/50 text-gray-400 border-gray-100 italic' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                                        {s.typeName}
+                                                                    </span>
+                                                                ) : renderComparison(b.typeName, s.typeName, undefined, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {isAdded ? (
+                                                                    <span className={isMissingUser ? 'text-gray-400 italic' : 'text-orange-700'}>{s.consultantName}</span>
+                                                                ) : renderComparison(b.consultantName, s.consultantName, undefined, true)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap" style={{ padding: "10px" }}>
+                                                                {isAdded ? (s.location || <span className="text-gray-300 italic">(없음)</span>) : renderComparison(b.location, s.location, undefined, true)}
                                                             </td>
                                                             <td className="px-6 py-4 text-orange-600 text-[11px] font-semibold italic" style={{ padding: "10px" }}>
-                                                                {isMissingUser && isMissingType ? '미등록 상담사 및 유형 (일정 등록됨)' : isMissingUser ? '미등록 상담사 (일정 등록됨)' : '미등록 유형 (일정 등록됨)'}
+                                                                {isMissingUser && isMissingType ? '미등록 상담사 및 유형' : isMissingUser ? '미등록 상담사' : '미등록 유형'}
+                                                                {!isAdded && <span className="ml-1 text-orange-400 font-bold">(내용 수정됨)</span>}
                                                             </td>
                                                         </tr>
                                                     );

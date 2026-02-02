@@ -158,7 +158,8 @@ export default function CalendarPage() {
         const eventsByDate = {};
         filteredSchedules.forEach(schedule => {
             if (!schedule.date) return;
-            const dateKey = schedule.date.split('T')[0];
+            // 'YYYY-MM-DD' 형식 추출 (ISO 및 공백 구분 형식 모두 대응)
+            const dateKey = schedule.date.substring(0, 10);
             if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
             eventsByDate[dateKey].push(schedule);
         });
@@ -171,24 +172,27 @@ export default function CalendarPage() {
 
             // 정렬: 이름(가나다) -> 시간
             dailySchedules.sort((a, b) => {
-                const consultantA = users.find(u => u.uid === a.consultantId)?.name || a.consultantName || '미배정';
-                const consultantB = users.find(u => u.uid === b.consultantId)?.name || b.consultantName || '미배정';
+                // 이름 정규화 (공백 등 제거)하여 비교
+                const normalize = (s) => s?.toString().trim().replace(/\s+/g, '') || '';
+                const consultantA = normalize(users.find(u => u.uid === a.consultantId)?.name || a.consultantName || '미배정');
+                const consultantB = normalize(users.find(u => u.uid === b.consultantId)?.name || b.consultantName || '미배정');
 
                 // 이름 비교
                 if (consultantA < consultantB) return -1;
                 if (consultantA > consultantB) return 1;
 
                 // 이름이 같으면 시간 비교
-                return new Date(a.date) - new Date(b.date);
+                return new Date(a.date.replace(' ', 'T')) - new Date(b.date.replace(' ', 'T'));
             });
 
             // 구분선 마킹
             dailySchedules.forEach((schedule, index) => {
                 let needsSeparator = false;
                 if (index > 0) {
+                    const normalize = (s) => s?.toString().trim().replace(/\s+/g, '') || '';
                     const prev = dailySchedules[index - 1];
-                    const prevName = users.find(u => u.uid === prev.consultantId)?.name || prev.consultantName || '미배정';
-                    const currName = users.find(u => u.uid === schedule.consultantId)?.name || schedule.consultantName || '미배정';
+                    const prevName = normalize(users.find(u => u.uid === prev.consultantId)?.name || prev.consultantName || '미배정');
+                    const currName = normalize(users.find(u => u.uid === schedule.consultantId)?.name || schedule.consultantName || '미배정');
 
                     if (prevName !== currName) {
                         needsSeparator = true;
@@ -239,7 +243,7 @@ export default function CalendarPage() {
     const selectedDateSchedules = useMemo(() => {
         if (!selectedDate) return [];
         // 시간 정보가 포함되어 있어도 날짜 부분만 사용하여 해당 날짜 전체 일정을 보여줌
-        const datePart = selectedDate.split('T')[0];
+        const datePart = selectedDate.substring(0, 10);
         return filteredSchedules
             .filter(s => s.date?.startsWith(datePart))
             .sort((a, b) => a.date.localeCompare(b.date));
@@ -248,8 +252,8 @@ export default function CalendarPage() {
     // 요약 바에 표시할 포맷팅된 날짜/시간
     const getDisplayDate = useMemo(() => {
         if (!selectedDate) return '';
-        const datePart = selectedDate.split('T')[0];
-        if (!selectedDate.includes('T')) return datePart;
+        const datePart = selectedDate.substring(0, 10);
+        if (!selectedDate.includes('T') && !selectedDate.includes(' ')) return datePart;
 
         const date = new Date(selectedDate);
         if (isNaN(date.getTime())) return selectedDate;
@@ -296,7 +300,7 @@ export default function CalendarPage() {
             return filteredSchedules
                 .filter(s => {
                     if (!s.date) return false;
-                    const date = s.date.split('T')[0];
+                    const date = s.date.substring(0, 10);
                     return date >= customStartDate && date <= customEndDate;
                 })
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -831,6 +835,9 @@ export default function CalendarPage() {
                                                 }}
                                             >
                                                 {eventInfo.event.title}
+                                                {eventInfo.event.extendedProps.location?.includes('대면') && (
+                                                    <span style={{ color: 'red', fontWeight: 'bold', marginLeft: '2px' }}>*대면</span>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -1183,6 +1190,9 @@ export default function CalendarPage() {
                                                 }}
                                             >
                                                 {typeCode?.name || '미분류'}
+                                                {schedule.location?.includes('대면') && (
+                                                    <span style={{ color: 'red', fontWeight: 'bold', marginLeft: '4px' }}>*대면</span>
+                                                )}
                                             </div>
                                             <div className="ewh-detail-consultant">
                                                 {consultant?.name || schedule.consultantName || '미배정'}T
