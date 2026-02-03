@@ -683,6 +683,7 @@ export default function SchedulesPage() {
                 const workbook = XLSX.read(data, { type: 'array' });
 
                 const allSchedules = [];
+                const encounteredMonths = new Set(); // 엑셀 시트들에서 발견된 모든 'YYYY-MM' 목록
                 const missingConsultants = new Set();
                 const missingTypes = new Set();
                 let totalParsed = 0;
@@ -769,6 +770,10 @@ export default function SchedulesPage() {
 
                     const confirmedMonth = baseDate.getMonth();
                     const confirmedYear = baseDate.getFullYear();
+
+                    // 이번 시트의 년-월 키 기록
+                    const currentMonthKey = `${confirmedYear}-${String(confirmedMonth + 1).padStart(2, '0')}`;
+                    encounteredMonths.add(currentMonthKey);
 
                     // 현재 주의 날짜 정보 (일~토 등 7개 이상의 열에 대응할 수 있도록 넉넉히 설정)
                     let currentWeekDates = new Array(10).fill(null);
@@ -907,8 +912,8 @@ export default function SchedulesPage() {
                         // 탭 전환
                         setActiveTab('log');
                     } else {
-                        // 전체 교체 모드
-                        const mergeResult = await mergeSchedules(allSchedules, true);
+                        // 전체 교체 모드 (발견된 달들만 대상으로 교체)
+                        const mergeResult = await mergeSchedules(allSchedules, true, Array.from(encounteredMonths));
                         resultMsg = `📊 엑셀 업로드 완료!\n\n` +
                             `✅ 새로 등록: ${mergeResult.added.length}건\n` +
                             `🗑️ 기존 삭제: ${mergeResult.deleted.length}건`;

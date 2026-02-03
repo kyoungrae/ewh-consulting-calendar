@@ -403,7 +403,7 @@ export function DataProvider({ children }) {
     }, []);
 
     // 8. Merge Schedules (Excel Upload - Monthly Structure)
-    const mergeSchedules = useCallback(async (newSchedules, isReplace = false) => {
+    const mergeSchedules = useCallback(async (newSchedules, isReplace = false, targetMonths = null) => {
         // 1. Group by Month
         const groups = {};
         let targetYear = null;
@@ -419,12 +419,22 @@ export function DataProvider({ children }) {
             if (targetYear === null) targetYear = y;
         });
 
-        // 2. If isReplace is true, ensure all 12 months for the target year are covered
-        if (isReplace && targetYear !== null) {
-            for (let m = 1; m <= 12; m++) {
-                const key = `${targetYear}-${String(m).padStart(2, '0')}`;
-                if (!groups[key]) {
-                    groups[key] = []; // Empty month to be cleared
+        // 2. If isReplace is true, determine which months to clear
+        if (isReplace) {
+            if (targetMonths && Array.isArray(targetMonths)) {
+                // 특정 달들이 지정된 경우 (신규 방식: 엑셀 시트가 존재하는 달만 교체)
+                targetMonths.forEach(key => {
+                    if (!groups[key]) {
+                        groups[key] = []; // 해당 달을 빈 값으로 설정하여 기존 데이터 삭제 트리거
+                    }
+                });
+            } else if (targetYear !== null) {
+                // 특정 달이 지정되지 않은 경우 (기존 방식: 해당 년도 전체 12개월 교체)
+                for (let m = 1; m <= 12; m++) {
+                    const key = `${targetYear}-${String(m).padStart(2, '0')}`;
+                    if (!groups[key]) {
+                        groups[key] = [];
+                    }
                 }
             }
         }
