@@ -291,7 +291,7 @@ export function DataProvider({ children }) {
         }
     }, []);
 
-    // 5. Fetch Special Schedules
+    // 5. Fetch Special Schedules (연도별로 문서 하나씩 읽어 읽기 비용 절감)
     const fetchSpecialSchedules = useCallback(async () => {
         setSpecialSchedulesLoading(true);
         if (DISABLE_FIRESTORE) {
@@ -302,13 +302,25 @@ export function DataProvider({ children }) {
             setSpecialSchedulesLoading(false);
         } else {
             try {
-                const specialRef = collection(db, 'special_schedules');
-                const q = query(specialRef, orderBy('date', 'asc'));
-                const snapshot = await getDocs(q);
+                // 'special_schedules_by_year' 컬렉션에서 모든 문서(각 연도) 조회
+                const specialRef = collection(db, 'special_schedules_by_year');
+                const snapshot = await getDocs(specialRef);
                 incrementReads(snapshot.size);
-                setSpecialSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+                let allSpecials = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.items && Array.isArray(data.items)) {
+                        allSpecials.push(...data.items);
+                    }
+                });
+
+                // 날짜순 정렬
+                allSpecials.sort((a, b) => a.date.localeCompare(b.date));
+                setSpecialSchedules(allSpecials);
                 setSpecialSchedulesLoading(false);
             } catch (err) {
+                console.error("Fetch Specials Error:", err);
                 setSpecialSchedulesError(err.message);
                 setSpecialSchedulesLoading(false);
             }
@@ -876,37 +888,143 @@ export function DataProvider({ children }) {
     };
 
     const addSpecialSchedule = async (scheduleData) => {
+        const year = scheduleData.date.substring(0, 4);
+
         if (DISABLE_FIRESTORE) {
             const newSchedule = { ...scheduleData, id: `dev_spec_${Date.now()}` };
-            setSpecialSchedules(prev => [...prev, newSchedule].sort((a, b) => a.date.localeCompare(b.date)));
+            setSpecialSchedules(prev => {
+                const newArr = [...prev, newSchedule];
+                newArr.sort((a, b) => a.date.localeCompare(b.date));
+                return newArr;
+            });
             return newSchedule;
         }
-        const specialRef = collection(db, 'special_schedules');
-        const res = await addDoc(specialRef, { ...scheduleData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        fetchSpecialSchedules();
-        return res;
+
+        const docRef = doc(db, 'special_schedules_by_year', year);
+        const newId = doc(collection(db, 'temp')).id;
+        const newSchedule = {
+            ...scheduleData,
+            id: newId,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                let currentItems = [];
+                if (sfDoc.exists()) {
+                    currentItems = sfDoc.data().items || [];
+                }
+                currentItems.push(newSchedule);
+                currentItems.sort((a, b) => a.date.localeCompare(b.date));
+                transaction.set(docRef, { items: currentItems }, { merge: true });
+            });
+
+            // 로컬 상태 즉시 업데이트 (리프레시 없이 반영)
+            setSpecialSchedules(prev => {
+                const newArr = [...prev, newSchedule];
+                newArr.sort((a, b) => a.date.localeCompare(b.date));
+                return newArr;
+            });
+            return newSchedule;
+        } catch (err) {
+            console.error("Add Special Error:", err);
+            throw err;
+        }
     };
 
     const updateSpecialSchedule = async (id, scheduleData) => {
+        // 수정 전 일정 찾기 (연도가 바뀔 수 있으므로 중요)
+        const oldEvent = specialSchedules.find(s => s.id === id);
+        if (!oldEvent) return;
+
+        const oldYear = oldEvent.date.substring(0, 4);
+        const newYear = scheduleData.date.substring(0, 4);
+
         if (DISABLE_FIRESTORE) {
-            setSpecialSchedules(prev => prev.map(s => s.id === id ? { ...s, ...scheduleData } : s).sort((a, b) => a.date.localeCompare(b.date)));
-            return null;
+            const updated = { ...oldEvent, ...scheduleData };
+            setSpecialSchedules(prev => {
+                const newArr = prev.map(s => s.id === id ? updated : s);
+                newArr.sort((a, b) => a.date.localeCompare(b.date));
+                return newArr;
+            });
+            return updated;
         }
-        const specialDocRef = doc(db, 'special_schedules', id);
-        const res = await updateDoc(specialDocRef, { ...scheduleData, updatedAt: serverTimestamp() });
-        fetchSpecialSchedules();
-        return res;
+
+        try {
+            if (oldYear === newYear) {
+                const docRef = doc(db, 'special_schedules_by_year', oldYear);
+                await runTransaction(db, async (transaction) => {
+                    const sfDoc = await transaction.get(docRef);
+                    if (!sfDoc.exists()) return;
+                    let items = sfDoc.data().items || [];
+                    items = items.map(s => s.id === id ? { ...s, ...scheduleData, updatedAt: new Date().toISOString() } : s);
+                    transaction.update(docRef, { items });
+                });
+            } else {
+                // 연도가 바뀌는 경우: 기존 연도에서 삭제 후 새 연도에 추가
+                const oldDocRef = doc(db, 'special_schedules_by_year', oldYear);
+                const newDocRef = doc(db, 'special_schedules_by_year', newYear);
+
+                await runTransaction(db, async (transaction) => {
+                    const oldSnap = await transaction.get(oldDocRef);
+                    const newSnap = await transaction.get(newDocRef);
+
+                    if (oldSnap.exists()) {
+                        let oldItems = oldSnap.data().items || [];
+                        oldItems = oldItems.filter(s => s.id !== id);
+                        transaction.update(oldDocRef, { items: oldItems });
+                    }
+
+                    let newItems = [];
+                    if (newSnap.exists()) {
+                        newItems = newSnap.data().items || [];
+                    }
+                    newItems.push({ ...oldEvent, ...scheduleData, updatedAt: new Date().toISOString() });
+                    newItems.sort((a, b) => a.date.localeCompare(b.date));
+                    transaction.set(newDocRef, { items: newItems }, { merge: true });
+                });
+            }
+
+            // 로컬 상태 즉시 업데이트
+            setSpecialSchedules(prev => {
+                const newArr = prev.map(s => s.id === id ? { ...s, ...scheduleData } : s);
+                newArr.sort((a, b) => a.date.localeCompare(b.date));
+                return newArr;
+            });
+        } catch (err) {
+            console.error("Update Special Error:", err);
+            throw err;
+        }
     };
 
     const deleteSpecialSchedule = async (id) => {
+        const eventToDelete = specialSchedules.find(s => s.id === id);
+        if (!eventToDelete) return;
+        const year = eventToDelete.date.substring(0, 4);
+
         if (DISABLE_FIRESTORE) {
             setSpecialSchedules(prev => prev.filter(s => s.id !== id));
-            return null;
+            return;
         }
-        const specialDocRef = doc(db, 'special_schedules', id);
-        const res = await deleteDoc(specialDocRef);
-        fetchSpecialSchedules();
-        return res;
+
+        const docRef = doc(db, 'special_schedules_by_year', year);
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                if (!sfDoc.exists()) return;
+                let items = sfDoc.data().items || [];
+                items = items.filter(s => s.id !== id);
+                transaction.update(docRef, { items });
+            });
+
+            // 로컬 상태 즉시 업데이트
+            setSpecialSchedules(prev => prev.filter(s => s.id !== id));
+        } catch (err) {
+            console.error("Delete Special Error:", err);
+            throw err;
+        }
     };
 
     const value = {

@@ -110,7 +110,7 @@ export default function EventsPage() {
     return (
         <>
             <Header title="일반 일정 관리" onMenuClick={openSidebar} />
-            <div className="page-content max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="page-content">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                     <div>
                         <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">일반 일정 목록</h2>
@@ -232,133 +232,144 @@ export default function EventsPage() {
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     title={editingEvent ? '일반 일정 수정' : '일반 일정 등록'}
+                    size="lg"
                 >
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div className="space-y-1.5">
-                            <label className="block text-sm font-bold text-gray-700 ml-1">일정명</label>
-                            <input
-                                type="text"
-                                required
-                                value={formData.title}
-                                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-[#00462A]/10 focus:border-[#00462A] outline-none transition-all placeholder:text-gray-300 font-medium"
-                                placeholder="예: 삼일절, 중간고사 기간"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <label className="block text-sm font-bold text-gray-700 ml-1">시작일</label>
+                    <form onSubmit={handleSubmit} className="flex flex-col -m-6">
+                        {/* Body Area */}
+                        <div className="p-7 space-y-6">
+                            <div className="space-y-2">
+                                <label className="block text-[13px] font-bold text-[#374151]">일정명 *</label>
                                 <input
-                                    type="date"
+                                    type="text"
                                     required
-                                    value={formData.date}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-[#00462A]/10 focus:border-[#00462A] outline-none transition-all font-medium"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                                    className="w-full h-[40px] border border-gray-300 rounded-md focus:ring-1 focus:ring-[#00462A] focus:border-[#00462A] outline-none transition-all placeholder:text-gray-400 text-[14px]"
+                                    style={{ padding: '10px' }}
+                                    placeholder="예: 삼일절, 중간고사 기간"
                                 />
                             </div>
-                            <div className="space-y-1.5">
-                                <label className="block text-sm font-bold text-gray-700 ml-1">종료일 (선택)</label>
-                                <input
-                                    type="date"
-                                    value={formData.endDate}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-[#00462A]/10 focus:border-[#00462A] outline-none transition-all font-medium"
-                                />
-                            </div>
-                        </div>
 
-                        <div className="space-y-1.5">
-                            <label className="block text-sm font-bold text-gray-700 ml-1">구분</label>
-                            <div className="relative">
-                                <select
-                                    value={formData.type}
-                                    onChange={(e) => handleTypeChange(e.target.value)}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-[#00462A]/10 focus:border-[#00462A] outline-none transition-all font-medium appearance-none bg-white cursor-pointer"
-                                >
-                                    {eventTypes.map(type => (
-                                        <option key={type.value} value={type.value}>{type.label}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                    <Tag size={18} />
+                            <div className="grid grid-cols-2 gap-5">
+                                <div className="space-y-2">
+                                    <label className="block text-[13px] font-bold text-[#374151]">시작일 *</label>
+                                    <input
+                                        type="date"
+                                        required
+                                        value={formData.date}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                                        className="w-full h-[40px] border border-gray-300 rounded-md focus:ring-1 focus:ring-[#00462A] focus:border-[#00462A] outline-none transition-all text-[14px]"
+                                        style={{ padding: '10px' }}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-[13px] font-bold text-[#374151]">종료일 (선택)</label>
+                                    <input
+                                        type="date"
+                                        value={formData.endDate}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                                        className="w-full h-[40px] border border-gray-300 rounded-md focus:ring-1 focus:ring-[#00462A] focus:border-[#00462A] outline-none transition-all text-[14px]"
+                                        style={{ padding: '10px' }}
+                                    />
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <label className="block text-sm font-bold text-gray-700 ml-1">배경색</label>
-                                <div className="flex gap-2">
-                                    <div className="relative w-12 h-12 flex-shrink-0">
+                            <div className="space-y-2">
+                                <label className="block text-[13px] font-bold text-[#374151]">구분</label>
+                                <div className="relative">
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => handleTypeChange(e.target.value)}
+                                        className="w-full h-[40px] border border-gray-300 rounded-md focus:ring-1 focus:ring-[#00462A] focus:border-[#00462A] outline-none transition-all appearance-none bg-white cursor-pointer text-[14px]"
+                                        style={{ padding: '10px' }}
+                                    >
+                                        {eventTypes.map(type => (
+                                            <option key={type.value} value={type.value}>{type.label}</option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                        <Tag size={16} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-5">
+                                <div className="space-y-2">
+                                    <label className="block text-[13px] font-bold text-[#374151]">배경색</label>
+                                    <div className="flex gap-2">
+                                        <div className="relative w-9 h-9 flex-shrink-0">
+                                            <input
+                                                type="color"
+                                                value={formData.color}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                            />
+                                            <div
+                                                className="w-full h-full rounded border border-gray-900"
+                                                style={{ backgroundColor: formData.color }}
+                                            />
+                                        </div>
                                         <input
-                                            type="color"
+                                            type="text"
                                             value={formData.color}
                                             onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        />
-                                        <div
-                                            className="w-full h-full rounded-xl border-2 border-white shadow-sm ring-1 ring-gray-200"
-                                            style={{ backgroundColor: formData.color }}
+                                            className="flex-1 h-9 border border-gray-300 rounded-md text-[13px] font-mono outline-none focus:ring-1 focus:ring-gray-400"
+                                            style={{ padding: '10px' }}
                                         />
                                     </div>
-                                    <input
-                                        type="text"
-                                        value={formData.color}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
-                                        className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm font-mono focus:ring-4 focus:ring-[#00462A]/10 outline-none"
-                                    />
                                 </div>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="block text-sm font-bold text-gray-700 ml-1">글자색</label>
-                                <div className="flex gap-2">
-                                    <div className="relative w-12 h-12 flex-shrink-0">
+                                <div className="space-y-2">
+                                    <label className="block text-[13px] font-bold text-[#374151]">글자색</label>
+                                    <div className="flex gap-2">
+                                        <div className="relative w-9 h-9 flex-shrink-0">
+                                            <input
+                                                type="color"
+                                                value={formData.textColor}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, textColor: e.target.value }))}
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                            />
+                                            <div
+                                                className="w-full h-full rounded border border-gray-900"
+                                                style={{ backgroundColor: formData.textColor }}
+                                            />
+                                        </div>
                                         <input
-                                            type="color"
+                                            type="text"
                                             value={formData.textColor}
                                             onChange={(e) => setFormData(prev => ({ ...prev, textColor: e.target.value }))}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        />
-                                        <div
-                                            className="w-full h-full rounded-xl border-2 border-white shadow-sm ring-1 ring-gray-200"
-                                            style={{ backgroundColor: formData.textColor }}
+                                            className="flex-1 h-9 border border-gray-300 rounded-md text-[13px] font-mono outline-none focus:ring-1 focus:ring-gray-400"
+                                            style={{ padding: '10px' }}
                                         />
                                     </div>
-                                    <input
-                                        type="text"
-                                        value={formData.textColor}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, textColor: e.target.value }))}
-                                        className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm font-mono focus:ring-4 focus:ring-[#00462A]/10 outline-none"
-                                    />
                                 </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="block text-[13px] font-bold text-[#374151]">비고</label>
+                                <textarea
+                                    value={formData.memo}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, memo: e.target.value }))}
+                                    className="w-full border border-gray-300 rounded-md focus:ring-1 focus:ring-[#00462A] focus:border-[#00462A] outline-none transition-all placeholder:text-gray-400 text-[14px] resize-none h-[110px]"
+                                    style={{ padding: '10px' }}
+                                    placeholder="상세 내용을 입력하세요."
+                                />
                             </div>
                         </div>
 
-                        <div className="space-y-1.5">
-                            <label className="block text-sm font-bold text-gray-700 ml-1">비고</label>
-                            <textarea
-                                value={formData.memo}
-                                onChange={(e) => setFormData(prev => ({ ...prev, memo: e.target.value }))}
-                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-[#00462A]/10 focus:border-[#00462A] outline-none transition-all placeholder:text-gray-300 font-medium resize-none"
-                                rows="3"
-                                placeholder="메모가 필요한 경우 입력하세요."
-                            />
-                        </div>
-
-                        <div className="flex justify-end gap-3 pt-2">
+                        {/* Footer Section: EXACTLY like the sample */}
+                        <div className="bg-[#F9FAFB] px-6 py-4 flex justify-end items-center gap-2 rounded-b-[0.75rem] border-t border-gray-200">
                             <button
                                 type="button"
                                 onClick={() => setIsModalOpen(false)}
-                                className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-500 font-bold rounded-xl hover:bg-gray-50 transition-colors"
+                                className="min-w-[80px] h-[38px] px-4 bg-white border border-gray-300 text-[#4B5563] font-bold rounded-md hover:bg-gray-50 transition-colors text-[14px]"
                             >
                                 취소
                             </button>
                             <button
                                 type="submit"
-                                className="flex-1 sm:flex-none px-10 py-3 bg-[#00462A] text-white font-bold rounded-xl shadow-lg shadow-[#00462A]/20 hover:bg-[#003620] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                className="min-w-[100px] h-[38px] px-4 bg-[#00462A] text-white font-bold rounded-md hover:bg-[#003620] transition-colors shadow-sm text-[14px]"
                             >
-                                {editingEvent ? '수정 완료' : '등록'}
+                                {editingEvent ? '수정' : '등록'}
                             </button>
                         </div>
                     </form>
