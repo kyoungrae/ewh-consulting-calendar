@@ -7,7 +7,8 @@ import {
     Users,
     LogOut,
     Shield,
-    X
+    X,
+    Megaphone
 } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
@@ -42,6 +43,12 @@ export default function Sidebar({ isOpen, onClose }) {
             path: '/schedules',
             icon: CalendarPlus,
             label: '일정 등록',
+            roles: ['admin']
+        },
+        {
+            path: '/events',
+            icon: Megaphone,
+            label: '일반 일정 관리',
             roles: ['admin']
         },
         {

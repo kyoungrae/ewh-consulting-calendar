@@ -67,3 +67,19 @@ export function useConsultantSchedules(consultantId) {
         error: schedulesError
     };
 }
+
+/**
+ * 특별 일정 관리 훅 (Global DataContext 사용)
+ */
+export function useSpecialSchedules() {
+    const context = useData();
+    return {
+        specialSchedules: context.specialSchedules,
+        loading: context.specialSchedulesLoading,
+        error: context.specialSchedulesError,
+        addSpecialSchedule: context.addSpecialSchedule,
+        updateSpecialSchedule: context.updateSpecialSchedule,
+        deleteSpecialSchedule: context.deleteSpecialSchedule
+    };
+}
+

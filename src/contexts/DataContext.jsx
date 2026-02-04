@@ -67,6 +67,11 @@ export function DataProvider({ children }) {
     const [codesLoading, setCodesLoading] = useState(true);
     const [codesError, setCodesError] = useState(null);
 
+    // 4. Special Schedules State (Holidays, Exams, etc.)
+    const [specialSchedules, setSpecialSchedules] = useState([]);
+    const [specialSchedulesLoading, setSpecialSchedulesLoading] = useState(false);
+    const [specialSchedulesError, setSpecialSchedulesError] = useState(null);
+
     // --- Fetch Functions ---
 
     // 1. Fetch Schedules by Month (Range) -> Monthly Doc 방식 (비용 절감)
@@ -286,6 +291,31 @@ export function DataProvider({ children }) {
         }
     }, []);
 
+    // 5. Fetch Special Schedules
+    const fetchSpecialSchedules = useCallback(async () => {
+        setSpecialSchedulesLoading(true);
+        if (DISABLE_FIRESTORE) {
+            setSpecialSchedules([
+                { id: 'spec_1', date: '2026-03-01', title: '삼일절', type: 'holiday', color: '#ffeb3b', textColor: '#000' },
+                { id: 'spec_2', date: '2026-04-20', title: '중간고사 시작', type: 'exam', color: '#ff9800', textColor: '#fff' }
+            ]);
+            setSpecialSchedulesLoading(false);
+        } else {
+            try {
+                const specialRef = collection(db, 'special_schedules');
+                const q = query(specialRef, orderBy('date', 'asc'));
+                const snapshot = await getDocs(q);
+                incrementReads(snapshot.size);
+                setSpecialSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                setSpecialSchedulesLoading(false);
+            } catch (err) {
+                setSpecialSchedulesError(err.message);
+                setSpecialSchedulesLoading(false);
+            }
+        }
+    }, [incrementReads]);
+
+
     // --- Effects (Initial Load) ---
     useEffect(() => {
         fetchSchedules(); // 전체 로드 (월별 문서 구조 유지하면서 전체 가져오기)
@@ -296,6 +326,7 @@ export function DataProvider({ children }) {
         fetchLogs();
         fetchUsers();
         fetchCodes();
+        fetchSpecialSchedules();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // 최초 1회만 실행
 
@@ -844,6 +875,40 @@ export function DataProvider({ children }) {
         return res;
     };
 
+    const addSpecialSchedule = async (scheduleData) => {
+        if (DISABLE_FIRESTORE) {
+            const newSchedule = { ...scheduleData, id: `dev_spec_${Date.now()}` };
+            setSpecialSchedules(prev => [...prev, newSchedule].sort((a, b) => a.date.localeCompare(b.date)));
+            return newSchedule;
+        }
+        const specialRef = collection(db, 'special_schedules');
+        const res = await addDoc(specialRef, { ...scheduleData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        fetchSpecialSchedules();
+        return res;
+    };
+
+    const updateSpecialSchedule = async (id, scheduleData) => {
+        if (DISABLE_FIRESTORE) {
+            setSpecialSchedules(prev => prev.map(s => s.id === id ? { ...s, ...scheduleData } : s).sort((a, b) => a.date.localeCompare(b.date)));
+            return null;
+        }
+        const specialDocRef = doc(db, 'special_schedules', id);
+        const res = await updateDoc(specialDocRef, { ...scheduleData, updatedAt: serverTimestamp() });
+        fetchSpecialSchedules();
+        return res;
+    };
+
+    const deleteSpecialSchedule = async (id) => {
+        if (DISABLE_FIRESTORE) {
+            setSpecialSchedules(prev => prev.filter(s => s.id !== id));
+            return null;
+        }
+        const specialDocRef = doc(db, 'special_schedules', id);
+        const res = await deleteDoc(specialDocRef);
+        fetchSpecialSchedules();
+        return res;
+    };
+
     const value = {
         schedules,
         schedulesLoading,
@@ -878,6 +943,14 @@ export function DataProvider({ children }) {
         fetchLogs,
         fetchUsers,
         fetchCodes,
+        fetchSpecialSchedules,
+
+        specialSchedules,
+        specialSchedulesLoading,
+        specialSchedulesError,
+        addSpecialSchedule,
+        updateSpecialSchedule,
+        deleteSpecialSchedule,
 
         // Debug
         totalReads,

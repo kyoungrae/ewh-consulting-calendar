@@ -9,6 +9,7 @@ import CalendarPage from './pages/calendar/CalendarPage';
 import SchedulesPage from './pages/schedules/SchedulesPage';
 import CodesPage from './pages/codes/CodesPage';
 import UsersPage from './pages/users/UsersPage';
+import EventsPage from './pages/events/EventsPage';
 import { DataProvider } from './contexts/DataContext';
 import FirebaseMonitor from './components/common/FirebaseMonitor';
 import './index.css';
@@ -57,6 +58,14 @@ function App() {
                 element={
                   <AdminRoute>
                     <UsersPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/events"
+                element={
+                  <AdminRoute>
+                    <EventsPage />
                   </AdminRoute>
                 }
               />

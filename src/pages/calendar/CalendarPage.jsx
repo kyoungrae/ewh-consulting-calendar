@@ -7,7 +7,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
+import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
 import ExcelJS from 'exceljs';
@@ -85,6 +85,7 @@ export default function CalendarPage() {
     const { schedules, loading: schedulesLoading, fetchMonthSchedules } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
+    const { specialSchedules } = useSpecialSchedules();
 
     // 관리자가 아니면 'consultants' 탭을 기본으로 설정
     useEffect(() => {
@@ -156,39 +157,70 @@ export default function CalendarPage() {
     const calendarEvents = useMemo(() => {
         // 1. 날짜별로 그룹화
         const eventsByDate = {};
+
+        // 1-1. 컨설팅 일정 그룹화
         filteredSchedules.forEach(schedule => {
             if (!schedule.date) return;
-            // 'YYYY-MM-DD' 형식 추출 (ISO 및 공백 구분 형식 모두 대응)
             const dateKey = schedule.date.substring(0, 10);
-            if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
-            eventsByDate[dateKey].push(schedule);
+            if (!eventsByDate[dateKey]) eventsByDate[dateKey] = { consulting: [], special: [] };
+            eventsByDate[dateKey].consulting.push(schedule);
+        });
+
+        // 1-2. 특별 일정 그룹화 (범위 대응)
+        specialSchedules.forEach(spec => {
+            const start = new Date(spec.date);
+            const end = spec.endDate ? new Date(spec.endDate) : start;
+
+            // 시작일부터 종료일까지 매일 추가
+            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                const dateKey = d.toISOString().split('T')[0];
+                if (!eventsByDate[dateKey]) eventsByDate[dateKey] = { consulting: [], special: [] };
+                eventsByDate[dateKey].special.push(spec);
+            }
         });
 
         const sortedEventObjects = [];
 
         // 2. 각 날짜별로 정렬 및 구분선 로직 적용
         Object.keys(eventsByDate).forEach(dateKey => {
-            const dailySchedules = eventsByDate[dateKey];
+            const { consulting: dailySchedules, special: dailySpecials } = eventsByDate[dateKey];
 
-            // 정렬: 이름(가나다) -> 시간
+            // 특별 일정 정렬 (제목순 등)
+            dailySpecials.sort((a, b) => a.title.localeCompare(b.title));
+
+            // 컨설팅 일정 정렬: 이름(가나다) -> 시간
             dailySchedules.sort((a, b) => {
-                // 이름 정규화 (공백 등 제거)하여 비교
                 const normalize = (s) => s?.toString().trim().replace(/\s+/g, '') || '';
                 const consultantA = normalize(users.find(u => u.uid === a.consultantId)?.name || a.consultantName || '미배정');
                 const consultantB = normalize(users.find(u => u.uid === b.consultantId)?.name || b.consultantName || '미배정');
 
-                // 이름 비교
                 if (consultantA < consultantB) return -1;
                 if (consultantA > consultantB) return 1;
 
-                // 이름이 같으면 시간 비교
                 return new Date(a.date.replace(' ', 'T')) - new Date(b.date.replace(' ', 'T'));
             });
 
-            // 구분선 마킹
+            // 특별 일정 먼저 추가
+            dailySpecials.forEach((spec, index) => {
+                sortedEventObjects.push({
+                    type: 'special',
+                    data: spec,
+                    dateKey,
+                    sortIndex: index,
+                    needsSeparator: false // 특별 일정끼리는 구분선 없음
+                });
+            });
+
+            // 컨설팅 일정 추가
             dailySchedules.forEach((schedule, index) => {
                 let needsSeparator = false;
-                if (index > 0) {
+
+                // 1) 특별 일정이 있고 첫 컨설팅 일정이면 구분선 필요
+                if (index === 0 && dailySpecials.length > 0) {
+                    needsSeparator = true;
+                }
+                // 2) 이름이 바뀌면 구분선 필요
+                else if (index > 0) {
                     const normalize = (s) => s?.toString().trim().replace(/\s+/g, '') || '';
                     const prev = dailySchedules[index - 1];
                     const prevName = normalize(users.find(u => u.uid === prev.consultantId)?.name || prev.consultantName || '미배정');
@@ -200,54 +232,78 @@ export default function CalendarPage() {
                 }
 
                 sortedEventObjects.push({
-                    schedule,
-                    sortIndex: index, // 같은 날짜 내에서의 정렬 순서
+                    type: 'consulting',
+                    data: schedule,
+                    dateKey,
+                    sortIndex: dailySpecials.length + index,
                     needsSeparator
                 });
             });
         });
 
         // 3. FC 이벤트 객체로 변환
-        return sortedEventObjects.map(({ schedule, sortIndex, needsSeparator }) => {
-            const typeCode = codes.find(c => c.code === schedule.typeCode);
-            const consultant = users.find(u => u.uid === schedule.consultantId);
-            const consultantName = consultant?.name || schedule.consultantName || '미배정';
-            const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
+        return sortedEventObjects.map((obj) => {
+            if (obj.type === 'special') {
+                const spec = obj.data;
+                return {
+                    id: `spec_${spec.id}_${obj.dateKey}`,
+                    title: `📢 ${spec.title}`,
+                    start: obj.dateKey,
+                    allDay: true,
+                    backgroundColor: spec.color || '#fef3c7',
+                    textColor: spec.textColor || '#92400e',
+                    borderColor: 'transparent',
+                    classNames: ['special-event-chip'],
+                    extendedProps: {
+                        ...spec,
+                        isSpecial: true,
+                        sortIndex: obj.sortIndex,
+                        needsSeparator: obj.needsSeparator
+                    }
+                };
+            } else {
+                const schedule = obj.data;
+                const typeCode = codes.find(c => c.code === schedule.typeCode);
+                const consultant = users.find(u => u.uid === schedule.consultantId);
+                const consultantName = consultant?.name || schedule.consultantName || '미배정';
+                const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
 
-            const date = new Date(schedule.date);
-            const hours = date.getHours();
-            const minutes = date.getMinutes();
-            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                const date = new Date(schedule.date);
+                const hours = date.getHours();
+                const minutes = date.getMinutes();
+                const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
-            return {
-                id: schedule.id,
-                title: `${timeStr} ${typeCode?.name || '미분류'} (${consultantName})`,
-                start: schedule.date,
-                end: schedule.endDate || schedule.date,
-                backgroundColor: chipStyle.bg,
-                textColor: '#222',
-                borderColor: chipStyle.border,
-                extendedProps: {
-                    ...schedule,
-                    typeName: typeCode?.name,
-                    consultantName: consultantName,
-                    chipStyle: chipStyle,
-                    sortIndex: sortIndex,      // 정렬용 인덱스
-                    needsSeparator: needsSeparator // 구분선 표시 여부
-                }
-            };
+                return {
+                    id: schedule.id,
+                    title: `${timeStr} ${typeCode?.name || '미분류'} (${consultantName})`,
+                    start: schedule.date,
+                    end: schedule.endDate || schedule.date,
+                    backgroundColor: chipStyle.bg,
+                    textColor: '#222',
+                    borderColor: chipStyle.border,
+                    extendedProps: {
+                        ...schedule,
+                        typeName: typeCode?.name,
+                        consultantName: consultantName,
+                        chipStyle: chipStyle,
+                        sortIndex: obj.sortIndex,
+                        needsSeparator: obj.needsSeparator
+                    }
+                };
+            }
         });
-    }, [filteredSchedules, codes, users]);
+    }, [filteredSchedules, specialSchedules, codes, users]);
 
     // 선택된 날짜의 일정 필터링
     const selectedDateSchedules = useMemo(() => {
         if (!selectedDate) return [];
-        // 시간 정보가 포함되어 있어도 날짜 부분만 사용하여 해당 날짜 전체 일정을 보여줌
         const datePart = selectedDate.substring(0, 10);
-        return filteredSchedules
-            .filter(s => s.date?.startsWith(datePart))
-            .sort((a, b) => a.date.localeCompare(b.date));
-    }, [filteredSchedules, selectedDate]);
+        // 이미 정렬 및 가공된 calendarEvents에서 해당 날짜 것만 추출
+        return calendarEvents.filter(e => {
+            if (e.allDay) return e.start === datePart;
+            return e.start.startsWith(datePart);
+        });
+    }, [calendarEvents, selectedDate]);
 
     // 요약 바에 표시할 포맷팅된 날짜/시간
     const getDisplayDate = useMemo(() => {
@@ -262,28 +318,31 @@ export default function CalendarPage() {
         return `${datePart} ${hh}:${mm}`;
     }, [selectedDate]);
 
-    // 선택된 날짜 통계
+    // 선택된 날짜 통계 (컨설팅 일정만 집계)
     const selectedDateStats = useMemo(() => {
         const byType = {};
         const byConsultant = {};
+        let consultingCount = 0;
 
-        selectedDateSchedules.forEach(schedule => {
-            const typeCode = codes.find(c => c.code === schedule.typeCode);
-            const consultant = users.find(u => u.uid === schedule.consultantId);
+        selectedDateSchedules.forEach(event => {
+            // 특별 일정(📢)은 통계에서 제외
+            if (event.extendedProps.isSpecial) return;
 
-            const typeName = typeCode?.name || '미분류';
-            const consultantName = consultant?.name || '미배정';
+            consultingCount++;
+            const typeName = event.extendedProps.typeName || '미분류';
+            const consultantName = event.extendedProps.consultantName || '미배정';
 
             byType[typeName] = (byType[typeName] || 0) + 1;
             byConsultant[consultantName] = (byConsultant[consultantName] || 0) + 1;
         });
 
         return {
-            total: selectedDateSchedules.length,
+            total: consultingCount,
             byType: Object.entries(byType),
             byConsultant: Object.entries(byConsultant)
         };
-    }, [selectedDateSchedules, codes, users]);
+    }, [selectedDateSchedules]);
+
 
     // 목록 다운로드용 데이터 필터링
     const downloadTargetSchedules = useMemo(() => {
@@ -817,31 +876,36 @@ export default function CalendarPage() {
                                     handleDatesSet(dateInfo);
                                 }}
                                 eventContent={(eventInfo) => {
-                                    const { chipStyle, needsSeparator } = eventInfo.event.extendedProps;
+                                    const { chipStyle, needsSeparator, isSpecial, color, textColor } = eventInfo.event.extendedProps;
                                     return (
                                         <div className="w-full">
                                             {needsSeparator && (
                                                 <div style={{
                                                     borderTop: '1px dashed #9ca3af',
-                                                    margin: '4px 0 2px 0',
+                                                    margin: '6px 0 4px 0',
                                                     width: '100%'
                                                 }} />
                                             )}
                                             <div
-                                                className="ewh-event-chip"
+                                                className={`ewh-event-chip ${isSpecial ? 'special-event' : ''}`}
                                                 style={{
-                                                    backgroundColor: chipStyle?.bg || '#e0f2f1',
-                                                    borderLeft: `3px solid ${chipStyle?.border || '#00695c'}`,
+                                                    backgroundColor: isSpecial ? color : (chipStyle?.bg || '#e0f2f1'),
+                                                    borderLeft: `3px solid ${isSpecial ? textColor : (chipStyle?.border || '#00695c')}`,
+                                                    color: isSpecial ? textColor : '#222',
+                                                    fontWeight: isSpecial ? 'bold' : 'normal',
+                                                    fontSize: isSpecial ? '0.75rem' : 'inherit',
+                                                    padding: isSpecial ? '3px 6px' : '2px 4px',
                                                 }}
                                             >
                                                 {eventInfo.event.title}
-                                                {eventInfo.event.extendedProps.location?.includes('대면') && (
+                                                {!isSpecial && eventInfo.event.extendedProps.location?.includes('대면') && (
                                                     <span style={{ color: 'red', fontWeight: 'bold', marginLeft: '2px' }}>*대면</span>
                                                 )}
                                             </div>
                                         </div>
                                     );
                                 }}
+
                                 dateClick={handleDateClick}
                                 eventClick={(info) => {
                                     // 기본 동작 방지
@@ -1159,23 +1223,49 @@ export default function CalendarPage() {
                     <div className="ewh-date-detail-container">
                         {selectedDateSchedules.length > 0 ? (
                             <div className="ewh-detail-list">
-                                {selectedDateSchedules.map((schedule, idx) => {
-                                    const typeCode = codes.find(c => c.code === schedule.typeCode);
-                                    const consultant = users.find(u => u.uid === schedule.consultantId);
-                                    const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
-                                    const date = new Date(schedule.date);
+                                {selectedDateSchedules.map((event, idx) => {
+                                    const { isSpecial, chipStyle, typeName, consultantName, color, textColor, location } = event.extendedProps;
+
+                                    if (isSpecial) {
+                                        return (
+                                            <div
+                                                key={event.id || idx}
+                                                className="ewh-detail-item special"
+                                                style={{ borderLeft: `4px solid ${textColor}`, backgroundColor: `${color}22` }}
+                                            >
+                                                <div className="ewh-detail-time" style={{ color: textColor }}>📢</div>
+                                                <div
+                                                    className="ewh-detail-chip"
+                                                    style={{
+                                                        backgroundColor: color,
+                                                        color: textColor,
+                                                        fontWeight: 'bold',
+                                                        border: 'none'
+                                                    }}
+                                                >
+                                                    {event.title.replace('📢 ', '')}
+                                                </div>
+                                                <div className="ewh-detail-consultant" style={{ color: textColor }}>
+                                                    공통 일정
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    const date = new Date(event.start);
                                     const timeStr = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
                                     return (
                                         <div
-                                            key={schedule.id || idx}
+                                            key={event.id || idx}
                                             className="ewh-detail-item"
                                             onClick={() => {
                                                 setSelectedEvent({
-                                                    ...schedule,
-                                                    typeName: typeCode?.name,
-                                                    consultantName: consultant?.name || schedule.consultantName,
-                                                    chipStyle
+                                                    ...event.extendedProps,
+                                                    id: event.id,
+                                                    title: event.title,
+                                                    start: event.start,
+                                                    end: event.end
                                                 });
                                                 setIsModalOpen(true);
                                                 setIsDateDetailModalOpen(false);
@@ -1185,21 +1275,22 @@ export default function CalendarPage() {
                                             <div
                                                 className="ewh-detail-chip"
                                                 style={{
-                                                    backgroundColor: chipStyle.bg,
-                                                    borderLeft: `4px solid ${chipStyle.border}`
+                                                    backgroundColor: chipStyle?.bg || '#f0f4f8',
+                                                    borderLeft: `4px solid ${chipStyle?.border || '#cbd5e0'}`
                                                 }}
                                             >
-                                                {typeCode?.name || '미분류'}
-                                                {schedule.location?.includes('대면') && (
+                                                {typeName || '미분류'}
+                                                {location?.includes('대면') && (
                                                     <span style={{ color: 'red', fontWeight: 'bold', marginLeft: '4px' }}>*대면</span>
                                                 )}
                                             </div>
                                             <div className="ewh-detail-consultant">
-                                                {consultant?.name || schedule.consultantName || '미배정'}T
+                                                {consultantName || '미배정'}T
                                             </div>
                                         </div>
                                     );
                                 })}
+
                             </div>
                         ) : (
                             <div className="ewh-no-detail">일정이 없습니다.</div>
@@ -1930,6 +2021,13 @@ export default function CalendarPage() {
                     line-height: 1.3;
                     cursor: pointer;
                 }
+
+                .special-event {
+                    text-align: center;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                    margin: 1px 0 3px 0 !important;
+                }
+
 
                 .ewh-calendar-main .fc-event {
                     background: transparent !important;
