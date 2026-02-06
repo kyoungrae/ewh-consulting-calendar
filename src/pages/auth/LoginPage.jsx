@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Shield, User, Lock, AlertCircle, Loader2, Home } from 'lucide-react';
+import ewhaLogo from '../../assets/symbol-mark.png';
 
 export default function LoginPage() {
     const [userId, setUserId] = useState('');
@@ -76,13 +77,12 @@ export default function LoginPage() {
                 <div className="login-logo text-center">
                     <div className="flex justify-center mb-6">
                         <div
-                            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                            className="w-20 h-20 rounded-2xl flex items-center justify-center bg-white overflow-hidden shadow-lg p-3"
                             style={{
-                                background: 'linear-gradient(135deg, #00462A 0%, #005c37 100%)',
-                                boxShadow: '0 10px 25px -5px rgba(0, 70, 42, 0.3)'
+                                border: '1px solid #f3f4f6'
                             }}
                         >
-                            <Shield size={32} className="text-white" />
+                            <img src={ewhaLogo} alt="EWHA Logo" className="w-full h-full object-contain" />
                         </div>
                     </div>
                     <h1 className="text-2xl font-bold text-[#00462A] tracking-tight mb-2">이화 컨설팅 일정</h1>

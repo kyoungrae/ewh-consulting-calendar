@@ -11,6 +11,7 @@ import {
     Megaphone,
     CreditCard
 } from 'lucide-react';
+import ewhaLogo from '../../assets/symbol-mark.png';
 
 export default function Sidebar({ isOpen, onClose }) {
     const { userProfile, logout, isAdmin } = useAuth();
@@ -84,10 +85,10 @@ export default function Sidebar({ isOpen, onClose }) {
                 <div className="sidebar-logo">
                     <div className="flex items-center gap-3">
                         <div
-                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}
+                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
+                            style={{ backgroundColor: 'white', padding: '4px' }}
                         >
-                            <Shield size={24} />
+                            <img src={ewhaLogo} alt="EWHA Logo" className="w-full h-full object-contain" />
                         </div>
                         <div className="sidebar-logo-text">
                             <h1 className="text-lg font-bold">EWHA 컨설팅 일정</h1>
