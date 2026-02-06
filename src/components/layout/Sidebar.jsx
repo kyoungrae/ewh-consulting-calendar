@@ -8,7 +8,8 @@ import {
     LogOut,
     Shield,
     X,
-    Megaphone
+    Megaphone,
+    CreditCard
 } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
@@ -55,6 +56,12 @@ export default function Sidebar({ isOpen, onClose }) {
             path: '/codes',
             icon: Settings,
             label: '코드 관리',
+            roles: ['admin']
+        },
+        {
+            path: '/budget',
+            icon: CreditCard,
+            label: '예산 관리',
             roles: ['admin']
         },
         {

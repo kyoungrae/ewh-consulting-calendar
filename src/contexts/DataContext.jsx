@@ -52,10 +52,10 @@ export function DataProvider({ children }) {
 
     // Debug: Firebase Read Counter
     const [totalReads, setTotalReads] = useState(0);
-    const resetReads = () => setTotalReads(0);
-    const incrementReads = (count) => {
+    const resetReads = useCallback(() => setTotalReads(0), []);
+    const incrementReads = useCallback((count) => {
         if (count > 0) setTotalReads(prev => prev + count);
-    };
+    }, []);
 
     // 2. Users State
     const [users, setUsers] = useState([]);
@@ -71,6 +71,11 @@ export function DataProvider({ children }) {
     const [specialSchedules, setSpecialSchedules] = useState([]);
     const [specialSchedulesLoading, setSpecialSchedulesLoading] = useState(false);
     const [specialSchedulesError, setSpecialSchedulesError] = useState(null);
+
+    // 5. Consultant Fees State
+    const [consultantFees, setConsultantFees] = useState([]);
+    const [consultantFeesLoading, setConsultantFeesLoading] = useState(false);
+    const [consultantFeesError, setConsultantFeesError] = useState(null);
 
     // --- Fetch Functions ---
 
@@ -326,6 +331,89 @@ export function DataProvider({ children }) {
             }
         }
     }, [incrementReads]);
+
+    // 6. Fetch Consultant Fees
+    const fetchConsultantFees = useCallback(async (year, month) => {
+        setConsultantFeesLoading(true);
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+        if (DISABLE_FIRESTORE) {
+            // Mock Data
+            setConsultantFees([
+                { id: 'fee_1', consultantId: 'user_kjh', amount: 500000, status: 'paid', memo: '기본급' },
+                { id: 'fee_2', consultantId: 'user_lhj', amount: 600000, status: 'pending', memo: '' }
+            ]);
+            setConsultantFeesLoading(false);
+        } else {
+            try {
+                const docRef = doc(db, 'consultant_fees_by_month', monthKey);
+                const docSnap = await getDoc(docRef);
+                incrementReads(1);
+
+                if (docSnap.exists()) {
+                    setConsultantFees(docSnap.data().items || []);
+                } else {
+                    setConsultantFees([]);
+                }
+            } catch (err) {
+                console.error("Fetch Fees Error:", err);
+                setConsultantFeesError(err.message);
+            } finally {
+                setConsultantFeesLoading(false);
+            }
+        }
+    }, [incrementReads]);
+
+    // 7. Update Consultant Fee
+    const updateConsultantFee = useCallback(async (year, month, feeData) => {
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+        if (DISABLE_FIRESTORE) {
+            setConsultantFees(prev => {
+                const existingIndex = prev.findIndex(f => f.consultantId === feeData.consultantId);
+                if (existingIndex >= 0) {
+                    const newFees = [...prev];
+                    newFees[existingIndex] = { ...newFees[existingIndex], ...feeData };
+                    return newFees;
+                } else {
+                    return [...prev, { ...feeData, id: `fee_${Date.now()}` }];
+                }
+            });
+            return;
+        }
+
+        const docRef = doc(db, 'consultant_fees_by_month', monthKey);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                let currentItems = [];
+                if (sfDoc.exists()) {
+                    currentItems = sfDoc.data().items || [];
+                }
+
+                const index = currentItems.findIndex(f => f.consultantId === feeData.consultantId);
+                if (index !== -1) {
+                    currentItems[index] = { ...currentItems[index], ...feeData, updatedAt: new Date().toISOString() };
+                } else {
+                    currentItems.push({
+                        ...feeData,
+                        id: doc(collection(db, 'temp')).id,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+
+                transaction.set(docRef, { items: currentItems }, { merge: true });
+            });
+
+            // Refresh local state specific to this month
+            fetchConsultantFees(year, month);
+
+        } catch (error) {
+            console.error("Error updating fee:", error);
+            throw error;
+        }
+    }, [fetchConsultantFees]);
 
 
     // --- Effects (Initial Load) ---
@@ -999,6 +1087,37 @@ export function DataProvider({ children }) {
         }
     };
 
+    // 8. Delete Consultant Fee
+    const deleteConsultantFee = useCallback(async (year, month, consultantId) => {
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+        if (DISABLE_FIRESTORE) {
+            setConsultantFees(prev => prev.filter(f => f.consultantId !== consultantId));
+            return;
+        }
+
+        const docRef = doc(db, 'consultant_fees_by_month', monthKey);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(docRef);
+                if (!sfDoc.exists()) return;
+
+                let currentItems = sfDoc.data().items || [];
+                const newItems = currentItems.filter(f => f.consultantId !== consultantId);
+
+                transaction.set(docRef, { items: newItems }, { merge: true });
+            });
+
+            // Refresh
+            fetchConsultantFees(year, month);
+
+        } catch (error) {
+            console.error("Error deleting fee:", error);
+            throw error;
+        }
+    }, [fetchConsultantFees]);
+
     const deleteSpecialSchedule = async (id) => {
         const eventToDelete = specialSchedules.find(s => s.id === id);
         if (!eventToDelete) return;
@@ -1072,7 +1191,14 @@ export function DataProvider({ children }) {
 
         // Debug
         totalReads,
-        resetReads
+        resetReads,
+
+        consultantFees,
+        consultantFeesLoading,
+        consultantFeesError,
+        fetchConsultantFees,
+        updateConsultantFee,
+        deleteConsultantFee
     };
 
     return (
