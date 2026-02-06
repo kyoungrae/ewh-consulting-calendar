@@ -74,6 +74,7 @@ export function DataProvider({ children }) {
 
     // 5. Consultant Fees State
     const [consultantFees, setConsultantFees] = useState([]);
+    const [allConsultantFees, setAllConsultantFees] = useState([]); // For history/aggregate views
     const [consultantFeesLoading, setConsultantFeesLoading] = useState(false);
     const [consultantFeesError, setConsultantFeesError] = useState(null);
 
@@ -363,6 +364,33 @@ export function DataProvider({ children }) {
             }
         }
     }, [incrementReads]);
+
+    const fetchAllConsultantFees = useCallback(async () => {
+        if (DISABLE_FIRESTORE) return;
+        setConsultantFeesLoading(true);
+        try {
+            const querySnapshot = await getDocs(collection(db, 'consultant_fees_by_month'));
+            const allData = [];
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.items && Array.isArray(data.items)) {
+                    // Inject year/month if missing from data
+                    const [year, month] = doc.id.split('-').map(Number);
+                    const items = data.items.map(item => ({
+                        ...item,
+                        year: item.year || year,
+                        month: item.month || month
+                    }));
+                    allData.push(...items);
+                }
+            });
+            setAllConsultantFees(allData);
+        } catch (error) {
+            console.error("Error fetching all consultant fees:", error);
+        } finally {
+            setConsultantFeesLoading(false);
+        }
+    }, []);
 
     // 7. Update Consultant Fee
     const updateConsultantFee = useCallback(async (year, month, feeData) => {
@@ -1194,9 +1222,11 @@ export function DataProvider({ children }) {
         resetReads,
 
         consultantFees,
+        allConsultantFees,
         consultantFeesLoading,
         consultantFeesError,
         fetchConsultantFees,
+        fetchAllConsultantFees,
         updateConsultantFee,
         deleteConsultantFee
     };
