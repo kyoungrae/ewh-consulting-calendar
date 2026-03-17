@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
@@ -503,30 +503,46 @@ export default function SchedulesPage() {
     const availableDays = Array.from({ length: 31 }, (_, i) => i + 1);
 
     // 필터링 및 정렬
-    const filteredSchedules = schedules.filter(s => {
-        if (!s.date) return false;
-        const d = new Date(s.date);
+    const filteredSchedules = useMemo(() => {
+        // 🔥 데이터 중복 제거 (버그 방어 로직)
+        // 같은 id를 가진 일정이 배열에 중복으로 존재하면, 가장 마지막(최신) 데이터로 덮어씌웁니다.
+        const uniqueMap = new Map();
+        schedules.forEach(s => {
+            if (s && s.id) {
+                uniqueMap.set(s.id, s);
+            }
+        });
+        
+        let uniqueSchedules = Array.from(uniqueMap.values());
+        
+        // 필터링 적용
+        const filtered = uniqueSchedules.filter(s => {
+            if (!s.date) return false;
+            const d = new Date(s.date);
 
-        // 년도 필터
-        if (selectedYear !== 'all' && d.getFullYear() !== parseInt(selectedYear)) return false;
+            // 년도 필터
+            if (selectedYear !== 'all' && d.getFullYear() !== parseInt(selectedYear)) return false;
 
-        // 월 필터
-        if (selectedMonth !== 'all' && (d.getMonth() + 1) !== parseInt(selectedMonth)) return false;
+            // 월 필터
+            if (selectedMonth !== 'all' && (d.getMonth() + 1) !== parseInt(selectedMonth)) return false;
 
-        // 일 필터
-        if (selectedDay !== 'all' && d.getDate() !== parseInt(selectedDay)) return false;
+            // 일 필터
+            if (selectedDay !== 'all' && d.getDate() !== parseInt(selectedDay)) return false;
 
-        // 구분 필터
-        if (selectedType !== 'all' && s.typeCode !== selectedType) return false;
+            // 구분 필터
+            if (selectedType !== 'all' && s.typeCode !== selectedType) return false;
 
-        // 담당 컨설턴트 필터
-        if (selectedConsultant !== 'all' && s.consultantId !== selectedConsultant) return false;
+            // 담당 컨설턴트 필터
+            if (selectedConsultant !== 'all' && s.consultantId !== selectedConsultant) return false;
 
-        // 장소 검색 (부분 일치)
-        if (searchLocation.trim() && !(s.location || '').toLowerCase().includes(searchLocation.toLowerCase().trim())) return false;
+            // 장소 검색 (부분 일치)
+            if (searchLocation.trim() && !(s.location || '').toLowerCase().includes(searchLocation.toLowerCase().trim())) return false;
 
-        return true;
-    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+            return true;
+        }).sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        return filtered;
+    }, [schedules, selectedYear, selectedMonth, selectedDay, selectedType, selectedConsultant, searchLocation]);
 
     // 페이지네이션 로직
     const totalPages = Math.ceil(filteredSchedules.length / itemsPerPage);

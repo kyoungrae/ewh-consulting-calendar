@@ -36,6 +36,52 @@ export default function CalendarPage() {
     const [isPeriodSelectorOpen, setIsPeriodSelectorOpen] = useState(false);
     const periodSelectorRef = useRef(null);
 
+    const handleRestoreEvent = async () => {
+        if (!selectedEvent) return;
+        
+        const confirmRestore = window.confirm('해당 일정을 다시 복구하시겠습니까?');
+        if (!confirmRestore) return;
+
+        try {
+            // DB에 취소 상태를 해제 (상태값을 '예약' 또는 원래 상태로 변경)
+            await updateSchedule(selectedEvent.id, { 
+                status: '예약', // 또는 서비스의 기본 상태값 (예: '확정', '진행중' 등)
+                isCancelled: false 
+            });
+
+            setIsModalOpen(false); // 팝업 닫기
+            
+            // 모바일에서 상세를 닫으면 다시 날짜 요약으로 돌아감
+            if (window.innerWidth <= 1024 && selectedDate) {
+                setIsDateDetailModalOpen(true);
+            }
+            
+        } catch (error) {
+            console.error('일정 복구 중 오류 발생:', error);
+            alert('일정 복구에 실패했습니다.');
+        }
+    };
+
+    const handleCancelEvent = async () => {
+        if (!selectedEvent) return;
+        
+        const confirmCancel = window.confirm('해당 일정을 취소하시겠습니까?');
+        if (!confirmCancel) return;
+
+        try {
+            await updateSchedule(selectedEvent.id, { 
+                status: '취소', 
+                isCancelled: true 
+            });
+
+            setIsModalOpen(false); // 팝업 닫기
+            
+        } catch (error) {
+            console.error('일정 취소 중 오류 발생:', error);
+            alert('일정 취소에 실패했습니다.');
+        }
+    };
+
     // 정렬 상태 추가
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'ascending' });
 
@@ -82,7 +128,7 @@ export default function CalendarPage() {
     }, []);
 
     const { userProfile, isAdmin } = useAuth();
-    const { schedules, loading: schedulesLoading, fetchMonthSchedules } = useSchedules();
+    const { schedules, loading: schedulesLoading, fetchMonthSchedules, updateSchedule } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
     const { specialSchedules } = useSpecialSchedules();
@@ -110,7 +156,16 @@ export default function CalendarPage() {
 
     // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
     const filteredSchedules = useMemo(() => {
-        let result = schedules;
+        // 🔥 데이터 중복 제거 (버그 방어 로직)
+        // 같은 id를 가진 일정이 배열에 중복으로 존재하면, 가장 마지막(최신) 데이터로 덮어씌웁니다.
+        const uniqueMap = new Map();
+        schedules.forEach(s => {
+            if (s && s.id) {
+                uniqueMap.set(s.id, s);
+            }
+        });
+        
+        let result = Array.from(uniqueMap.values());
 
         const getWeekNumber = (date) => {
             const d = new Date(date);
@@ -510,13 +565,14 @@ export default function CalendarPage() {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('일정 목록');
 
-        // 컬럼 정의 (순서 변경: 일자, 시간, 컨설턴트명, 구분, 방식)
+        // 컬럼 정의 (순서 변경: 일자, 시간, 컨설턴트명, 구분, 방식, 취소여부)
         worksheet.columns = [
             { header: '일자', key: 'date', width: 15 },
             { header: '시간', key: 'time', width: 10 },
             { header: '컨설턴트명', key: 'consultant', width: 15 },
             { header: '구분', key: 'type', width: 30 },
             { header: '방식', key: 'method', width: 10 },
+            { header: '취소여부', key: 'cancelStatus', width: 10 },
         ];
 
         // 데이터 추가
@@ -527,13 +583,15 @@ export default function CalendarPage() {
             const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
             const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
             const isRemote = !schedule.location?.includes('대면');
+            const cancelStatus = (schedule.isCancelled || schedule.status === '취소') ? '취소' : '-';
 
             worksheet.addRow({
                 date: dateStr,
                 time: timeStr,
                 consultant: consultant ? consultant.name + 'T' : '-',
                 type: typeCode ? typeCode.name : '미분류',
-                method: isRemote ? '비대면' : '대면'
+                method: isRemote ? '비대면' : '대면',
+                cancelStatus: cancelStatus
             });
         });
 
@@ -906,6 +964,14 @@ export default function CalendarPage() {
                                     );
                                 }}
 
+                                eventClassNames={(arg) => {
+                                    // arg.event.extendedProps 안에 Firestore에서 가져온 원본 데이터가 들어있습니다.
+                                    // DB의 스키마에 맞게 조건을 수정하세요. (예: isCancelled === true)
+                                    if (arg.event.extendedProps.isCancelled === true || arg.event.extendedProps.status === '취소') {
+                                        return ['cancelled-event'];
+                                    }
+                                    return [];
+                                }}
                                 dateClick={handleDateClick}
                                 eventClick={(info) => {
                                     // 기본 동작 방지
@@ -1055,6 +1121,7 @@ export default function CalendarPage() {
                                                         </div>
                                                     </th>
                                                     <th className="py-2 text-left px-4 font-bold text-sm w-[20%]">방식</th>
+                                                    <th className="py-2 text-center px-4 font-bold text-sm w-[15%]">취소여부</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1069,7 +1136,12 @@ export default function CalendarPage() {
                                                         const chipStyle = getChipStyle(schedule.typeCode, typeCode?.name);
 
                                                         return (
-                                                            <tr key={schedule.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                            <tr 
+                                                                key={schedule.id} 
+                                                                className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                                                                    (schedule.isCancelled || schedule.status === '취소') ? 'cancelled-row' : ''
+                                                                }`}
+                                                            >
                                                                 <td className="text-center font-bold text-gray-800 text-sm">{dateStr}</td>
                                                                 <td className="text-center text-gray-600 text-sm font-medium">{timeStr}</td>
                                                                 <td className="text-center text-gray-700 text-sm font-medium">{consultant ? consultant.name + 'T' : '-'}</td>
@@ -1091,12 +1163,19 @@ export default function CalendarPage() {
                                                                         {isRemote ? '비대면' : '대면'}
                                                                     </span>
                                                                 </td>
+                                                                <td className="cancel-status-cell text-center px-4 py-2">
+                                                                    {(schedule.isCancelled || schedule.status === '취소') ? (
+                                                                        <span className="text-red-600 font-bold">취소</span>
+                                                                    ) : (
+                                                                        <span className="text-gray-400">-</span> 
+                                                                    )}
+                                                                </td>
                                                             </tr>
                                                         );
                                                     })
                                                 ) : (
                                                     <tr>
-                                                        <td colSpan="5" className="py-24 text-center text-gray-400">
+                                                        <td colSpan="6" className="py-24 text-center text-gray-400">
                                                             <div className="flex flex-col items-center gap-2">
                                                                 <Calendar size={40} className="text-gray-200 mb-2" />
                                                                 <span>조건에 맞는 일정이 없습니다.</span>
@@ -1167,36 +1246,64 @@ export default function CalendarPage() {
                     title="일정 상세"
                 >
                     {selectedEvent && (
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
-                                <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#e8f5e9' }}>
-                                    <Tag size={24} style={{ color: '#00462A' }} />
+                        <div className="space-y-6 p-1">
+                            {/* 헤더 영역 (여백 및 아이콘 크기 조정) */}
+                            <div className="flex items-center gap-4 p-5 bg-gray-50 rounded-xl">
+                                <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#e8f5e9' }}>
+                                    <Tag size={26} style={{ color: '#00462A' }} />
                                 </div>
                                 <div>
-                                    <h4 className="font-semibold text-gray-900 text-lg">{selectedEvent.typeName || '미분류 일정'}</h4>
+                                    <h4 className="font-bold text-gray-900 text-xl mb-1">{selectedEvent.typeName || '미분류 일정'}</h4>
                                     <p className="text-sm text-gray-500">컨설팅 상세 정보</p>
                                 </div>
                             </div>
-                            <div className="space-y-3 px-1">
-                                <div className="flex items-center gap-3 text-sm">
-                                    <Clock size={18} className="text-gray-400" />
-                                    <span className="text-gray-700 font-medium">
+
+                            {/* 상세 정보 영역 (아이콘 정렬 및 간격 확보) */}
+                            <div className="space-y-4 px-3 py-2" style={{padding:'10px'}}>
+                                <div className="flex items-center gap-4 text-base">
+                                    <div className="w-6 flex justify-center">
+                                        <Clock size={20} className="text-gray-400" />
+                                    </div>
+                                    <span className="text-gray-700">
                                         {new Date(selectedEvent.date).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
-                                        <span className="ml-2 text-ewha-green-600">
+                                        <span className="ml-3 font-bold text-[#00462A]">
                                             {new Date(selectedEvent.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                                         </span>
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-3 text-sm">
-                                    <MapPin size={18} className="text-gray-400" />
+                                <div className="flex items-center gap-4 text-base">
+                                    <div className="w-6 flex justify-center">
+                                        <MapPin size={20} className="text-gray-400" />
+                                    </div>
                                     <span className="text-gray-700">{selectedEvent.location || '장소 미정'}</span>
                                 </div>
-                                <div className="flex items-center gap-3 text-sm">
-                                    <Users size={18} className="text-gray-400" />
-                                    <span className="text-gray-700">담당: <span className="font-medium">{selectedEvent.consultantName || '미배정'}</span></span>
+                                <div className="flex items-center gap-4 text-base">
+                                    <div className="w-6 flex justify-center">
+                                        <Users size={20} className="text-gray-400" />
+                                    </div>
+                                    <span className="text-gray-700">담당: <span className="font-bold">{selectedEvent.consultantName || '미배정'}</span></span>
                                 </div>
                             </div>
-                            <div className="pt-4 border-t border-gray-100 flex justify-end">
+
+                            {/* 버튼 영역 (취소 여부에 따라 복구/취소 버튼 분기 처리) */}
+                            <div className="pt-6 mt-2 border-t border-gray-100 flex justify-end gap-3" style={{padding:'10px'}}>
+                                {(selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
+                                    <button
+                                        onClick={handleRestoreEvent}
+                                        style={{ padding: '10px 24px', minWidth: '110px' }}
+                                        className="bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-bold transition-colors border border-green-200 text-[15px]"
+                                    >
+                                        일정 복구
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleCancelEvent}
+                                        style={{ padding: '10px 24px', minWidth: '110px' }}
+                                        className="bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold transition-colors border border-red-100 text-[15px]"
+                                    >
+                                        일정 취소
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => {
                                         setIsModalOpen(false);
@@ -1204,7 +1311,8 @@ export default function CalendarPage() {
                                             setIsDateDetailModalOpen(true);
                                         }
                                     }}
-                                    className="btn btn-secondary px-6"
+                                    style={{ padding: '10px 24px', minWidth: '110px' }}
+                                    className="bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-bold transition-colors shadow-sm text-[15px]"
                                 >
                                     닫기
                                 </button>
@@ -2252,7 +2360,41 @@ export default function CalendarPage() {
                     }
                 }
 
+                /* 모든 버튼에 pointer 커서 적용 */
+                button {
+                    cursor: pointer !important;
+                }
+
+                /* 목록 뷰 취소된 행(Row) 스타일 */
+                .cancelled-row td {
+                    text-decoration: line-through;
+                    text-decoration-color: #ef4444 !important; /* 빨간색 취소선 */
+                    color: #9ca3af; /* 기존 텍스트는 회색으로 흐리게 처리 (선택사항) */
+                    background-color: #fef2f2; /* 연한 빨간색 배경 (선택사항) */
+                }
+
+                /* '취소' 텍스트가 들어가는 셀은 취소선을 없애고 글자만 빨갛게 표시 */
+                .cancelled-row td.cancel-status-cell {
+                    text-decoration: none !important; 
+                }
+
                 /* Small Mobile (480px and below) */
+                /* 기존 스타일 아래에 추가 */
+                .cancelled-event {
+                    text-decoration: line-through !important; /* 취소선 */
+                    background-color: #fee2e2 !important; /* 연한 붉은색 배경 */
+                    border-color: #ef4444 !important; /* 붉은색 테두리 */
+                    color: #b91c1c !important; /* 짙은 붉은색 텍스트 */
+                    opacity: 0.7; /* 약간 투명하게 처리 */
+                }
+
+                /* 텍스트 색상이 내부 요소에 의해 덮어씌워지지 않도록 강제 적용 */
+                .cancelled-event .fc-event-title,
+                .cancelled-event .fc-event-time {
+                    color: #b91c1c !important;
+                    text-decoration: line-through !important;
+                }
+
                 @media (max-width: 480px) {
                     .ewh-view-bar {
                         padding: 8px 12px;
