@@ -67,9 +67,9 @@ export function ProtectedRoute({ children }) {
  * 관리자 전용 라우트 보호
  */
 export function AdminRoute({ children }) {
-    const { userProfile } = useAuth();
+    const { isAdmin } = useAuth(); // isAdmin 구조 분해 할당
 
-    if (userProfile?.role !== 'admin') {
+    if (!isAdmin) { // 테스터와 관리자 모두 통과됨
         return <Navigate to="/calendar" replace />;
     }
 

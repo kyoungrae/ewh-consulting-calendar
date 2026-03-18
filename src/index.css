@@ -300,6 +300,11 @@ body {
   color: #b45309;
 }
 
+.badge-orange {
+  background-color: #fed7aa;
+  color: #c2410c;
+}
+
 .badge-red {
   background-color: #fee2e2;
   color: #dc2626;

@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { useUsers } from '../../hooks/useFirestore';
+import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
@@ -22,7 +22,7 @@ export default function UsersPage() {
     const { openSidebar } = useOutletContext();
 
     const { users, loading, updateUser, deleteUser } = useUsers();
-    const { registerUser } = useAuth();
+    const { registerUser, isTester } = useAuth();
 
     // 신규 사용자 폼 상태
     const [newUserForm, setNewUserForm] = useState({
@@ -170,13 +170,30 @@ export default function UsersPage() {
                         <h1 className="page-title">회원 관리</h1>
                         <p className="page-description">등록된 모든 사용자 목록입니다</p>
                     </div>
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="btn btn-primary"
-                    >
-                        <Plus size={18} />
-                        새 사용자 등록
-                    </button>
+                    {/* 새 사용자 등록 버튼 */}
+                    <div className="relative group">
+                        <button
+                            onClick={() => {
+                                if (!isTester) setIsAddModalOpen(true);
+                            }}
+                            disabled={isTester}
+                            className={`btn btn-primary ${
+                                isTester ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                        >
+                            <Plus size={18} />
+                            새 사용자 등록
+                        </button>
+                        
+                        {/* 테스터 전용 스마트 툴팁 */}
+                        {isTester && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                            style={{padding:'10px'}}>
+                                권한이 부족하여 사용할 수 없습니다.
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Users Table */}
@@ -213,7 +230,11 @@ export default function UsersPage() {
                                                 <div className="flex items-center gap-3">
                                                     <div
                                                         className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-sm"
-                                                        style={{ backgroundColor: user.role === 'admin' ? '#00462A' : '#3b82f6' }}
+                                                        style={{ 
+                                                            backgroundColor: user.role === 'admin' ? '#00462A' : 
+                                                                           user.role === 'tester' ? '#f97316' : 
+                                                                           '#3b82f6' 
+                                                        }}
                                                     >
                                                         {user.name?.charAt(0) || 'U'}
                                                     </div>
@@ -230,9 +251,18 @@ export default function UsersPage() {
                                                 </div>
                                             </td>
                                             <td>
-                                                <span className={`badge ${user.role === 'admin' ? 'badge-green' : 'badge-blue'}`}>
-                                                    {user.role === 'admin' ? '관리자' : '컨설턴트'}
-                                                </span>
+                                                {user.role === 'tester' ? (
+                                                    <>
+                                                        <span className="badge badge-orange">테스터</span>
+                                                    </>
+                                                ) : (
+                                                    <span className={`badge ${
+                                                        user.role === 'admin' ? 'badge-green' : 
+                                                        'badge-blue'
+                                                    }`}>
+                                                        {user.role === 'admin' ? '관리자' : '컨설턴트'}
+                                                    </span>
+                                                )}
                                             </td>
                                             <td>
                                                 {user.status === 'approved' ? (
@@ -248,20 +278,59 @@ export default function UsersPage() {
                                             </td>
                                             <td>
                                                 <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={() => openEditModal(user)}
-                                                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                        title="수정"
-                                                    >
-                                                        <Edit2 size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDelete(user.id)}
-                                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                        title="삭제"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
+                                                    {/* 수정 버튼 */}
+                                                    <div className="relative group">
+                                                        <button
+                                                            onClick={() => {
+                                                                if (!isTester) openEditModal(user);
+                                                            }}
+                                                            disabled={isTester}
+                                                            className={`p-2 rounded-lg transition-all ${
+                                                                isTester 
+                                                                ? 'text-gray-300 cursor-not-allowed' 
+                                                                : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                                            }`}
+                                                            title="수정"
+                                                        >
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                        
+                                                        {/* 테스터 전용 스마트 툴팁 */}
+                                                        {isTester && (
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                                                            style={{padding:'10px'}}>
+                                                                권한이 부족하여 사용할 수 없습니다.
+                                                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* 삭제 버튼 */}
+                                                    <div className="relative group">
+                                                        <button
+                                                            onClick={() => {
+                                                                if (!isTester) handleDelete(user.id);
+                                                            }}
+                                                            disabled={isTester}
+                                                            className={`p-2 rounded-lg transition-all ${
+                                                                isTester 
+                                                                ? 'text-gray-300 cursor-not-allowed' 
+                                                                : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                                            }`}
+                                                            title="삭제"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                        
+                                                        {/* 테스터 전용 스마트 툴팁 */}
+                                                        {isTester && (
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                                                            style={{padding:'10px'}}>
+                                                                권한이 부족하여 사용할 수 없습니다.
+                                                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -361,6 +430,7 @@ export default function UsersPage() {
                                     >
                                         <option value="consultant">컨설턴트</option>
                                         <option value="admin">관리자</option>
+                                        <option value="tester">테스터</option>
                                     </select>
                                 </div>
 
@@ -477,6 +547,7 @@ export default function UsersPage() {
                                 >
                                     <option value="consultant">컨설턴트</option>
                                     <option value="admin">관리자</option>
+                                    <option value="tester">테스터</option>
                                 </select>
                             </div>
                         </div>

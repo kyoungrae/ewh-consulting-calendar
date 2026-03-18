@@ -337,8 +337,11 @@ export function AuthProvider({ children }) {
         checkUserIdExists,
         remainingTime,
         resetTimer, // 수동 연장 함수 추가
-        isAdmin: userProfile?.role === 'admin',
-        isConsultant: userProfile?.role === 'consultant'
+        // 테스터도 관리자 화면을 볼 수 있도록 수정
+        isAdmin: userProfile?.role === 'admin' || userProfile?.role === 'tester',
+        isConsultant: userProfile?.role === 'consultant',
+        // 테스터인지 여부를 별도로 전달 (버튼 제어용)
+        isTester: userProfile?.role === 'tester'
     };
 
     return (

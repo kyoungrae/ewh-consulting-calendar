@@ -73,9 +73,10 @@ export default function Sidebar({ isOpen, onClose }) {
         }
     ];
 
-    const filteredMenuItems = menuItems.filter(
-        item => item.roles.includes(userProfile?.role)
-    );
+    const filteredMenuItems = menuItems.filter(item => {
+        if (item.roles.includes('admin') && isAdmin) return true; // isAdmin이면 admin 메뉴 허용
+        return item.roles.includes(userProfile?.role);
+    });
 
     return (
         <>
@@ -92,7 +93,10 @@ export default function Sidebar({ isOpen, onClose }) {
                         </div>
                         <div className="sidebar-logo-text">
                             <h1 className="text-lg font-bold">EWHA 컨설팅 일정</h1>
-                            <p className="text-xs opacity-70">관리자 모드</p>
+                            {/* 관리자면 '관리자 모드', 테스터면 '모니터링 모드'로 표시 */}
+                            <p className="text-xs opacity-70">
+                                {userProfile?.role === 'tester' ? '모니터링 모드' : '관리자 모드'}
+                            </p>
                         </div>
                         {/* Mobile close button */}
                         <button

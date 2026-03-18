@@ -4,6 +4,7 @@ import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
+import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import {
     Plus,
@@ -417,6 +418,9 @@ export default function SchedulesPage() {
     const [activeTab, setActiveTab] = useState('list'); // 'list' | 'log'
     const fileInputRef = useRef(null);
     const { openSidebar } = useOutletContext();
+    
+    // useAuth에서 isTester를 가져옵니다.
+    const { userProfile, isTester } = useAuth();
 
     const {
         schedules,
@@ -1184,19 +1188,38 @@ export default function SchedulesPage() {
                                     onChange={handleExcelUpload}
                                     accept=".xlsx, .xls "
                                     className="hidden"
+                                    disabled={isTester} // 테스터는 파일 선택 불가
                                 />
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    disabled={isUploading}
-                                    className="btn btn-secondary shadow-sm hover:border-[#00462A] hover:text-[#00462A]"
-                                >
-                                    {isUploading ? (
-                                        <Loader2 size={18} className="animate-spin" />
-                                    ) : (
-                                        <Upload size={18} />
+                                
+                                {/* 툴팁을 위해 group 클래스를 가진 div로 감쌉니다 */}
+                                <div className="relative group">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!isTester) fileInputRef.current?.click();
+                                        }}
+                                        disabled={isUploading || isTester} // 테스터일 때 비활성화
+                                        className={`btn btn-secondary shadow-sm ${
+                                            isTester ? 'opacity-50 cursor-not-allowed' : 'hover:border-[#00462A] hover:text-[#00462A]'
+                                        }`}
+                                    >
+                                        {isUploading ? (
+                                            <Loader2 size={18} className="animate-spin" />
+                                        ) : (
+                                            <Upload size={18} />
+                                        )}
+                                        엑셀 업로드
+                                    </button>
+
+                                    {/* 테스터 전용 스마트 툴팁 */}
+                                    {isTester && (
+                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                                        style={{padding:'10px'}}>
+                                            권한이 부족하여 사용할 수 없습니다.
+                                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                        </div>
                                     )}
-                                    엑셀 업로드
-                                </button>
+                                </div>
                                 <button
                                     onClick={() => openModal()}
                                     className="btn btn-primary shadow-md"
