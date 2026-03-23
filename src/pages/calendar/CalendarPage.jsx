@@ -38,6 +38,10 @@ export default function CalendarPage() {
 
     const handleRestoreEvent = async () => {
         if (!selectedEvent) return;
+        if (!isAdmin) {
+            alert('관리자만 일정 복구를 할 수 있습니다.');
+            return;
+        }
         
         const confirmRestore = window.confirm('해당 일정을 다시 복구하시겠습니까?');
         if (!confirmRestore) return;
@@ -64,6 +68,10 @@ export default function CalendarPage() {
 
     const handleCancelEvent = async () => {
         if (!selectedEvent) return;
+        if (!isAdmin) {
+            alert('관리자만 일정 취소를 할 수 있습니다.');
+            return;
+        }
         
         const confirmCancel = window.confirm('해당 일정을 취소하시겠습니까?');
         if (!confirmCancel) return;
@@ -1309,24 +1317,26 @@ export default function CalendarPage() {
                                 </div>
                             </div>
 
-                            {/* 버튼 영역 (취소 여부에 따라 복구/취소 버튼 분기 처리) */}
+                            {/* 버튼 영역 (관리자만 취소/복구 가능) */}
                             <div className="pt-6 mt-2 border-t border-gray-100 flex justify-end gap-3" style={{padding:'10px'}}>
-                                {(selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
-                                    <button
-                                        onClick={handleRestoreEvent}
-                                        style={{ padding: '10px 24px', minWidth: '110px' }}
-                                        className="bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-bold transition-colors border border-green-200 text-[15px]"
-                                    >
-                                        일정 복구
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={handleCancelEvent}
-                                        style={{ padding: '10px 24px', minWidth: '110px' }}
-                                        className="bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold transition-colors border border-red-100 text-[15px]"
-                                    >
-                                        일정 취소
-                                    </button>
+                                {isAdmin && (
+                                    (selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
+                                        <button
+                                            onClick={handleRestoreEvent}
+                                            style={{ padding: '10px 24px', minWidth: '110px' }}
+                                            className="bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-bold transition-colors border border-green-200 text-[15px]"
+                                        >
+                                            일정 복구
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={handleCancelEvent}
+                                            style={{ padding: '10px 24px', minWidth: '110px' }}
+                                            className="bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold transition-colors border border-red-100 text-[15px]"
+                                        >
+                                            일정 취소
+                                        </button>
+                                    )
                                 )}
                                 <button
                                     onClick={() => {
