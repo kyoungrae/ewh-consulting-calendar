@@ -509,11 +509,36 @@ export default function SchedulesPage() {
     // 필터링 및 정렬
     const filteredSchedules = useMemo(() => {
         // 🔥 데이터 중복 제거 (버그 방어 로직)
-        // 같은 id를 가진 일정이 배열에 중복으로 존재하면, 가장 마지막(최신) 데이터로 덮어씌웁니다.
+        // 저장 키(일시+담당자) 기준으로 정리하고, 같은 슬롯이면 "취소 아님" 데이터를 우선 사용
+        const slotKey = (s) => {
+            const dateKey = s?.date ? s.date.slice(0, 16) : '';
+            const consultantKey = (s?.consultantId || s?.consultantName || '').toString().trim();
+            return `${dateKey}_${consultantKey}`;
+        };
+        const isCancelled = (s) => s?.isCancelled === true || s?.status === '취소';
+        const ts = (s) => new Date(s?.updatedAt || s?.createdAt || 0).getTime() || 0;
+
         const uniqueMap = new Map();
-        schedules.forEach(s => {
-            if (s && s.id) {
-                uniqueMap.set(s.id, s);
+        schedules.forEach((s) => {
+            if (!s) return;
+            const key = slotKey(s) || s.id;
+            if (!key) return;
+
+            const prev = uniqueMap.get(key);
+            if (!prev) {
+                uniqueMap.set(key, s);
+                return;
+            }
+
+            const prevCancelled = isCancelled(prev);
+            const currCancelled = isCancelled(s);
+
+            if (prevCancelled && !currCancelled) {
+                uniqueMap.set(key, s);
+                return;
+            }
+            if (prevCancelled === currCancelled) {
+                if (ts(s) >= ts(prev)) uniqueMap.set(key, s);
             }
         });
         
@@ -634,7 +659,7 @@ export default function SchedulesPage() {
             setEditingSchedule(null);
         } catch (error) {
             console.error('일정 저장 실패:', error);
-            alert('일정 저장에 실패했습니다.');
+            alert(error?.message || '일정 저장에 실패했습니다.');
         }
     };
 

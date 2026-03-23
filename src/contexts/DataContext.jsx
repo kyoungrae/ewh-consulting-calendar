@@ -36,6 +36,20 @@ function generateScheduleKey(schedule) {
     return `${dateStr}_${consultant}`;
 }
 
+/**
+ * 같은 "일시+담당자" 일정 중복 여부 확인
+ * excludeId가 주어지면 해당 id는 비교에서 제외(수정 시 자기 자신 제외용)
+ */
+function findDuplicateSchedule(items, candidate, excludeId = null) {
+    const candidateKey = generateScheduleKey(candidate);
+    if (!candidateKey) return null;
+    return items.find(item => {
+        if (!item) return false;
+        if (excludeId && item.id === excludeId) return false;
+        return generateScheduleKey(item) === candidateKey;
+    }) || null;
+}
+
 export function DataProvider({ children }) {
     // DataProvider State
     const [schedules, setSchedules] = useState([]);
@@ -462,6 +476,11 @@ export function DataProvider({ children }) {
 
     const addSchedule = async (scheduleData) => {
         if (DISABLE_FIRESTORE) {
+            const duplicate = findDuplicateSchedule(schedules, scheduleData);
+            if (duplicate) {
+                throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+            }
+
             const newSchedule = {
                 ...scheduleData,
                 id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -489,6 +508,12 @@ export function DataProvider({ children }) {
                 if (sfDoc.exists()) {
                     currentItems = sfDoc.data().items || [];
                 }
+
+                const duplicate = findDuplicateSchedule(currentItems, scheduleData);
+                if (duplicate) {
+                    throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                }
+
                 const newId = doc(collection(db, 'temp')).id;
                 const newSchedule = { ...scheduleData, id: newId };
                 currentItems.push(newSchedule);
@@ -813,6 +838,12 @@ export function DataProvider({ children }) {
         }
 
         if (DISABLE_FIRESTORE) {
+            const candidate = { ...oldSchedule, ...updatedData };
+            const duplicate = findDuplicateSchedule(schedules, candidate, id);
+            if (duplicate) {
+                throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+            }
+
             setSchedules(prev => prev.map(schedule =>
                 schedule.id === id ? { ...schedule, ...updatedData } : schedule
             ).sort((a, b) => new Date(a.date) - new Date(b.date)));
@@ -848,6 +879,12 @@ export function DataProvider({ children }) {
                     const index = items.findIndex(s => s.id === id);
                     if (index === -1) throw new Error("Schedule not found in document");
 
+                    const candidate = { ...items[index], ...updatedData };
+                    const duplicate = findDuplicateSchedule(items, candidate, id);
+                    if (duplicate) {
+                        throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                    }
+
                     // 업데이트
                     items[index] = { ...items[index], ...updatedData };
                     items.sort((a, b) => new Date(a.date) - new Date(b.date)); // 정렬 유지
@@ -876,6 +913,12 @@ export function DataProvider({ children }) {
                     }
                     // ID는 유지, 데이터는 업데이트
                     const movedSchedule = { ...oldSchedule, ...updatedData };
+
+                    const duplicate = findDuplicateSchedule(newItems, movedSchedule, id);
+                    if (duplicate) {
+                        throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                    }
+
                     newItems.push(movedSchedule);
                     newItems.sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -920,7 +963,7 @@ export function DataProvider({ children }) {
         const scheduleToDelete = schedules.find(s => s.id === id);
         if (!scheduleToDelete) {
             console.error("Schedule not found in local state");
-            return;
+            throw new Error("삭제 대상 일정을 찾을 수 없습니다. 화면을 새로고침 후 다시 시도해주세요.");
         }
 
         if (DISABLE_FIRESTORE) {
@@ -947,6 +990,10 @@ export function DataProvider({ children }) {
                 if (!sfDoc.exists()) throw new Error("Document does not exist!");
 
                 const items = sfDoc.data().items || [];
+                const exists = items.some(s => s.id === id);
+                if (!exists) {
+                    throw new Error("Schedule not found in document");
+                }
                 const newItems = items.filter(s => s.id !== id);
 
                 transaction.set(docRef, { items: newItems }, { merge: true });
@@ -964,7 +1011,7 @@ export function DataProvider({ children }) {
             setSchedules(prev => prev.filter(schedule => schedule.id !== id));
         } catch (error) {
             console.error("Error deleting document: ", error);
-            // throw error; // UI 멈춤 방지 위해 에러 던지지 않음
+            throw error;
         }
     }, [schedules]);
 
