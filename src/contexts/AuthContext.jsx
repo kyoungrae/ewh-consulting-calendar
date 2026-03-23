@@ -11,6 +11,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, firebaseConfig, DISABLE_FIRESTORE } from '../firebase/config';
+import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const AuthContext = createContext();
 
@@ -345,7 +346,13 @@ export function AuthProvider({ children }) {
 
     return (
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {loading ? (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                    <LoadingSpinner message="인증 정보를 확인하는 중..." />
+                </div>
+            ) : (
+                children
+            )}
         </AuthContext.Provider>
     );
 }
