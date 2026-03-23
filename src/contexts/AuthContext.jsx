@@ -76,7 +76,6 @@ export function AuthProvider({ children }) {
                 ? DUMMY_USERS.find(u => u.name === userIdOrEmailOrName)
                 : DUMMY_USERS.find(u => u.userId === userIdOrEmailOrName);
             if (dummyUser) {
-                ß
                 const fakeUser = {
                     uid: dummyUser.uid,
                     email: `${dummyUser.userId}@ewha.dev`,
