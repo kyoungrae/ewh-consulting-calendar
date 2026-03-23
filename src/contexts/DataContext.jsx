@@ -50,6 +50,23 @@ function findDuplicateSchedule(items, candidate, excludeId = null) {
     }) || null;
 }
 
+/** Firestore items 배열에서 수정/삭제 대상 인덱스 (id 불일치 시 슬롯 키로 폴백) */
+function resolveScheduleItemIndex(items, id, scheduleHint) {
+    if (!items?.length) return -1;
+    let idx = items.findIndex(s => s && s.id === id);
+    if (idx !== -1) return idx;
+    const targetKey = generateScheduleKey(scheduleHint);
+    if (!targetKey) return -1;
+    const hintCancelled = Boolean(scheduleHint?.isCancelled || scheduleHint?.status === '취소');
+    idx = items.findIndex(s => {
+        if (!s) return false;
+        if (generateScheduleKey(s) !== targetKey) return false;
+        return Boolean(s?.isCancelled || s?.status === '취소') === hintCancelled;
+    });
+    if (idx !== -1) return idx;
+    return items.findIndex(s => s && generateScheduleKey(s) === targetKey);
+}
+
 export function DataProvider({ children }) {
     // DataProvider State
     const [schedules, setSchedules] = useState([]);
@@ -838,85 +855,151 @@ export function DataProvider({ children }) {
         }
 
         if (DISABLE_FIRESTORE) {
-            const candidate = { ...oldSchedule, ...updatedData };
-            const duplicate = findDuplicateSchedule(schedules, candidate, id);
-            if (duplicate) {
-                throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+            const slotAffectingKeys = ['date', 'endDate', 'consultantId', 'consultantName'];
+            const affectsSlot = slotAffectingKeys.some(
+                (k) => Object.prototype.hasOwnProperty.call(updatedData, k) && updatedData[k] != null && updatedData[k] !== ''
+            );
+            const patch = { ...updatedData, updatedAt: new Date().toISOString() };
+            const candidate = { ...oldSchedule, ...patch };
+            if (affectsSlot) {
+                const duplicate = findDuplicateSchedule(schedules, candidate, id);
+                if (duplicate) {
+                    throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                }
             }
 
             setSchedules(prev => prev.map(schedule =>
-                schedule.id === id ? { ...schedule, ...updatedData } : schedule
+                schedule.id === id ? { ...schedule, ...patch } : schedule
             ).sort((a, b) => new Date(a.date) - new Date(b.date)));
 
             // [Simulation] 더미 로그 생성
             setChangeLog(prev => [{
                 type: 'UPDATE',
                 summary: { added: 0, updated: 1, deleted: 0 },
-                details: { added: [], updated: [{ before: oldSchedule, after: { ...oldSchedule, ...updatedData } }], deleted: [] },
+                details: { added: [], updated: [{ before: oldSchedule, after: { ...oldSchedule, ...patch } }], deleted: [] },
                 timestamp: new Date().toISOString()
             }, ...prev]);
 
             return;
         }
 
+        // 취소/복구 등 date를 안 넘기는 업데이트: updatedData.date가 없으면 기존 일정 날짜 사용
+        // (없을 때 new Date(undefined) → Invalid Date → 월키가 NaN이 되어 달 이동 분기로 잘못 들어가 취소가 반영 안 됨)
+        const effectiveDateSource =
+            updatedData.date != null && updatedData.date !== ''
+                ? updatedData.date
+                : oldSchedule.date;
+
         const oldDate = new Date(oldSchedule.date);
-        const newDate = new Date(updatedData.date);
+        const newDate = new Date(effectiveDateSource);
 
         const oldMonthKey = `${oldDate.getFullYear()}-${String(oldDate.getMonth() + 1).padStart(2, '0')}`;
         const newMonthKey = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}`;
 
+        // 일시·담당 슬롯을 바꾸지 않는 업데이트(취소/복구, 메모 등)는 중복 검사 생략
+        // → 동일 슬롯에 취소/미취소 레코드가 둘 있을 때 취소 처리가 막히는 문제 방지
+        const slotAffectingKeys = ['date', 'endDate', 'consultantId', 'consultantName'];
+        const affectsSlot = slotAffectingKeys.some(
+            (k) => Object.prototype.hasOwnProperty.call(updatedData, k) && updatedData[k] != null && updatedData[k] !== ''
+        );
+
+        const patch = { ...updatedData, updatedAt: new Date().toISOString() };
+
         const oldDocRef = doc(db, 'schedules_by_month', oldMonthKey);
         const newDocRef = doc(db, 'schedules_by_month', newMonthKey);
 
-        try {
+        const applyUpdateSameMonthDoc = async (targetDocRef) => {
             await runTransaction(db, async (transaction) => {
-                // Case A: 같은 달 내에서 수정
-                if (oldMonthKey === newMonthKey) {
-                    const sfDoc = await transaction.get(oldDocRef);
-                    if (!sfDoc.exists()) throw new Error("Document does not exist!");
+                const sfDoc = await transaction.get(targetDocRef);
+                if (!sfDoc.exists()) throw new Error("Document does not exist!");
 
-                    const items = sfDoc.data().items || [];
-                    const index = items.findIndex(s => s.id === id);
-                    if (index === -1) throw new Error("Schedule not found in document");
+                const items = [...(sfDoc.data().items || [])];
+                const index = resolveScheduleItemIndex(items, id, oldSchedule);
+                if (index === -1) throw new Error("Schedule not found in document");
 
-                    const candidate = { ...items[index], ...updatedData };
-                    const duplicate = findDuplicateSchedule(items, candidate, id);
+                const dbRow = items[index];
+                const dbId = dbRow.id;
+
+                const candidate = { ...dbRow, ...patch };
+                if (affectsSlot) {
+                    const duplicate = findDuplicateSchedule(items, candidate, dbId);
                     if (duplicate) {
                         throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
                     }
-
-                    // 업데이트
-                    items[index] = { ...items[index], ...updatedData };
-                    items.sort((a, b) => new Date(a.date) - new Date(b.date)); // 정렬 유지
-
-                    transaction.set(oldDocRef, { items }, { merge: true });
                 }
-                // Case B: 날짜가 변경되어 달이 바뀌는 경우 (이동)
-                else {
+
+                items[index] = { ...dbRow, ...patch };
+
+                // 동일 슬롯(일시+담당) 중복 행이 DB에 있으면 취소/복구가 한 줄만 바뀌고 새로고침 시 원복처럼 보이는 문제 방지
+                const syncCancel =
+                    Object.prototype.hasOwnProperty.call(updatedData, 'status') ||
+                    Object.prototype.hasOwnProperty.call(updatedData, 'isCancelled');
+                if (syncCancel) {
+                    const slotKey = generateScheduleKey(items[index]);
+                    for (let i = 0; i < items.length; i++) {
+                        if (i === index) continue;
+                        if (generateScheduleKey(items[i]) !== slotKey) continue;
+                        items[i] = {
+                            ...items[i],
+                            ...(updatedData.status !== undefined ? { status: updatedData.status } : {}),
+                            ...(updatedData.isCancelled !== undefined ? { isCancelled: updatedData.isCancelled } : {}),
+                            updatedAt: patch.updatedAt
+                        };
+                    }
+                }
+
+                items.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                transaction.set(targetDocRef, { items }, { merge: true });
+            });
+        };
+
+        try {
+            if (oldMonthKey === newMonthKey) {
+                try {
+                    await applyUpdateSameMonthDoc(oldDocRef);
+                } catch (primaryError) {
+                    if (!String(primaryError?.message || '').includes('Schedule not found in document')) {
+                        throw primaryError;
+                    }
+                    const allSnap = await getDocs(query(collection(db, 'schedules_by_month')));
+                    let recoveredRef = null;
+                    allSnap.forEach((d) => {
+                        if (recoveredRef) return;
+                        const arr = d.data()?.items || [];
+                        if (resolveScheduleItemIndex(arr, id, oldSchedule) !== -1) {
+                            recoveredRef = doc(db, 'schedules_by_month', d.id);
+                        }
+                    });
+                    if (!recoveredRef) throw primaryError;
+                    await applyUpdateSameMonthDoc(recoveredRef);
+                }
+            } else {
+                await runTransaction(db, async (transaction) => {
                     const oldSFDoc = await transaction.get(oldDocRef);
                     const newSFDoc = await transaction.get(newDocRef);
 
-                    // 1. Remove from Old
                     let oldItems = [];
                     if (oldSFDoc.exists()) {
-                        oldItems = oldSFDoc.data().items || [];
-                        const index = oldItems.findIndex(s => s.id === id);
-                        if (index !== -1) {
-                            oldItems.splice(index, 1);
-                        }
+                        oldItems = [...(oldSFDoc.data().items || [])];
+                    }
+                    const oldIdx = resolveScheduleItemIndex(oldItems, id, oldSchedule);
+                    const removedBase = oldIdx !== -1 ? { ...oldItems[oldIdx] } : { ...oldSchedule };
+                    if (oldIdx !== -1) {
+                        oldItems.splice(oldIdx, 1);
                     }
 
-                    // 2. Add to New
                     let newItems = [];
                     if (newSFDoc.exists()) {
-                        newItems = newSFDoc.data().items || [];
+                        newItems = [...(newSFDoc.data().items || [])];
                     }
-                    // ID는 유지, 데이터는 업데이트
-                    const movedSchedule = { ...oldSchedule, ...updatedData };
+                    const movedSchedule = { ...removedBase, ...patch };
 
-                    const duplicate = findDuplicateSchedule(newItems, movedSchedule, id);
-                    if (duplicate) {
-                        throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                    if (affectsSlot) {
+                        const duplicate = findDuplicateSchedule(newItems, movedSchedule, removedBase.id);
+                        if (duplicate) {
+                            throw new Error('동일한 일시와 담당자의 일정이 이미 존재합니다.');
+                        }
                     }
 
                     newItems.push(movedSchedule);
@@ -924,22 +1007,39 @@ export function DataProvider({ children }) {
 
                     transaction.set(oldDocRef, { items: oldItems }, { merge: true });
                     transaction.set(newDocRef, { items: newItems }, { merge: true });
-                }
-            });
+                });
+            }
 
             // [Log] 변경 이력 기록
             await addDoc(collection(db, 'change_logs'), {
                 type: 'UPDATE',
                 id,
-                changes: updatedData,
+                changes: patch,
                 timestamp: new Date().toISOString(),
                 createdAt: serverTimestamp()
             });
 
-            // Local Update
-            setSchedules(prev => prev.map(schedule =>
-                schedule.id === id ? { ...schedule, ...updatedData } : schedule
-            ).sort((a, b) => new Date(a.date) - new Date(b.date)));
+            // Local Update (같은 슬롯 중복 행도 즉시 반영)
+            const syncCancelLocal =
+                Object.prototype.hasOwnProperty.call(updatedData, 'status') ||
+                Object.prototype.hasOwnProperty.call(updatedData, 'isCancelled');
+            const localSlotKey = generateScheduleKey(oldSchedule);
+            setSchedules(prev => prev.map(schedule => {
+                if (schedule.id === id) return { ...schedule, ...patch };
+                if (
+                    syncCancelLocal &&
+                    localSlotKey &&
+                    generateScheduleKey(schedule) === localSlotKey
+                ) {
+                    return {
+                        ...schedule,
+                        ...(updatedData.status !== undefined ? { status: updatedData.status } : {}),
+                        ...(updatedData.isCancelled !== undefined ? { isCancelled: updatedData.isCancelled } : {}),
+                        updatedAt: patch.updatedAt
+                    };
+                }
+                return schedule;
+            }).sort((a, b) => new Date(a.date) - new Date(b.date)));
 
         } catch (error) {
             console.error("Error updating document: ", error);
@@ -982,22 +1082,81 @@ export function DataProvider({ children }) {
 
         const d = new Date(scheduleToDelete.date);
         const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        const docRef = doc(db, 'schedules_by_month', monthKey);
+        const initialDocRef = doc(db, 'schedules_by_month', monthKey);
+        let removedIds = [];
 
-        try {
+        const deleteFromDocRef = async (targetDocRef) => {
             await runTransaction(db, async (transaction) => {
-                const sfDoc = await transaction.get(docRef);
+                const sfDoc = await transaction.get(targetDocRef);
                 if (!sfDoc.exists()) throw new Error("Document does not exist!");
 
                 const items = sfDoc.data().items || [];
-                const exists = items.some(s => s.id === id);
-                if (!exists) {
+                const byIdIndex = items.findIndex(s => s.id === id);
+                if (byIdIndex !== -1) {
+                    removedIds = [id];
+                    const newItems = items.filter(s => s.id !== id);
+                    transaction.set(targetDocRef, { items: newItems }, { merge: true });
+                    return;
+                }
+
+                // 폴백: 과거 중복 데이터/ID 어긋남이 있는 경우,
+                // 동일 슬롯(일시+담당자) 기준으로 삭제 대상을 찾아 제거
+                const targetKey = generateScheduleKey(scheduleToDelete);
+                const fallbackIndex = items.findIndex(s => {
+                    const sameKey = generateScheduleKey(s) === targetKey;
+                    const sameCancelState =
+                        Boolean(s?.isCancelled || s?.status === '취소') ===
+                        Boolean(scheduleToDelete?.isCancelled || scheduleToDelete?.status === '취소');
+                    return sameKey && sameCancelState;
+                });
+
+                // 취소 상태까지 못 맞추는 경우 마지막 폴백(동일 슬롯 우선)
+                const keyOnlyIndex = fallbackIndex !== -1
+                    ? fallbackIndex
+                    : items.findIndex(s => generateScheduleKey(s) === targetKey);
+
+                if (keyOnlyIndex === -1) {
                     throw new Error("Schedule not found in document");
                 }
-                const newItems = items.filter(s => s.id !== id);
 
-                transaction.set(docRef, { items: newItems }, { merge: true });
+                const removed = items[keyOnlyIndex];
+                removedIds = removed?.id ? [removed.id] : [];
+                const newItems = items.filter((_, idx) => idx !== keyOnlyIndex);
+                transaction.set(targetDocRef, { items: newItems }, { merge: true });
             });
+        };
+
+        try {
+            try {
+                // 1차: 로컬 일정의 날짜 기준 월 문서에서 삭제 시도
+                await deleteFromDocRef(initialDocRef);
+            } catch (primaryError) {
+                // 2차: 월 추정이 틀린 경우(데이터 어긋남), 전체 월 문서에서 역추적 후 삭제
+                if (!String(primaryError?.message || '').includes('Schedule not found in document')) {
+                    throw primaryError;
+                }
+
+                const targetKey = generateScheduleKey(scheduleToDelete);
+                const allMonthsSnap = await getDocs(query(collection(db, 'schedules_by_month')));
+                let foundMonthId = null;
+
+                allMonthsSnap.forEach(monthDoc => {
+                    if (foundMonthId) return;
+                    const items = monthDoc.data()?.items || [];
+                    const hasById = items.some(s => s.id === id);
+                    const hasByKey = !hasById && items.some(s => generateScheduleKey(s) === targetKey);
+                    if (hasById || hasByKey) {
+                        foundMonthId = monthDoc.id;
+                    }
+                });
+
+                if (!foundMonthId) {
+                    throw primaryError;
+                }
+
+                const recoveredDocRef = doc(db, 'schedules_by_month', foundMonthId);
+                await deleteFromDocRef(recoveredDocRef);
+            }
 
             // [Log] 변경 이력 기록
             await addDoc(collection(db, 'change_logs'), {
@@ -1008,7 +1167,19 @@ export function DataProvider({ children }) {
                 createdAt: serverTimestamp()
             });
 
-            setSchedules(prev => prev.filter(schedule => schedule.id !== id));
+            const targetKey = generateScheduleKey(scheduleToDelete);
+            const targetCancelled = Boolean(scheduleToDelete?.isCancelled || scheduleToDelete?.status === '취소');
+            setSchedules(prev => prev.filter(schedule => {
+                // 1) DB에서 실제로 제거된 id가 있으면 그 id 우선 제거
+                if (removedIds.length > 0 && removedIds.includes(schedule.id)) return false;
+                // 2) 기존 호출 id 제거
+                if (schedule.id === id) return false;
+                // 3) 폴백 삭제 시 로컬에서도 동일 슬롯 + 동일 취소 상태 1건 정리
+                const sameKey = generateScheduleKey(schedule) === targetKey;
+                const sameCancelState = Boolean(schedule?.isCancelled || schedule?.status === '취소') === targetCancelled;
+                if (removedIds.length === 0 && sameKey && sameCancelState) return false;
+                return true;
+            }));
         } catch (error) {
             console.error("Error deleting document: ", error);
             throw error;

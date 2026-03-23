@@ -509,7 +509,7 @@ export default function SchedulesPage() {
     // 필터링 및 정렬
     const filteredSchedules = useMemo(() => {
         // 🔥 데이터 중복 제거 (버그 방어 로직)
-        // 저장 키(일시+담당자) 기준으로 정리하고, 같은 슬롯이면 "취소 아님" 데이터를 우선 사용
+        // 같은 슬롯에 여러 행이 있으면 updatedAt → createdAt 기준 최신 1건만 사용
         const slotKey = (s) => {
             const dateKey = s?.date ? s.date.slice(0, 16) : '';
             const consultantKey = (s?.consultantId || s?.consultantName || '').toString().trim();
@@ -530,15 +530,12 @@ export default function SchedulesPage() {
                 return;
             }
 
-            const prevCancelled = isCancelled(prev);
-            const currCancelled = isCancelled(s);
-
-            if (prevCancelled && !currCancelled) {
+            const tPrev = ts(prev);
+            const tCurr = ts(s);
+            if (tCurr > tPrev) {
                 uniqueMap.set(key, s);
-                return;
-            }
-            if (prevCancelled === currCancelled) {
-                if (ts(s) >= ts(prev)) uniqueMap.set(key, s);
+            } else if (tCurr === tPrev) {
+                if (isCancelled(s) && !isCancelled(prev)) uniqueMap.set(key, s);
             }
         });
         
@@ -1271,13 +1268,14 @@ export default function SchedulesPage() {
                                             <th>구분</th>
                                             <th>담당 컨설턴트</th>
                                             <th>장소</th>
+                                            <th>상태</th>
                                             <th className="text-right">관리</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {paginatedSchedules.length === 0 ? (
                                             <tr>
-                                                <td colSpan="5">
+                                                <td colSpan="6">
                                                     <div className="empty-state py-20">
                                                         <Calendar size={48} className="empty-state-icon mx-auto opacity-20" />
                                                         <h3 className="mt-4 text-gray-400">
@@ -1287,22 +1285,24 @@ export default function SchedulesPage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            paginatedSchedules.map(schedule => (
-                                                <tr key={schedule.id}>
+                                            paginatedSchedules.map(schedule => {
+                                                const rowCancelled = schedule.isCancelled === true || schedule.status === '취소';
+                                                return (
+                                                <tr key={schedule.id} className={rowCancelled ? 'schedule-row-cancelled' : ''}>
                                                     <td className="whitespace-nowrap" style={{ padding: '0.4rem' }}>
                                                         <div className="flex flex-col">
-                                                            <div className="flex items-center gap-2 text-gray-900 font-medium">
+                                                            <div className={`flex items-center gap-2 font-medium ${rowCancelled ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                                                                 <Calendar size={14} className="text-gray-400" />
                                                                 {schedule.date ? new Date(schedule.date).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }) : '-'}
                                                             </div>
-                                                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                                            <div className={`flex items-center gap-2 text-xs mt-1 ${rowCancelled ? 'text-gray-400 line-through' : 'text-gray-500'}`}>
                                                                 <Clock size={12} />
                                                                 {schedule.date ? new Date(schedule.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ''}
                                                             </div>
                                                         </div>
                                                     </td>
                                                     <td>
-                                                        <span className="badge badge-green font-semibold">
+                                                        <span className={`badge font-semibold ${rowCancelled ? 'badge-gray opacity-80 line-through' : 'badge-green'}`}>
                                                             {getTypeName(schedule.typeCode)}
                                                         </span>
                                                     </td>
@@ -1311,14 +1311,23 @@ export default function SchedulesPage() {
                                                             <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
                                                                 {getConsultantName(schedule.consultantId).charAt(0)}
                                                             </div>
-                                                            <span className="text-gray-700">{getConsultantName(schedule.consultantId)}</span>
+                                                            <span className={rowCancelled ? 'text-gray-400 line-through' : 'text-gray-700'}>{getConsultantName(schedule.consultantId)}</span>
                                                         </div>
                                                     </td>
                                                     <td>
-                                                        <div className="flex items-center gap-1.5 text-gray-600 text-sm">
+                                                        <div className={`flex items-center gap-1.5 text-sm ${rowCancelled ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
                                                             <MapPin size={14} className="text-gray-400" />
                                                             {schedule.location || '-'}
                                                         </div>
+                                                    </td>
+                                                    <td>
+                                                        {rowCancelled ? (
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-600 border border-red-100">
+                                                                취소
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-gray-400 text-sm">예약</span>
+                                                        )}
                                                     </td>
                                                     <td>
                                                         <div className="flex items-center justify-end gap-2">
@@ -1339,7 +1348,8 @@ export default function SchedulesPage() {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))
+                                            );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

@@ -58,7 +58,7 @@ export default function CalendarPage() {
             
         } catch (error) {
             console.error('일정 복구 중 오류 발생:', error);
-            alert('일정 복구에 실패했습니다.');
+            alert(error?.message || '일정 복구에 실패했습니다.');
         }
     };
 
@@ -78,7 +78,7 @@ export default function CalendarPage() {
             
         } catch (error) {
             console.error('일정 취소 중 오류 발생:', error);
-            alert('일정 취소에 실패했습니다.');
+            alert(error?.message || '일정 취소에 실패했습니다.');
         }
     };
 
@@ -157,7 +157,8 @@ export default function CalendarPage() {
     // 컨설턴터인 경우 자신의 스케줄만 필터링 (+ 주차 필터)
     const filteredSchedules = useMemo(() => {
         // 🔥 데이터 중복 제거 (버그 방어 로직)
-        // 저장 키(일시+담당자) 기준으로 정리하고, 같은 슬롯이면 "취소 아님" 데이터를 우선 사용
+        // 같은 슬롯(일시+담당)에 여러 행이 있으면 updatedAt → createdAt 기준 최신 1건만 사용
+        // (예전: "미취소 우선" 때문에 취소 저장 후 새로고침 시 취소가 풀린 것처럼 보임)
         const slotKey = (s) => {
             const dateKey = s?.date ? s.date.slice(0, 16) : '';
             const consultantKey = (s?.consultantId || s?.consultantName || '').toString().trim();
@@ -178,15 +179,13 @@ export default function CalendarPage() {
                 return;
             }
 
-            const prevCancelled = isCancelled(prev);
-            const currCancelled = isCancelled(s);
-
-            if (prevCancelled && !currCancelled) {
+            const tPrev = ts(prev);
+            const tCurr = ts(s);
+            if (tCurr > tPrev) {
                 uniqueMap.set(key, s);
-                return;
-            }
-            if (prevCancelled === currCancelled) {
-                if (ts(s) >= ts(prev)) uniqueMap.set(key, s);
+            } else if (tCurr === tPrev) {
+                // 타임스탬프 없을 때: 취소 반영분을 유지
+                if (isCancelled(s) && !isCancelled(prev)) uniqueMap.set(key, s);
             }
         });
 
