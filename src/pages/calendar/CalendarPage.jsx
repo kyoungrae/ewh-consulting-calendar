@@ -36,9 +36,11 @@ export default function CalendarPage() {
     const [isPeriodSelectorOpen, setIsPeriodSelectorOpen] = useState(false);
     const periodSelectorRef = useRef(null);
 
+    const { userProfile, isAdmin, isStrictAdmin } = useAuth();
+
     const handleRestoreEvent = async () => {
         if (!selectedEvent) return;
-        if (!isAdmin) {
+        if (!isStrictAdmin) {
             alert('관리자만 일정 복구를 할 수 있습니다.');
             return;
         }
@@ -68,7 +70,7 @@ export default function CalendarPage() {
 
     const handleCancelEvent = async () => {
         if (!selectedEvent) return;
-        if (!isAdmin) {
+        if (!isStrictAdmin) {
             alert('관리자만 일정 취소를 할 수 있습니다.');
             return;
         }
@@ -135,7 +137,6 @@ export default function CalendarPage() {
         };
     }, []);
 
-    const { userProfile, isAdmin } = useAuth();
     const { schedules, loading: schedulesLoading, fetchMonthSchedules, updateSchedule } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
@@ -1317,9 +1318,9 @@ export default function CalendarPage() {
                                 </div>
                             </div>
 
-                            {/* 버튼 영역 (관리자만 취소/복구 가능) */}
+                            {/* 버튼 영역 (실제 관리자만 — 테스터 제외) */}
                             <div className="pt-6 mt-2 border-t border-gray-100 flex justify-end gap-3" style={{padding:'10px'}}>
-                                {isAdmin && (
+                                {isStrictAdmin && (
                                     (selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
                                         <button
                                             onClick={handleRestoreEvent}

@@ -618,6 +618,10 @@ export default function SchedulesPage() {
 
     // 모달 열기 (등록/수정)
     const openModal = (schedule = null) => {
+        if (isTester) {
+            alert('테스터 권한으로는 일정 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
         if (schedule) {
             setEditingSchedule(schedule);
             setFormData({
@@ -645,6 +649,10 @@ export default function SchedulesPage() {
     // 폼 제출
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isTester) {
+            alert('테스터 권한으로는 일정 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
 
         try {
             if (editingSchedule) {
@@ -989,6 +997,10 @@ export default function SchedulesPage() {
 
     // 일정 삭제
     const handleDelete = async (id) => {
+        if (isTester) {
+            alert('테스터 권한으로는 일정 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
         if (window.confirm('정말 이 일정을 삭제하시겠습니까?')) {
             try {
                 await deleteSchedule(id);
@@ -1242,13 +1254,28 @@ export default function SchedulesPage() {
                                         </div>
                                     )}
                                 </div>
-                                <button
-                                    onClick={() => openModal()}
-                                    className="btn btn-primary shadow-md"
-                                >
-                                    <Plus size={18} />
-                                    새 일정 등록
-                                </button>
+                                <div className="relative group">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!isTester) openModal();
+                                        }}
+                                        disabled={isTester}
+                                        className={`btn btn-primary shadow-md ${isTester ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <Plus size={18} />
+                                        새 일정 등록
+                                    </button>
+                                    {isTester && (
+                                        <div
+                                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                                            style={{ padding: '10px' }}
+                                        >
+                                            테스터 권한으로는 사용할 수 없습니다.
+                                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
@@ -1332,16 +1359,20 @@ export default function SchedulesPage() {
                                                     <td>
                                                         <div className="flex items-center justify-end gap-2">
                                                             <button
+                                                                type="button"
                                                                 onClick={() => openModal(schedule)}
-                                                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                                title="수정"
+                                                                disabled={isTester}
+                                                                className={`p-2 rounded-lg transition-all ${isTester ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                                                                title={isTester ? '테스터는 수정할 수 없습니다' : '수정'}
                                                             >
                                                                 <Edit2 size={16} />
                                                             </button>
                                                             <button
+                                                                type="button"
                                                                 onClick={() => handleDelete(schedule.id)}
-                                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                                title="삭제"
+                                                                disabled={isTester}
+                                                                className={`p-2 rounded-lg transition-all ${isTester ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
+                                                                title={isTester ? '테스터는 삭제할 수 없습니다' : '삭제'}
                                                             >
                                                                 <Trash2 size={16} />
                                                             </button>
@@ -1540,7 +1571,11 @@ export default function SchedulesPage() {
                             >
                                 취소
                             </button>
-                            <button type="submit" className="btn btn-primary px-8">
+                            <button
+                                type="submit"
+                                className="btn btn-primary px-8"
+                                disabled={isTester}
+                            >
                                 {editingSchedule ? '수정 완료' : '일정 등록'}
                             </button>
                         </div>

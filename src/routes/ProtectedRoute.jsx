@@ -75,3 +75,16 @@ export function AdminRoute({ children }) {
 
     return children;
 }
+
+/**
+ * 관리자(role: admin)만 접근 — 테스터는 제외
+ */
+export function StrictAdminRoute({ children }) {
+    const { userProfile } = useAuth();
+
+    if (userProfile?.role !== 'admin') {
+        return <Navigate to="/calendar" replace />;
+    }
+
+    return children;
+}

@@ -4,6 +4,7 @@ import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useCommonCodes } from '../../hooks/useFirestore';
+import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
     Edit2,
@@ -16,6 +17,7 @@ export default function CodesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCode, setEditingCode] = useState(null);
     const { openSidebar } = useOutletContext();
+    const { isTester } = useAuth();
 
     const {
         codes,
@@ -36,6 +38,10 @@ export default function CodesPage() {
 
     // 모달 열기 (등록/수정)
     const openModal = (code = null) => {
+        if (isTester) {
+            alert('테스터 권한으로는 코드 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
         if (code) {
             setEditingCode(code);
             setFormData({
@@ -61,6 +67,10 @@ export default function CodesPage() {
     // 폼 제출
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isTester) {
+            alert('테스터 권한으로는 코드 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
 
         try {
             if (editingCode) {
@@ -84,6 +94,10 @@ export default function CodesPage() {
 
     // 코드 삭제
     const handleDelete = async (id) => {
+        if (isTester) {
+            alert('테스터 권한으로는 코드 등록·수정·삭제를 할 수 없습니다.');
+            return;
+        }
         if (window.confirm('정말 이 코드를 삭제하시겠습니까?\n이 코드를 사용하는 일정에 영향을 줄 수 있습니다.')) {
             try {
                 await deleteCode(id);
@@ -114,13 +128,28 @@ export default function CodesPage() {
                         <h1 className="page-title">공통 코드 관리</h1>
                         <p className="page-description">컨설팅 구분 등 시스템에서 사용하는 공통 코드를 관리합니다</p>
                     </div>
-                    <button
-                        onClick={() => openModal()}
-                        className="btn btn-primary"
-                    >
-                        <Plus size={18} />
-                        새 코드 등록
-                    </button>
+                    <div className="relative group">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!isTester) openModal();
+                            }}
+                            disabled={isTester}
+                            className={`btn btn-primary ${isTester ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            <Plus size={18} />
+                            새 코드 등록
+                        </button>
+                        {isTester && (
+                            <div
+                                className="absolute bottom-full right-0 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                                style={{ padding: '10px' }}
+                            >
+                                테스터 권한으로는 사용할 수 없습니다.
+                                <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800" />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Info Card */}
@@ -219,14 +248,20 @@ export default function CodesPage() {
                                             <td>
                                                 <div className="flex items-center gap-2">
                                                     <button
+                                                        type="button"
                                                         onClick={() => openModal(code)}
-                                                        className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        disabled={isTester}
+                                                        className={`p-1.5 rounded-lg transition-colors ${isTester ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'}`}
+                                                        title={isTester ? '테스터는 수정할 수 없습니다' : '수정'}
                                                     >
                                                         <Edit2 size={16} />
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => handleDelete(code.id)}
-                                                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        disabled={isTester}
+                                                        className={`p-1.5 rounded-lg transition-colors ${isTester ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-red-600 hover:bg-red-50'}`}
+                                                        title={isTester ? '테스터는 삭제할 수 없습니다' : '삭제'}
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -342,7 +377,7 @@ export default function CodesPage() {
                             >
                                 취소
                             </button>
-                            <button type="submit" className="btn btn-primary">
+                            <button type="submit" className="btn btn-primary" disabled={isTester}>
                                 {editingCode ? '수정' : '등록'}
                             </button>
                         </div>

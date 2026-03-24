@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import { ProtectedRoute, AdminRoute } from './routes/ProtectedRoute';
+import { ProtectedRoute, AdminRoute, StrictAdminRoute } from './routes/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/auth/LoginPage';
@@ -57,9 +57,9 @@ function App() {
               <Route
                 path="/users"
                 element={
-                  <AdminRoute>
+                  <StrictAdminRoute>
                     <UsersPage />
-                  </AdminRoute>
+                  </StrictAdminRoute>
                 }
               />
               <Route
@@ -73,9 +73,9 @@ function App() {
               <Route
                 path="/budget"
                 element={
-                  <AdminRoute>
+                  <StrictAdminRoute>
                     <BudgetPage />
-                  </AdminRoute>
+                  </StrictAdminRoute>
                 }
               />
             </Route>

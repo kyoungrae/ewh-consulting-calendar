@@ -14,7 +14,7 @@ import {
 import ewhaLogo from '../../assets/symbol-mark.png';
 
 export default function Sidebar({ isOpen, onClose }) {
-    const { userProfile, logout, isAdmin } = useAuth();
+    const { userProfile, logout, isAdmin, isTester } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
 
@@ -74,6 +74,10 @@ export default function Sidebar({ isOpen, onClose }) {
     ];
 
     const filteredMenuItems = menuItems.filter(item => {
+        // 테스터: 예산·회원 관리 메뉴 숨김
+        if (isTester && (item.path === '/budget' || item.path === '/users')) {
+            return false;
+        }
         if (item.roles.includes('admin') && isAdmin) return true; // isAdmin이면 admin 메뉴 허용
         return item.roles.includes(userProfile?.role);
     });
