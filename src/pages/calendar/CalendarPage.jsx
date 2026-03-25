@@ -1119,7 +1119,7 @@ export default function CalendarPage() {
                                         const name = codes.find(c => c.code === curr.typeCode)?.name || '미분류';
                                         acc[name] = (acc[name] || 0) + 1;
                                         return acc;
-                                    }, {})).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, count]) => (
+                                    }, {})).sort(([, a], [, b]) => b - a).map(([name, count]) => (
                                         <div key={name} className="ewh-summary-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
                                             <div className="text-gray-500 text-sm font-bold mb-1">{name}</div>
                                             <div className="text-[#00462A] text-3xl font-extrabold">{count}</div>
