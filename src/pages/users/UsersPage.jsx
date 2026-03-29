@@ -3,7 +3,12 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
+import { useUsers, useCommonCodes } from '../../hooks/useFirestore';
+import ConsultantFeesByTypeFields, {
+    consultantFeeRowsToPayload,
+    payloadToConsultingFeeRows,
+    validateConsultingFeeRows
+} from '../../components/users/ConsultantFeesByTypeFields';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
@@ -12,17 +17,40 @@ import {
     RotateCcw,
     Users,
     Phone,
-    Mail
+    Mail,
+    Banknote,
+    ArrowLeft
 } from 'lucide-react';
+
+function formatConsultantFeeSummary(user) {
+    if (!user || user.role !== 'consultant') return '—';
+    if (Array.isArray(user.consultingFeesByType) && user.consultingFeesByType.length > 0) {
+        return `${user.consultingFeesByType.length}개 유형`;
+    }
+    if (user.consultingFeePerSession != null && user.consultingFeePerSession !== '') {
+        return `구 단가 ${Number(user.consultingFeePerSession).toLocaleString('ko-KR')}원`;
+    }
+    return '미설정';
+}
 
 export default function UsersPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isConsultantFeesModalOpen, setIsConsultantFeesModalOpen] = useState(false);
+    const [feeSettingsView, setFeeSettingsView] = useState('list');
+    const [feeSettingsUser, setFeeSettingsUser] = useState(null);
+    const [feeSettingsRows, setFeeSettingsRows] = useState([]);
     const [editingUser, setEditingUser] = useState(null);
     const { openSidebar } = useOutletContext();
 
     const { users, loading, updateUser, deleteUser } = useUsers();
+
+    const consultantUsers = users.filter((u) => u.role === 'consultant');
+    const { codes } = useCommonCodes();
     const { registerUser, isTester } = useAuth();
+
+    const [newConsultingFeeRows, setNewConsultingFeeRows] = useState([]);
+    const [editConsultingFeeRows, setEditConsultingFeeRows] = useState([]);
 
     // 신규 사용자 폼 상태
     const [newUserForm, setNewUserForm] = useState({
@@ -55,6 +83,7 @@ export default function UsersPage() {
             status: user.status || 'pending',
             password: '' // 비밀번호 필드는 항상 비워서 시작
         });
+        setEditConsultingFeeRows(payloadToConsultingFeeRows(user));
         setIsModalOpen(true);
     };
 
@@ -63,15 +92,26 @@ export default function UsersPage() {
         e.preventDefault();
 
         try {
+            const feeCheck = validateConsultingFeeRows(newConsultingFeeRows);
+            if (newUserForm.role === 'consultant' && !feeCheck.ok) {
+                alert(feeCheck.message);
+                return;
+            }
+
             await registerUser(newUserForm.email, newUserForm.password, {
                 userId: newUserForm.userId,
                 name: newUserForm.name,
                 tel: newUserForm.tel,
                 role: newUserForm.role,
-                status: 'approved' // 관리자가 등록하면 바로 승인
+                status: 'approved', // 관리자가 등록하면 바로 승인
+                consultingFeesByType:
+                    newUserForm.role === 'consultant'
+                        ? consultantFeeRowsToPayload(newConsultingFeeRows)
+                        : undefined
             });
 
             setIsAddModalOpen(false);
+            setNewConsultingFeeRows([]);
             setNewUserForm({
                 userId: '',
                 email: '',
@@ -108,6 +148,17 @@ export default function UsersPage() {
                 delete updateData.password;
             }
 
+            if (updateData.role === 'consultant') {
+                const feeCheck = validateConsultingFeeRows(editConsultingFeeRows);
+                if (!feeCheck.ok) {
+                    alert(feeCheck.message);
+                    return;
+                }
+                updateData.consultingFeesByType = consultantFeeRowsToPayload(editConsultingFeeRows);
+            } else {
+                delete updateData.consultingFeesByType;
+            }
+
             await updateUser(editingUser.id, updateData);
 
             if (updateData.password) {
@@ -118,6 +169,7 @@ export default function UsersPage() {
 
             setIsModalOpen(false);
             setEditingUser(null);
+            setEditConsultingFeeRows([]);
         } catch (error) {
             console.error('사용자 수정 실패:', error);
             alert('사용자 정보 수정에 실패했습니다.');
@@ -134,6 +186,68 @@ export default function UsersPage() {
                 console.error('사용자 삭제 실패:', error);
                 alert('사용자 삭제에 실패했습니다.');
             }
+        }
+    };
+
+    const openConsultantFeesModal = () => {
+        setFeeSettingsView('list');
+        setFeeSettingsUser(null);
+        setFeeSettingsRows([]);
+        setIsConsultantFeesModalOpen(true);
+    };
+
+    const closeConsultantFeesModal = () => {
+        setIsConsultantFeesModalOpen(false);
+        setFeeSettingsView('list');
+        setFeeSettingsUser(null);
+        setFeeSettingsRows([]);
+    };
+
+    const openFeeEditForUser = (user) => {
+        setFeeSettingsUser(user);
+        setFeeSettingsRows(payloadToConsultingFeeRows(user));
+        setFeeSettingsView('edit');
+    };
+
+    const handleSaveConsultantFees = async (e) => {
+        e.preventDefault();
+        if (!feeSettingsUser) return;
+        const feeCheck = validateConsultingFeeRows(feeSettingsRows);
+        if (!feeCheck.ok) {
+            alert(feeCheck.message);
+            return;
+        }
+        try {
+            await updateUser(feeSettingsUser.id, {
+                consultingFeesByType: consultantFeeRowsToPayload(feeSettingsRows)
+            });
+            alert('강사료 설정이 저장되었습니다.');
+            setFeeSettingsView('list');
+            setFeeSettingsUser(null);
+            setFeeSettingsRows([]);
+        } catch (err) {
+            console.error(err);
+            alert('저장에 실패했습니다.');
+        }
+    };
+
+    const handleClearConsultantFees = async (user) => {
+        if (
+            !window.confirm(
+                `「${user.name}」님의 유형별 강사료와 구 단일 강사료를 모두 제거할까요?\n(예산·일정 산정에 단가가 없으면 반영되지 않을 수 있습니다.)`
+            )
+        ) {
+            return;
+        }
+        try {
+            await updateUser(user.id, {
+                consultingFeesByType: [],
+                consultingFeePerSession: null
+            });
+            alert('강사료 설정을 삭제했습니다.');
+        } catch (err) {
+            console.error(err);
+            alert('삭제에 실패했습니다.');
         }
     };
 
@@ -170,29 +284,62 @@ export default function UsersPage() {
                         <h1 className="page-title">회원 관리</h1>
                         <p className="page-description">등록된 모든 사용자 목록입니다</p>
                     </div>
-                    {/* 새 사용자 등록 버튼 */}
-                    <div className="relative group">
-                        <button
-                            onClick={() => {
-                                if (!isTester) setIsAddModalOpen(true);
-                            }}
-                            disabled={isTester}
-                            className={`btn btn-primary ${
-                                isTester ? 'opacity-50 cursor-not-allowed' : ''
-                            }`}
-                        >
-                            <Plus size={18} />
-                            새 사용자 등록
-                        </button>
-                        
-                        {/* 테스터 전용 스마트 툴팁 */}
-                        {isTester && (
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-gray-800 text-white text-[12px] rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
-                            style={{padding:'10px'}}>
-                                권한이 부족하여 사용할 수 없습니다.
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
-                            </div>
-                        )}
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+                        {/* 컨설턴트 강사비 설정 */}
+                        <div className="relative group">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!isTester) openConsultantFeesModal();
+                                }}
+                                disabled={isTester}
+                                className={`btn btn-secondary inline-flex items-center gap-2 ${
+                                    isTester ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                            >
+                                <Banknote size={18} />
+                                컨설턴트 강사비 설정
+                            </button>
+                            {isTester && (
+                                <div
+                                    className="absolute bottom-full left-1/2 z-50 mb-2 w-max -translate-x-1/2 rounded-md bg-gray-800 px-3 py-1.5 text-[12px] text-white opacity-0 shadow-lg transition-all duration-200 invisible group-hover:visible group-hover:opacity-100"
+                                    style={{ padding: '10px' }}
+                                >
+                                    권한이 부족하여 사용할 수 없습니다.
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 새 사용자 등록 */}
+                        <div className="relative group">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!isTester) {
+                                        setNewConsultingFeeRows([]);
+                                        setIsAddModalOpen(true);
+                                    }
+                                }}
+                                disabled={isTester}
+                                className={`btn btn-primary inline-flex items-center gap-2 ${
+                                    isTester ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                            >
+                                <Plus size={18} />
+                                새 사용자 등록
+                            </button>
+
+                            {isTester && (
+                                <div
+                                    className="absolute bottom-full left-1/2 z-50 mb-2 w-max -translate-x-1/2 rounded-md bg-gray-800 px-3 py-1.5 text-[12px] text-white opacity-0 shadow-lg transition-all duration-200 invisible group-hover:visible group-hover:opacity-100"
+                                    style={{ padding: '10px' }}
+                                >
+                                    권한이 부족하여 사용할 수 없습니다.
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -209,6 +356,7 @@ export default function UsersPage() {
                                     <th>연락처</th>
                                     <th>권한</th>
                                     <th>상태</th>
+                                    <th className="text-right whitespace-nowrap">강사료(유형)</th>
                                     <th>가입일</th>
                                     <th className="text-right">관리</th>
                                 </tr>
@@ -216,7 +364,7 @@ export default function UsersPage() {
                             <tbody>
                                 {users.length === 0 ? (
                                     <tr>
-                                        <td colSpan="6">
+                                        <td colSpan="7">
                                             <div className="empty-state py-20">
                                                 <Users size={48} className="empty-state-icon mx-auto opacity-20" />
                                                 <h3 className="mt-4 text-gray-400">등록된 사용자가 없습니다</h3>
@@ -271,26 +419,52 @@ export default function UsersPage() {
                                                     <span className="badge badge-yellow">대기중</span>
                                                 )}
                                             </td>
+                                            <td className="text-right text-sm text-gray-700 whitespace-nowrap max-w-[180px]">
+                                                {user.role === 'consultant' ? (
+                                                    Array.isArray(user.consultingFeesByType) &&
+                                                    user.consultingFeesByType.length > 0 ? (
+                                                        <span className="font-medium">
+                                                            {user.consultingFeesByType.length}개 유형
+                                                        </span>
+                                                    ) : user.consultingFeePerSession != null &&
+                                                      user.consultingFeePerSession !== '' ? (
+                                                        <span className="text-amber-700 text-xs">
+                                                            구 단가{' '}
+                                                            {Number(user.consultingFeePerSession).toLocaleString('ko-KR')}
+                                                            원
+                                                        </span>
+                                                    ) : (
+                                                        '—'
+                                                    )
+                                                ) : (
+                                                    '—'
+                                                )}
+                                            </td>
                                             <td className="text-gray-500 text-sm">
                                                 {user.createdAt?.toDate
                                                     ? user.createdAt.toDate().toLocaleDateString('ko-KR')
                                                     : '-'}
                                             </td>
-                                            <td>
-                                                <div className="flex items-center justify-end gap-2">
+                                            <td className="text-right">
+                                                <div
+                                                    className="inline-flex max-w-full items-center justify-end"
+                                                    style={{ gap: 20 }}
+                                                >
                                                     {/* 수정 버튼 */}
-                                                    <div className="relative group">
+                                                    <div className="relative shrink-0 group">
                                                         <button
+                                                            type="button"
                                                             onClick={() => {
                                                                 if (!isTester) openEditModal(user);
                                                             }}
                                                             disabled={isTester}
-                                                            className={`p-2 rounded-lg transition-all ${
-                                                                isTester 
-                                                                ? 'text-gray-300 cursor-not-allowed' 
-                                                                : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                                            className={`rounded-lg p-2.5 transition-all ${
+                                                                isTester
+                                                                    ? 'cursor-not-allowed text-gray-300'
+                                                                    : 'text-gray-500 hover:bg-blue-50 hover:text-blue-600'
                                                             }`}
                                                             title="수정"
+                                                            aria-label="회원 정보 수정"
                                                         >
                                                             <Edit2 size={16} />
                                                         </button>
@@ -305,19 +479,21 @@ export default function UsersPage() {
                                                         )}
                                                     </div>
                                                     
-                                                    {/* 삭제 버튼 */}
-                                                    <div className="relative group">
+                                                    {/* 삭제 버튼 — 간격·색으로 수정과 구분 */}
+                                                    <div className="relative shrink-0 group">
                                                         <button
+                                                            type="button"
                                                             onClick={() => {
                                                                 if (!isTester) handleDelete(user.id);
                                                             }}
                                                             disabled={isTester}
-                                                            className={`p-2 rounded-lg transition-all ${
-                                                                isTester 
-                                                                ? 'text-gray-300 cursor-not-allowed' 
-                                                                : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                                            className={`rounded-lg p-2.5 transition-all ${
+                                                                isTester
+                                                                    ? 'cursor-not-allowed text-gray-300'
+                                                                    : 'text-rose-500 hover:bg-red-50 hover:text-red-600'
                                                             }`}
                                                             title="삭제"
+                                                            aria-label="회원 삭제"
                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
@@ -347,8 +523,10 @@ export default function UsersPage() {
                     onClose={() => {
                         setIsModalOpen(false);
                         setEditingUser(null);
+                        setEditConsultingFeeRows([]);
                     }}
                     title="사용자 정보 수정"
+                    size="2xl"
                 >
                     <form onSubmit={handleEditUser}>
                         <div className="space-y-4">
@@ -447,6 +625,27 @@ export default function UsersPage() {
                                     </select>
                                 </div>
                             </div>
+
+                            {editForm.role === 'consultant' && (
+                                <div className="form-group">
+                                    {editingUser?.consultingFeePerSession != null &&
+                                        editingUser?.consultingFeePerSession !== '' &&
+                                        (!editingUser?.consultingFeesByType ||
+                                            editingUser.consultingFeesByType.length === 0) && (
+                                        <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                                            현재 Firestore에 <strong>구 단일 강사료</strong>만 있습니다. 아래에서
+                                            유형별로 등록하면 일정의 <code className="text-xs">typeCode</code>에 맞는
+                                            단가가 우선하고, 목록에 없는 유형은 구 단가를 씁니다.
+                                        </div>
+                                    )}
+                                    <ConsultantFeesByTypeFields
+                                        value={editConsultingFeeRows}
+                                        onChange={setEditConsultingFeeRows}
+                                        codes={codes}
+                                        disabled={isTester}
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         <div className="modal-footer mt-6 -mx-6 -mb-6 px-6 py-4 bg-gray-50 rounded-b-lg">
@@ -455,6 +654,7 @@ export default function UsersPage() {
                                 onClick={() => {
                                     setIsModalOpen(false);
                                     setEditingUser(null);
+                                    setEditConsultingFeeRows([]);
                                 }}
                                 className="btn btn-secondary"
                             >
@@ -467,12 +667,130 @@ export default function UsersPage() {
                     </form>
                 </Modal>
 
+                {/* 컨설턴트 강사비 일괄 설정 모달 */}
+                <Modal
+                    isOpen={isConsultantFeesModalOpen}
+                    onClose={closeConsultantFeesModal}
+                    title={
+                        feeSettingsView === 'edit' && feeSettingsUser
+                            ? `강사료 — ${feeSettingsUser.name || feeSettingsUser.userId || ''}`
+                            : '컨설턴트 강사비 설정'
+                    }
+                    size="2xl"
+                >
+                    {feeSettingsView === 'list' ? (
+                        <>
+                            <p className="mb-4 text-sm leading-relaxed text-gray-600">
+                                컨설턴트별 유형·1회 강사료를 확인하고 수정할 수 있습니다. 유형 줄은 「수정」화면에서
+                                <strong> 추가</strong>·<strong>삭제</strong>할 수 있습니다. 전체 단가를 비우려면「강사료
+                                삭제」를 이용하세요.
+                            </p>
+                            <div className="max-h-[min(60vh,520px)] overflow-auto rounded-xl border border-gray-200">
+                                <table className="data-table mb-0">
+                                    <thead className="sticky top-0 z-10 bg-gray-50 shadow-sm">
+                                        <tr>
+                                            <th>이름</th>
+                                            <th>아이디</th>
+                                            <th className="whitespace-nowrap">강사료 요약</th>
+                                            <th className="text-right whitespace-nowrap">관리</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {consultantUsers.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} className="py-10 text-center text-gray-500">
+                                                    등록된 컨설턴트가 없습니다.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            consultantUsers.map((u) => (
+                                                <tr key={u.id}>
+                                                    <td className="font-medium text-gray-900">{u.name || '—'}</td>
+                                                    <td className="text-gray-600">{u.userId || '—'}</td>
+                                                    <td className="text-sm text-gray-700">
+                                                        {formatConsultantFeeSummary(u)}
+                                                    </td>
+                                                    <td className="text-right">
+                                                        <div
+                                                            className="inline-flex items-center justify-end"
+                                                            style={{ gap: 12 }}
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                className="inline-flex min-h-10 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-bold text-[#00462A] transition-colors hover:bg-emerald-50"
+                                                                onClick={() => openFeeEditForUser(u)}
+                                                            >
+                                                                수정
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="inline-flex min-h-10 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-red-50"
+                                                                onClick={() => handleClearConsultantFees(u)}
+                                                            >
+                                                                강사료 삭제
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="modal-footer mt-6 -mx-6 -mb-6 rounded-b-lg bg-gray-50 px-6 py-4">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={closeConsultantFeesModal}
+                                >
+                                    닫기
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <form onSubmit={handleSaveConsultantFees}>
+                            {feeSettingsUser?.consultingFeePerSession != null &&
+                                feeSettingsUser?.consultingFeePerSession !== '' &&
+                                (!feeSettingsUser?.consultingFeesByType ||
+                                    feeSettingsUser.consultingFeesByType.length === 0) && (
+                                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                        현재 <strong>구 단일 강사료</strong>만 있습니다. 아래에서 유형별로 저장하면
+                                        유형 단가가 우선하고, 목록에 없는 유형은 구 단가를 씁니다.
+                                    </div>
+                                )}
+                            <ConsultantFeesByTypeFields
+                                value={feeSettingsRows}
+                                onChange={setFeeSettingsRows}
+                                codes={codes}
+                                disabled={isTester}
+                            />
+                            <div className="modal-footer mt-6 -mx-6 -mb-6 rounded-b-lg bg-gray-50 px-6 py-4">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary inline-flex items-center gap-2"
+                                    onClick={() => {
+                                        setFeeSettingsView('list');
+                                        setFeeSettingsUser(null);
+                                        setFeeSettingsRows([]);
+                                    }}
+                                >
+                                    <ArrowLeft size={18} />
+                                    목록
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    저장
+                                </button>
+                            </div>
+                        </form>
+                    )}
+                </Modal>
+
                 {/* Add User Modal */}
                 <Modal
                     isOpen={isAddModalOpen}
                     onClose={() => setIsAddModalOpen(false)}
                     title="새 사용자 등록"
-                    size="lg"
+                    size="2xl"
                 >
                     <form onSubmit={handleAddUser}>
                         <div className="space-y-4">
@@ -550,6 +868,15 @@ export default function UsersPage() {
                                     <option value="tester">테스터</option>
                                 </select>
                             </div>
+
+                            {newUserForm.role === 'consultant' && (
+                                <ConsultantFeesByTypeFields
+                                    value={newConsultingFeeRows}
+                                    onChange={setNewConsultingFeeRows}
+                                    codes={codes}
+                                    disabled={isTester}
+                                />
+                            )}
                         </div>
 
                         <div className="modal-footer mt-6 -mx-6 -mb-6 px-6 py-4 bg-gray-50 rounded-b-lg">

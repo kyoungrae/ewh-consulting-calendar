@@ -11,6 +11,7 @@ import CodesPage from './pages/codes/CodesPage';
 import UsersPage from './pages/users/UsersPage';
 import EventsPage from './pages/events/EventsPage';
 import BudgetPage from './pages/budget/BudgetPage';
+import MyConsultingFeePage from './pages/profile/MyConsultingFeePage';
 import { DataProvider } from './contexts/DataContext';
 import FirebaseMonitor from './components/common/FirebaseMonitor';
 import './index.css';
@@ -36,6 +37,7 @@ function App() {
             >
               {/* Calendar - accessible by all authenticated users */}
               <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/my-consulting-fee" element={<MyConsultingFeePage />} />
 
               {/* Admin only routes */}
               <Route

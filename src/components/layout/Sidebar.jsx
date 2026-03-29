@@ -9,7 +9,8 @@ import {
     Shield,
     X,
     Megaphone,
-    CreditCard
+    CreditCard,
+    CircleDollarSign
 } from 'lucide-react';
 import ewhaLogo from '../../assets/symbol-mark.png';
 
@@ -40,6 +41,12 @@ export default function Sidebar({ isOpen, onClose }) {
             icon: Calendar,
             label: '달력',
             roles: ['admin', 'consultant']
+        },
+        {
+            path: '/my-consulting-fee',
+            icon: CircleDollarSign,
+            label: '유형별 강사료',
+            roles: ['consultant']
         },
         {
             path: '/schedules',

@@ -69,11 +69,28 @@
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
 }
 
-/* Base Styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Base Styles — @layer 안에 두어 Tailwind padding/margin 유틸이 * 리셋보다 우선하도록 함 */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  /* 네이티브 클릭 컨트롤 — 손가락 커서 통일 */
+  button:enabled,
+  input[type="button"]:enabled,
+  input[type="submit"]:enabled,
+  input[type="reset"]:enabled {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  input[type="button"]:disabled,
+  input[type="submit"]:disabled,
+  input[type="reset"]:disabled {
+    cursor: not-allowed;
+  }
 }
 
 body {
@@ -642,9 +659,10 @@ body {
   background: white;
   border-radius: 0.75rem;
   box-shadow: var(--shadow-xl);
-  max-width: 500px;
-  width: 90%;
+  /* max-width는 Modal size(max-w-sm/md/lg/xl) 유틸에 맡김 — 고정 500px는 xl 폼을 잘라냄 */
+  width: min(100%, 92vw);
   max-height: 90vh;
+  overflow-x: hidden;
   overflow-y: auto;
   animation: modalSlideIn 0.2s ease;
 }
@@ -1269,6 +1287,25 @@ body {
 .loading-container p {
   color: var(--gray-500);
   font-size: 0.875rem;
+}
+
+/* 예산 관리: 진로(좌) / 취업(우) 2열 — 넓은 폭에서 한눈에 비교 */
+.budget-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  width: 100%;
+}
+
+.budget-detail-grid > div {
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .budget-detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== TOAST NOTIFICATIONS ===== */

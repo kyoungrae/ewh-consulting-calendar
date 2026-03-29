@@ -103,12 +103,6 @@ export function DataProvider({ children }) {
     const [specialSchedulesLoading, setSpecialSchedulesLoading] = useState(false);
     const [specialSchedulesError, setSpecialSchedulesError] = useState(null);
 
-    // 5. Consultant Fees State
-    const [consultantFees, setConsultantFees] = useState([]);
-    const [allConsultantFees, setAllConsultantFees] = useState([]); // For history/aggregate views
-    const [consultantFeesLoading, setConsultantFeesLoading] = useState(false);
-    const [consultantFeesError, setConsultantFeesError] = useState(null);
-
     // --- Fetch Functions ---
 
     // 1. Fetch Schedules by Month (Range) -> Monthly Doc 방식 (비용 절감)
@@ -194,10 +188,26 @@ export function DataProvider({ children }) {
             const month = now.getMonth(); // 0-indexed
 
             // 예시: 이번 달에 3개, 다음 달에 2개
-            dummyList.push({ id: 'dummy_1', date: new Date(year, month, 5, 10, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'EDU', memo: '더미 데이터 1' });
-            dummyList.push({ id: 'dummy_2', date: new Date(year, month, 12, 14, 0).toISOString(), consultantId: 'user_lhj', typeCode: 'RES', memo: '더미 데이터 2' });
-            dummyList.push({ id: 'dummy_3', date: new Date(year, month, 20, 16, 0).toISOString(), consultantId: 'user_sys', typeCode: 'PUB', memo: '더미 데이터 3' });
-            dummyList.push({ id: 'dummy_4', date: new Date(year, month + 1, 3, 11, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'CON', memo: '다음달 데이터' });
+            dummyList.push({ id: 'dummy_1', date: new Date(year, month, 5, 10, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'EDU', memo: '진로개발' });
+            dummyList.push({ id: 'dummy_2', date: new Date(year, month, 12, 14, 0).toISOString(), consultantId: 'user_lhj', typeCode: 'RES', memo: '서류면접' });
+            dummyList.push({ id: 'dummy_3', date: new Date(year, month, 20, 16, 0).toISOString(), consultantId: 'user_sys', typeCode: 'PUB', memo: '공기업' });
+            dummyList.push({ id: 'dummy_4', date: new Date(year, month + 1, 3, 11, 0).toISOString(), consultantId: 'user_kjh', typeCode: 'CON', memo: '콘텐츠' });
+            dummyList.push({
+                id: 'dummy_5',
+                date: new Date(year, month, 8, 9, 0).toISOString(),
+                consultantId: 'user_lhj',
+                typeCode: 'WELCOME',
+                memo: '웰컴'
+            });
+            dummyList.push({
+                id: 'dummy_6',
+                date: new Date(year, month, 15, 15, 0).toISOString(),
+                consultantId: 'user_sys',
+                typeCode: 'C08',
+                typeName: '진로연계',
+                memo: '진로연계(이름 매칭 폴백)'
+            });
+            dummyList.push({ id: 'dummy_7', date: new Date(year, month, 22, 11, 0).toISOString(), consultantId: 'user_mhj', typeCode: 'SCI', memo: '이공계' });
 
             setSchedules(dummyList);
             // 모든 달이 로드된 것으로 간주 (캐시 회피 등 복잡한 로직 없이 단순화)
@@ -259,28 +269,75 @@ export function DataProvider({ children }) {
     const fetchUsers = useCallback(async () => {
         setUsersLoading(true);
         if (DISABLE_FIRESTORE) {
+            const typed = (rows) => ({ consultingFeesByType: rows });
+            const legacy = (n) => ({ consultingFeePerSession: n });
             setUsers([
-                { uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin' },
-                { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy' },
-                { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys' },
-                { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana' },
-                { uid: 'user_bhn', name: '범하나', role: 'consultant', userId: 'bhan' },
-                { uid: 'user_lsh', name: '이상환', role: 'consultant', userId: 'lsh' },
-                { uid: 'user_ksh', name: '김세희', role: 'consultant', userId: 'ksh' },
-                { uid: 'user_kmk', name: '김민경', role: 'consultant', userId: 'kmk' },
-                { uid: 'user_jsh', name: '장신혜', role: 'consultant', userId: 'jsh' },
-                { uid: 'user_kny', name: '김나영', role: 'consultant', userId: 'kny' },
-                { uid: 'user_sjw', name: '성지우', role: 'consultant', userId: 'sjw' },
-                { uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi' },
-                { uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa' },
-                { uid: 'user_ywh', name: '최윤호', role: 'consultant', userId: 'ywh' },
-                { uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws' },
-                { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin', status: 'approved' },
-                { uid: 'user_kjh', name: '김지현', role: 'consultant', userId: 'kjh' },
-                { uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs' },
-                // { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy' },
-                // { uid: 'user_jms', name: '지명선', role: 'consultant', userId: 'jms' },
-                { uid: 'user_mhj', name: '민현정', role: 'consultant', userId: 'mhj' }
+                { id: 'admin_user', uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin' },
+                {
+                    id: 'user_lhj',
+                    uid: 'user_lhj',
+                    name: '이희영',
+                    role: 'consultant',
+                    userId: 'lhy',
+                    ...typed([
+                        { typeCode: 'RES', amount: 90000 },
+                        { typeCode: 'WELCOME', amount: 75000 }
+                    ])
+                },
+                {
+                    id: 'user_sys',
+                    uid: 'user_sys',
+                    name: '심영섭',
+                    role: 'consultant',
+                    userId: 'sys',
+                    ...typed([
+                        { typeCode: 'PUB', amount: 88000 },
+                        { typeCode: 'C08', amount: 92000 }
+                    ])
+                },
+                { id: 'user_hn', uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana', ...legacy(70000) },
+                { id: 'user_bhn', uid: 'user_bhn', name: '범하나', role: 'consultant', userId: 'bhan', ...legacy(70000) },
+                { id: 'user_lsh', uid: 'user_lsh', name: '이상환', role: 'consultant', userId: 'lsh', ...legacy(70000) },
+                { id: 'user_ksh', uid: 'user_ksh', name: '김세희', role: 'consultant', userId: 'ksh', ...legacy(70000) },
+                { id: 'user_kmk', uid: 'user_kmk', name: '김민경', role: 'consultant', userId: 'kmk', ...legacy(70000) },
+                { id: 'user_jsh', uid: 'user_jsh', name: '장신혜', role: 'consultant', userId: 'jsh', ...legacy(70000) },
+                { id: 'user_kny', uid: 'user_kny', name: '김나영', role: 'consultant', userId: 'kny', ...legacy(70000) },
+                { id: 'user_sjw', uid: 'user_sjw', name: '성지우', role: 'consultant', userId: 'sjw', ...legacy(70000) },
+                { id: 'user_smi', uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi', ...legacy(70000) },
+                { id: 'user_ksh2', uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa', ...legacy(70000) },
+                { id: 'user_ywh', uid: 'user_ywh', name: '최윤호', role: 'consultant', userId: 'ywh', ...legacy(70000) },
+                { id: 'user_yws', uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws', ...legacy(70000) },
+                {
+                    id: 'user_kj',
+                    uid: 'user_kj',
+                    name: '강 진',
+                    role: 'consultant',
+                    userId: 'kangjin',
+                    status: 'approved',
+                    ...legacy(70000)
+                },
+                {
+                    id: 'user_kjh',
+                    uid: 'user_kjh',
+                    name: '김지현',
+                    role: 'consultant',
+                    userId: 'kjh',
+                    ...typed([
+                        { typeCode: 'EDU', amount: 100000 },
+                        { typeCode: 'RES', amount: 110000 },
+                        { typeCode: 'CON', amount: 95000 },
+                        { typeCode: 'WELCOME', amount: 80000 }
+                    ])
+                },
+                { id: 'user_jjs', uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs', ...legacy(70000) },
+                {
+                    id: 'user_mhj',
+                    uid: 'user_mhj',
+                    name: '민현정',
+                    role: 'consultant',
+                    userId: 'mhj',
+                    ...typed([{ typeCode: 'SCI', amount: 85000 }])
+                }
             ]);
             setUsersLoading(false);
         } else {
@@ -304,6 +361,7 @@ export function DataProvider({ children }) {
             setCodes([
                 { code: 'WELCOME', name: '웰컴세션', color: '#e1f5fe', borderColor: '#03a9f4' },
                 { code: 'EDU', name: '진로개발', color: '#e3f2fd', borderColor: '#0277bd' },
+                { code: 'C08', name: '진로연계', color: '#dbeafe', borderColor: '#2563eb' },
                 { code: 'RES', name: '서류면접', color: '#fffde7', borderColor: '#fbc02d' },
                 { code: 'PUB', name: '공기업', color: '#f5f5f5', borderColor: '#616161' },
                 { code: 'CON', name: '콘텐츠엔터', color: '#fff3e0', borderColor: '#ef6c00' },
@@ -363,117 +421,6 @@ export function DataProvider({ children }) {
             }
         }
     }, [incrementReads]);
-
-    // 6. Fetch Consultant Fees
-    const fetchConsultantFees = useCallback(async (year, month) => {
-        setConsultantFeesLoading(true);
-        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-
-        if (DISABLE_FIRESTORE) {
-            // Mock Data
-            setConsultantFees([
-                { id: 'fee_1', consultantId: 'user_kjh', amount: 500000, status: 'paid', memo: '기본급' },
-                { id: 'fee_2', consultantId: 'user_lhj', amount: 600000, status: 'pending', memo: '' }
-            ]);
-            setConsultantFeesLoading(false);
-        } else {
-            try {
-                const docRef = doc(db, 'consultant_fees_by_month', monthKey);
-                const docSnap = await getDoc(docRef);
-                incrementReads(1);
-
-                if (docSnap.exists()) {
-                    setConsultantFees(docSnap.data().items || []);
-                } else {
-                    setConsultantFees([]);
-                }
-            } catch (err) {
-                console.error("Fetch Fees Error:", err);
-                setConsultantFeesError(err.message);
-            } finally {
-                setConsultantFeesLoading(false);
-            }
-        }
-    }, [incrementReads]);
-
-    const fetchAllConsultantFees = useCallback(async () => {
-        if (DISABLE_FIRESTORE) return;
-        setConsultantFeesLoading(true);
-        try {
-            const querySnapshot = await getDocs(collection(db, 'consultant_fees_by_month'));
-            const allData = [];
-            querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                if (data.items && Array.isArray(data.items)) {
-                    // Inject year/month if missing from data
-                    const [year, month] = doc.id.split('-').map(Number);
-                    const items = data.items.map(item => ({
-                        ...item,
-                        year: item.year || year,
-                        month: item.month || month
-                    }));
-                    allData.push(...items);
-                }
-            });
-            setAllConsultantFees(allData);
-        } catch (error) {
-            console.error("Error fetching all consultant fees:", error);
-        } finally {
-            setConsultantFeesLoading(false);
-        }
-    }, []);
-
-    // 7. Update Consultant Fee
-    const updateConsultantFee = useCallback(async (year, month, feeData) => {
-        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-
-        if (DISABLE_FIRESTORE) {
-            setConsultantFees(prev => {
-                const existingIndex = prev.findIndex(f => f.consultantId === feeData.consultantId);
-                if (existingIndex >= 0) {
-                    const newFees = [...prev];
-                    newFees[existingIndex] = { ...newFees[existingIndex], ...feeData };
-                    return newFees;
-                } else {
-                    return [...prev, { ...feeData, id: `fee_${Date.now()}` }];
-                }
-            });
-            return;
-        }
-
-        const docRef = doc(db, 'consultant_fees_by_month', monthKey);
-
-        try {
-            await runTransaction(db, async (transaction) => {
-                const sfDoc = await transaction.get(docRef);
-                let currentItems = [];
-                if (sfDoc.exists()) {
-                    currentItems = sfDoc.data().items || [];
-                }
-
-                const index = currentItems.findIndex(f => f.consultantId === feeData.consultantId);
-                if (index !== -1) {
-                    currentItems[index] = { ...currentItems[index], ...feeData, updatedAt: new Date().toISOString() };
-                } else {
-                    currentItems.push({
-                        ...feeData,
-                        id: doc(collection(db, 'temp')).id,
-                        createdAt: new Date().toISOString()
-                    });
-                }
-
-                transaction.set(docRef, { items: currentItems }, { merge: true });
-            });
-
-            // Refresh local state specific to this month
-            fetchConsultantFees(year, month);
-
-        } catch (error) {
-            console.error("Error updating fee:", error);
-            throw error;
-        }
-    }, [fetchConsultantFees]);
-
 
     // --- Effects (Initial Load) ---
     useEffect(() => {
@@ -1333,37 +1280,6 @@ export function DataProvider({ children }) {
         }
     };
 
-    // 8. Delete Consultant Fee
-    const deleteConsultantFee = useCallback(async (year, month, consultantId) => {
-        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-
-        if (DISABLE_FIRESTORE) {
-            setConsultantFees(prev => prev.filter(f => f.consultantId !== consultantId));
-            return;
-        }
-
-        const docRef = doc(db, 'consultant_fees_by_month', monthKey);
-
-        try {
-            await runTransaction(db, async (transaction) => {
-                const sfDoc = await transaction.get(docRef);
-                if (!sfDoc.exists()) return;
-
-                let currentItems = sfDoc.data().items || [];
-                const newItems = currentItems.filter(f => f.consultantId !== consultantId);
-
-                transaction.set(docRef, { items: newItems }, { merge: true });
-            });
-
-            // Refresh
-            fetchConsultantFees(year, month);
-
-        } catch (error) {
-            console.error("Error deleting fee:", error);
-            throw error;
-        }
-    }, [fetchConsultantFees]);
-
     const deleteSpecialSchedule = async (id) => {
         const eventToDelete = specialSchedules.find(s => s.id === id);
         if (!eventToDelete) return;
@@ -1437,16 +1353,7 @@ export function DataProvider({ children }) {
 
         // Debug
         totalReads,
-        resetReads,
-
-        consultantFees,
-        allConsultantFees,
-        consultantFeesLoading,
-        consultantFeesError,
-        fetchConsultantFees,
-        fetchAllConsultantFees,
-        updateConsultantFee,
-        deleteConsultantFee
+        resetReads
     };
 
     return (

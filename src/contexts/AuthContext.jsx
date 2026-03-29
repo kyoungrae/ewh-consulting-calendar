@@ -196,14 +196,27 @@ export function AuthProvider({ children }) {
             const uid = userCredential.user.uid;
 
             // Firestore에 사용자 정보 저장 (기본 db 인스턴스 사용)
+            const role = userData.role || 'consultant';
+            const feeList =
+                role === 'consultant' && Array.isArray(userData.consultingFeesByType)
+                    ? userData.consultingFeesByType.filter(
+                          (x) =>
+                              x &&
+                              String(x.typeCode || '').trim() &&
+                              Number.isFinite(x.amount) &&
+                              x.amount >= 0
+                      )
+                    : [];
+
             await setDoc(doc(db, 'users', uid), {
                 uid: uid,
                 userId: userData.userId || '',  // 사용자 ID 저장
                 email: email,
                 name: userData.name,
                 tel: userData.tel || '',
-                role: userData.role || 'consultant',
+                role,
                 status: userData.status || 'approved',
+                ...(role === 'consultant' && feeList.length > 0 ? { consultingFeesByType: feeList } : {}),
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             });
