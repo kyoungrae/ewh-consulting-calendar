@@ -72,6 +72,44 @@ export function isScheduleBillable(schedule) {
     return true;
 }
 
+/**
+ * 달력 화면과 동일한 기준으로 일정 중복을 제거합니다.
+ * - 같은 슬롯(일시+담당)에 여러 행이 있으면 updatedAt -> createdAt 기준 최신 1건만 유지
+ * - 타임스탬프가 동일하면 취소 상태를 우선 반영
+ */
+export function dedupeSchedulesLikeCalendar(schedules) {
+    const slotKey = (s) => {
+        const dateKey = s?.date ? String(s.date).slice(0, 16) : '';
+        const consultantKey = (s?.consultantId || s?.consultantName || '').toString().trim();
+        return `${dateKey}_${consultantKey}`;
+    };
+    const isCancelled = (s) => s?.isCancelled === true || s?.status === '취소';
+    const ts = (s) => new Date(s?.updatedAt || s?.createdAt || 0).getTime() || 0;
+
+    const uniqueMap = new Map();
+    (schedules || []).forEach((s) => {
+        if (!s) return;
+        const key = slotKey(s) || s.id;
+        if (!key) return;
+
+        const prev = uniqueMap.get(key);
+        if (!prev) {
+            uniqueMap.set(key, s);
+            return;
+        }
+
+        const tPrev = ts(prev);
+        const tCurr = ts(s);
+        if (tCurr > tPrev) {
+            uniqueMap.set(key, s);
+        } else if (tCurr === tPrev) {
+            if (isCancelled(s) && !isCancelled(prev)) uniqueMap.set(key, s);
+        }
+    });
+
+    return Array.from(uniqueMap.values());
+}
+
 function scheduleTimestamp(schedule) {
     const d = new Date(schedule.date);
     return d.getTime();
@@ -147,21 +185,21 @@ export function getConsultantFeeForType(user, typeCode) {
  */
 export function aggregateBudgetByBucket(schedules, users, codes, range) {
     const codeMap = new Map((codes || []).map(x => [x.code, x]));
+    const dedupedSchedules = dedupeSchedulesLikeCalendar(schedules);
 
     const stats = {};
     Object.values(BUCKET_IDS).forEach(k => {
         stats[k] = {};
     });
 
-    for (const s of schedules || []) {
+    for (const s of dedupedSchedules) {
         if (!isScheduleBillable(s)) continue;
         if (!scheduleInRange(s, range.start, range.end)) continue;
 
-        let typeName = s.typeName;
-        if (!typeName && s.typeCode) {
-            typeName = codeMap.get(s.typeCode)?.name || '';
-        }
-        const bucket = resolveBudgetBucket(s.typeCode, typeName);
+        // 달력과 동일하게 typeCode -> 공통코드명 기준으로만 분류한다.
+        // (원본 schedule.typeName 문자열 직접 매칭은 과집계를 유발할 수 있음)
+        const resolvedTypeName = s.typeCode ? (codeMap.get(s.typeCode)?.name || '') : '';
+        const bucket = resolveBudgetBucket(s.typeCode, resolvedTypeName);
         const cid = (s.consultantId || '').trim();
         if (!cid) continue;
 

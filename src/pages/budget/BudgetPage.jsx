@@ -70,8 +70,77 @@ function getRange(periodMode, anchorYear, anchorMonth, customStartStr, customEnd
 }
 
 function BudgetSection({ title, letter, rows, total }) {
+    const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+    const [hoveredHeader, setHoveredHeader] = useState(null);
+
     const formatCurrency = (n) =>
         new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(n);
+
+    const sortedRows = useMemo(() => {
+        if (!sortConfig.key) {
+            return [...rows].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+        }
+
+        const sorted = [...rows].sort((a, b) => {
+            const dir = sortConfig.direction === 'asc' ? 1 : -1;
+
+            if (sortConfig.key === 'name') {
+                return dir * (a.name || '').localeCompare(b.name || '', 'ko');
+            }
+            if (sortConfig.key === 'count') {
+                return dir * ((a.count || 0) - (b.count || 0));
+            }
+            if (sortConfig.key === 'feePerSession') {
+                // "유형별"은 숫자 단가가 아니므로 숫자 단가보다 뒤로 배치
+                const aMixedRank = a.feePerSessionMixed ? 1 : 0;
+                const bMixedRank = b.feePerSessionMixed ? 1 : 0;
+                if (aMixedRank !== bMixedRank) {
+                    return dir * (aMixedRank - bMixedRank);
+                }
+                return dir * ((a.feePerSession || 0) - (b.feePerSession || 0));
+            }
+            if (sortConfig.key === 'subtotal') {
+                return dir * ((a.subtotal || 0) - (b.subtotal || 0));
+            }
+            return 0;
+        });
+
+        return sorted;
+    }, [rows, sortConfig]);
+
+    const handleSort = (key) => {
+        setSortConfig((prev) => {
+            if (prev.key === key) {
+                if (prev.direction === 'asc') return { key, direction: 'desc' };
+                return { key: null, direction: 'asc' };
+            }
+            return { key, direction: 'asc' };
+        });
+    };
+
+    const sortMark = (key) => {
+        const isActive = sortConfig.key === key;
+        const isHover = hoveredHeader === key;
+        const symbol = isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '▲';
+        const color = isActive ? '#64748b' : '#cbd5e1';
+        const visible = isActive || isHover;
+
+        return (
+            <span
+                style={{
+                    marginLeft: 6,
+                    width: 12,
+                    display: 'inline-block',
+                    textAlign: 'center',
+                    color,
+                    fontWeight: 900,
+                    opacity: visible ? 1 : 0
+                }}
+            >
+                {symbol}
+            </span>
+        );
+    };
 
     return (
         <section
@@ -104,49 +173,69 @@ function BudgetSection({ title, letter, rows, total }) {
                 <thead>
                     <tr style={{ background: '#fafafa' }}>
                         <th
+                            onClick={() => handleSort('name')}
+                            onMouseEnter={() => setHoveredHeader('name')}
+                            onMouseLeave={() => setHoveredHeader(null)}
                             style={{
                                 textAlign: 'left',
                                 padding: '12px 18px',
                                 fontSize: 11,
                                 fontWeight: 800,
                                 color: '#94a3b8',
-                                letterSpacing: '0.06em'
+                                letterSpacing: '0.06em',
+                                cursor: 'pointer',
+                                userSelect: 'none'
                             }}
                         >
-                            강사
+                            강사{sortMark('name')}
                         </th>
                         <th
+                            onClick={() => handleSort('count')}
+                            onMouseEnter={() => setHoveredHeader('count')}
+                            onMouseLeave={() => setHoveredHeader(null)}
                             style={{
                                 textAlign: 'right',
                                 padding: '12px 18px',
                                 fontSize: 11,
                                 fontWeight: 800,
-                                color: '#94a3b8'
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                userSelect: 'none'
                             }}
                         >
-                            건수
+                            건수{sortMark('count')}
                         </th>
                         <th
+                            onClick={() => handleSort('feePerSession')}
+                            onMouseEnter={() => setHoveredHeader('feePerSession')}
+                            onMouseLeave={() => setHoveredHeader(null)}
                             style={{
                                 textAlign: 'right',
                                 padding: '12px 18px',
                                 fontSize: 11,
                                 fontWeight: 800,
-                                color: '#94a3b8'
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                userSelect: 'none'
                             }}
                         >
-                            1회 강사료
+                            1회 강사료{sortMark('feePerSession')}
                         </th>
                         <th
+                            onClick={() => handleSort('subtotal')}
+                            onMouseEnter={() => setHoveredHeader('subtotal')}
+                            onMouseLeave={() => setHoveredHeader(null)}
                             style={{
                                 textAlign: 'right',
                                 padding: '12px 18px',
                                 fontSize: 11,
                                 fontWeight: 800,
-                                color: '#94a3b8'
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                userSelect: 'none'
                             }}
                         >
-                            강사료 합계
+                            강사료 합계{sortMark('subtotal')}
                         </th>
                     </tr>
                 </thead>
@@ -158,7 +247,7 @@ function BudgetSection({ title, letter, rows, total }) {
                             </td>
                         </tr>
                     ) : (
-                        rows.map((r) => (
+                        sortedRows.map((r) => (
                             <tr key={r.consultantId} style={{ borderTop: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '14px 18px', fontWeight: 700, color: '#1e293b' }}>{r.name}</td>
                                 <td style={{ padding: '14px 18px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
