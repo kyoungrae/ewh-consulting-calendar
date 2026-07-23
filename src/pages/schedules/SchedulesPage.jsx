@@ -110,6 +110,60 @@ const getExcelSheetMonthInfo = (worksheet, sheetName) => {
     };
 };
 
+const toBackupScheduleText = (schedule) => {
+    const date = new Date(schedule.date);
+    const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const typeName = (schedule.typeName || schedule.typeCode || '상담').toString().replace(/[()]/g, '');
+    const consultantName = (schedule.consultantName || schedule.consultantId || '미지정').toString().replace(/[()_]/g, ' ');
+    const note = (schedule.memo || schedule.location || '').toString().trim();
+    return `${time} ${typeName}(${consultantName})${note ? `*${note}` : ''}`;
+};
+
+// 업로드 전에 선택 월의 현재 일정을 내려받는다.
+// 월별 시트는 현재 업로더가 다시 읽을 수 있는 형식으로 만들고, 원본 JSON도 함께 보관한다.
+const downloadScheduleBackup = (currentSchedules, targetMonths) => {
+    const selectedMonthSet = new Set(targetMonths);
+    const schedulesByMonth = new Map(targetMonths.map(monthKey => [monthKey, []]));
+
+    currentSchedules.forEach(schedule => {
+        const date = new Date(schedule.date);
+        if (isNaN(date.getTime())) return;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (selectedMonthSet.has(monthKey)) schedulesByMonth.get(monthKey).push(schedule);
+    });
+
+    const workbook = XLSX.utils.book_new();
+    targetMonths.forEach(monthKey => {
+        const [year, month] = monthKey.split('-');
+        const monthSchedules = schedulesByMonth.get(monthKey)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+        const rows = [
+            [`${year}년 ${parseInt(month)}월`],
+            ['엑셀 업로드 전 기존 일정 백업'],
+            ['날짜', '일정', '원본 ID', '원본 데이터']
+        ];
+
+        monthSchedules.forEach(schedule => {
+            rows.push([new Date(schedule.date).getDate()]);
+            rows.push([toBackupScheduleText(schedule), schedule.id || '', JSON.stringify(schedule)]);
+        });
+
+        if (monthSchedules.length === 0) {
+            rows.push(['이 달에는 기존 일정이 없습니다.']);
+        }
+
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        worksheet['!cols'] = [{ wch: 12 }, { wch: 38 }, { wch: 24 }, { wch: 70 }];
+        XLSX.utils.book_append_sheet(workbook, worksheet, `${year}-${month}`);
+    });
+
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+    const fileName = `기존일정_업로드전_백업_${timestamp}.xlsx`;
+    XLSX.writeFile(workbook, fileName, { compression: true });
+    return fileName;
+};
+
 // 변경 이력 아이템 컴포넌트 (개선된 UI)
 function LogItem({ log, index, canRollback, isRolledBack, isRollingBack, onRollback }) {
     const [isExpanded, setIsExpanded] = useState(index === 0);
@@ -834,7 +888,7 @@ export default function SchedulesPage() {
     };
 
     // 엑셀 업로드 처리 (새 형식: 월별 시트, 요일 헤더, 셀 형식: "HH:MM 상담종류(컨설턴트)*비고")
-    const processExcelWorkbook = async (workbook, targetMonths, selectedUploadMode) => {
+    const processExcelWorkbook = async (workbook, targetMonths, selectedUploadMode, backupFileName) => {
         const targetMonthSet = new Set(targetMonths);
         const targetMonthLabel = targetMonths.length === 1
             ? formatMonthKey(targetMonths[0])
@@ -1029,6 +1083,9 @@ export default function SchedulesPage() {
                     if (missingConsultants.size > 0) {
                         resultMsg += `\n\n⚠️ [미등록 컨설턴트]: ${Array.from(missingConsultants).join(', ')}`;
                     }
+                    if (backupFileName) {
+                        resultMsg += `\n\n💾 업로드 전 백업 파일을 다운로드했습니다.\n${backupFileName}`;
+                    }
 
                     alert(resultMsg);
                 } else {
@@ -1122,8 +1179,16 @@ export default function SchedulesPage() {
 
         const workbook = pendingWorkbookRef.current;
         const targetMonths = [...selectedUploadMonths].sort();
+        let backupFileName;
+        try {
+            backupFileName = downloadScheduleBackup(schedules, targetMonths);
+        } catch (error) {
+            console.error('기존 일정 백업 생성 실패:', error);
+            alert('기존 일정 백업 파일을 만들지 못해 업로드를 중단했습니다.\n\n' + error.message);
+            return;
+        }
         setIsUploadModalOpen(false);
-        await processExcelWorkbook(workbook, targetMonths, uploadMode);
+        await processExcelWorkbook(workbook, targetMonths, uploadMode, backupFileName);
     };
 
     const handleRollbackLog = async (log) => {
@@ -1793,6 +1858,7 @@ export default function SchedulesPage() {
                                 {uploadMode === 'replace'
                                     ? '전체 교체는 선택한 월의 모든 기존 일정을 엑셀 내용으로 바꿉니다.'
                                     : '머지는 선택한 월만 비교하므로 다른 월의 일정은 변경되지 않습니다.'}
+                                {' 업로드를 시작하기 전에 선택한 월의 기존 일정은 자동으로 엑셀 백업 파일로 내려받습니다.'}
                             </p>
                         </div>
 
