@@ -67,6 +67,28 @@ function resolveScheduleItemIndex(items, id, scheduleHint) {
     return items.findIndex(s => s && generateScheduleKey(s) === targetKey);
 }
 
+function getScheduleMonthKey(schedule) {
+    const date = new Date(schedule?.date);
+    if (isNaN(date.getTime())) {
+        throw new Error('되돌릴 일정의 날짜 정보를 확인할 수 없습니다.');
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function canonicalize(value) {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+        return Object.keys(value)
+            .sort()
+            .reduce((result, key) => ({ ...result, [key]: canonicalize(value[key]) }), {});
+    }
+    return value;
+}
+
+function schedulesMatch(a, b) {
+    return JSON.stringify(canonicalize(a)) === JSON.stringify(canonicalize(b));
+}
+
 export function DataProvider({ children }) {
     // DataProvider State
     const [schedules, setSchedules] = useState([]);
@@ -777,6 +799,173 @@ export function DataProvider({ children }) {
         }
     }, [fetchMonthSchedules]);
 
+    // 업로드 이력(MERGE / REPLACE) 한 건을 업로드 직전 상태로 되돌린다.
+    // 이력 이후 같은 일정을 누군가 수정했다면 정확히 일치하는지 먼저 검증해
+    // 최근 변경을 덮어쓰지 않도록 한다.
+    const rollbackChangeLog = useCallback(async (log) => {
+        if (!log?.id || !['MERGE', 'REPLACE'].includes(log.type)) {
+            throw new Error('엑셀 업로드 이력만 되돌릴 수 있습니다.');
+        }
+
+        const details = log.details;
+        if (!details || !Array.isArray(details.added) || !Array.isArray(details.updated) || !Array.isArray(details.deleted)) {
+            throw new Error('이 이력에는 되돌리기에 필요한 변경 상세가 없습니다.');
+        }
+
+        const added = details.added;
+        const updated = details.updated;
+        const deleted = details.deleted;
+
+        const assertSchedule = (schedule) => {
+            if (!schedule?.id) {
+                throw new Error('이력의 일정 식별자가 없어 안전하게 되돌릴 수 없습니다.');
+            }
+            getScheduleMonthKey(schedule);
+        };
+
+        added.forEach(assertSchedule);
+        deleted.forEach(assertSchedule);
+        updated.forEach(change => {
+            if (!change?.before || !change?.after || change.before.id !== change.after.id) {
+                throw new Error('이력의 수정 전·후 데이터가 올바르지 않아 되돌릴 수 없습니다.');
+            }
+            assertSchedule(change.before);
+            assertSchedule(change.after);
+        });
+
+        if (added.length + updated.length + deleted.length === 0) {
+            throw new Error('되돌릴 변경 사항이 없습니다.');
+        }
+
+        const rollbackSummary = {
+            added: deleted.length,
+            updated: updated.length,
+            deleted: added.length,
+            unchanged: 0
+        };
+        const rollbackDetails = {
+            added: deleted,
+            updated: updated.map(({ before, after }) => ({ before: after, after: before })),
+            deleted: added
+        };
+        const rollbackLogData = {
+            type: 'ROLLBACK',
+            rollbackOf: log.id,
+            summary: rollbackSummary,
+            details: rollbackDetails,
+            timestamp: new Date().toISOString()
+        };
+
+        const rollbackItems = (itemsByMonth) => {
+            const getItems = (monthKey) => {
+                if (!itemsByMonth.has(monthKey)) itemsByMonth.set(monthKey, []);
+                return itemsByMonth.get(monthKey);
+            };
+            const findExactItem = (items, expected) => {
+                const index = items.findIndex(item => item?.id === expected.id);
+                if (index === -1 || !schedulesMatch(items[index], expected)) {
+                    throw new Error('이력 이후 일정이 변경되어 자동으로 되돌릴 수 없습니다. 최신 이력을 확인해주세요.');
+                }
+                return index;
+            };
+
+            // 되돌릴 당시 새로 추가된 일정은 현재 그대로 존재해야 한다.
+            added.forEach(schedule => {
+                findExactItem(getItems(getScheduleMonthKey(schedule)), schedule);
+            });
+            // 수정된 일정은 이력에 기록된 "수정 후" 값과 현재 값이 같아야 한다.
+            updated.forEach(({ after }) => {
+                findExactItem(getItems(getScheduleMonthKey(after)), after);
+            });
+            // 당시 삭제된 일정은 지금도 없어야 한다.
+            deleted.forEach(schedule => {
+                const items = getItems(getScheduleMonthKey(schedule));
+                if (items.some(item => item?.id === schedule.id)) {
+                    throw new Error('이력 이후 일정이 변경되어 자동으로 되돌릴 수 없습니다. 최신 이력을 확인해주세요.');
+                }
+            });
+
+            // 추가·수정 후 값을 먼저 제거하고, 수정 전·삭제 전 값을 복원한다.
+            added.forEach(schedule => {
+                const items = getItems(getScheduleMonthKey(schedule));
+                items.splice(findExactItem(items, schedule), 1);
+            });
+            updated.forEach(({ before, after }) => {
+                const afterItems = getItems(getScheduleMonthKey(after));
+                afterItems.splice(findExactItem(afterItems, after), 1);
+                const beforeItems = getItems(getScheduleMonthKey(before));
+                if (beforeItems.some(item => item?.id === before.id)) {
+                    throw new Error('복원할 일정과 같은 식별자가 이미 있어 되돌릴 수 없습니다.');
+                }
+                beforeItems.push(before);
+            });
+            deleted.forEach(schedule => {
+                const items = getItems(getScheduleMonthKey(schedule));
+                if (items.some(item => item?.id === schedule.id)) {
+                    throw new Error('복원할 일정과 같은 식별자가 이미 있어 되돌릴 수 없습니다.');
+                }
+                items.push(schedule);
+            });
+
+            itemsByMonth.forEach(items => {
+                items.sort((a, b) => new Date(a.date) - new Date(b.date));
+            });
+        };
+
+        if (DISABLE_FIRESTORE) {
+            const itemsByMonth = new Map();
+            schedules.forEach(schedule => {
+                const monthKey = getScheduleMonthKey(schedule);
+                if (!itemsByMonth.has(monthKey)) itemsByMonth.set(monthKey, []);
+                itemsByMonth.get(monthKey).push({ ...schedule });
+            });
+            rollbackItems(itemsByMonth);
+
+            const nextSchedules = Array.from(itemsByMonth.values()).flat()
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+            setSchedules(nextSchedules);
+            setChangeLog(prev => [{
+                id: `dev_rollback_${Date.now()}`,
+                ...rollbackLogData
+            }, ...prev]);
+            return rollbackSummary;
+        }
+
+        const affectedMonthKeys = new Set();
+        [...added, ...deleted].forEach(schedule => affectedMonthKeys.add(getScheduleMonthKey(schedule)));
+        updated.forEach(({ before, after }) => {
+            affectedMonthKeys.add(getScheduleMonthKey(before));
+            affectedMonthKeys.add(getScheduleMonthKey(after));
+        });
+        const rollbackLogRef = doc(collection(db, 'change_logs'));
+
+        await runTransaction(db, async (transaction) => {
+            const refs = Array.from(affectedMonthKeys).map(monthKey => ({
+                monthKey,
+                ref: doc(db, 'schedules_by_month', monthKey)
+            }));
+            const snapshots = await Promise.all(refs.map(({ ref }) => transaction.get(ref)));
+            const itemsByMonth = new Map(refs.map(({ monthKey }, index) => [
+                monthKey,
+                (snapshots[index].exists() ? snapshots[index].data().items : [])?.map(item => ({ ...item })) || []
+            ]));
+
+            rollbackItems(itemsByMonth);
+
+            refs.forEach(({ monthKey, ref }) => {
+                transaction.set(ref, { items: itemsByMonth.get(monthKey) || [] }, { merge: true });
+            });
+            transaction.set(rollbackLogRef, {
+                ...rollbackLogData,
+                createdAt: serverTimestamp()
+            });
+        });
+
+        setLoadedMonths(new Set());
+        await Promise.all([fetchSchedules(), fetchLogs()]);
+        return rollbackSummary;
+    }, [fetchLogs, fetchSchedules, schedules]);
+
     // 9. Clear All Schedules (Monthly Doc Deletion)
     // *주의: 월별 문서 전체를 삭제하는 것은 위험하므로, 여기서는 구현 생략하거나 신중히 처리해야 함.
     // 관리자 기능으로만 사용.
@@ -1318,6 +1507,7 @@ export function DataProvider({ children }) {
         deleteSchedule,
         batchAddSchedules,
         mergeSchedules,
+        rollbackChangeLog,
         clearAllSchedules,
         setSchedules,
 

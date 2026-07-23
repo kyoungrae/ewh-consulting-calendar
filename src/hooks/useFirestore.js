@@ -16,6 +16,7 @@ export function useSchedules() {
         deleteSchedule: context.deleteSchedule,
         batchAddSchedules: context.batchAddSchedules,
         mergeSchedules: context.mergeSchedules,
+        rollbackChangeLog: context.rollbackChangeLog,
         clearAllSchedules: context.clearAllSchedules,
         setSchedules: context.setSchedules,
         fetchSchedules: context.fetchSchedules,
@@ -82,4 +83,3 @@ export function useSpecialSchedules() {
         deleteSpecialSchedule: context.deleteSpecialSchedule
     };
 }
-

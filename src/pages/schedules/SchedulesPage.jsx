@@ -21,6 +21,7 @@ import {
     ChevronRight,
     ArrowUp,
     AlertCircle,
+    RotateCcw,
 } from 'lucide-react';
 
 // 날짜 포맷팅 유틸리티
@@ -36,8 +37,81 @@ const formatters = {
     }
 };
 
+const formatMonthKey = (monthKey) => {
+    const [year, month] = monthKey.split('-');
+    return `${year}년 ${parseInt(month)}월`;
+};
+
+// 각 시트의 헤더와 이름에서 일정이 속한 연·월을 판별한다.
+const getExcelSheetMonthInfo = (worksheet, sheetName) => {
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    if (rawRows.length === 0) return null;
+
+    let fallbackYear = new Date().getFullYear();
+    let fallbackMonth = new Date().getMonth();
+    const yearMatch = sheetName.match(/(\d{4})/);
+    const monthMatch = sheetName.match(/(\d{1,2})월/);
+
+    if (yearMatch) fallbackYear = parseInt(yearMatch[1]);
+    if (monthMatch) fallbackMonth = parseInt(monthMatch[1]) - 1;
+
+    let baseYear = fallbackYear;
+    let baseMonth = fallbackMonth;
+    let headerFound = false;
+    const firstRow = rawRows[0] || [];
+
+    for (let i = 0; i < firstRow.length; i++) {
+        const cell = firstRow[i];
+        if (!cell) continue;
+
+        if (typeof cell === 'number' && cell > 40000) {
+            const date = new Date((cell - 25569) * 86400 * 1000);
+            baseYear = date.getFullYear();
+            baseMonth = date.getMonth();
+            headerFound = true;
+            break;
+        }
+
+        if (typeof cell === 'string') {
+            const yearMonthMatch = cell.match(/(\d{4})년\s*(\d{1,2})월/);
+            if (yearMonthMatch) {
+                baseYear = parseInt(yearMonthMatch[1]);
+                baseMonth = parseInt(yearMonthMatch[2]) - 1;
+                headerFound = true;
+                break;
+            }
+
+            const yearOnlyMatch = cell.match(/(\d{4})년/);
+            if (yearOnlyMatch) {
+                baseYear = parseInt(yearOnlyMatch[1]);
+                headerFound = true;
+            }
+
+            const monthOnlyMatch = cell.match(/(\d{1,2})월/);
+            if (monthOnlyMatch) {
+                baseMonth = parseInt(monthOnlyMatch[1]) - 1;
+                headerFound = true;
+            }
+
+            if (headerFound) break;
+        }
+    }
+
+    const baseDate = new Date(baseYear, baseMonth, 1);
+    if (isNaN(baseDate.getTime())) return null;
+
+    const confirmedYear = baseDate.getFullYear();
+    const confirmedMonth = baseDate.getMonth();
+    return {
+        rawRows,
+        confirmedYear,
+        confirmedMonth,
+        monthKey: `${confirmedYear}-${String(confirmedMonth + 1).padStart(2, '0')}`
+    };
+};
+
 // 변경 이력 아이템 컴포넌트 (개선된 UI)
-function LogItem({ log, index }) {
+function LogItem({ log, index, canRollback, isRolledBack, isRollingBack, onRollback }) {
     const [isExpanded, setIsExpanded] = useState(index === 0);
     const [subExpanded, setSubExpanded] = useState({
         added: true,
@@ -111,7 +185,8 @@ function LogItem({ log, index }) {
                                 {log.type === 'MERGE' || log.type === 'REPLACE' ? '엑셀 일정 업로드' :
                                     log.type === 'ADD' ? '일정 직접 추가' :
                                         log.type === 'UPDATE' ? '일정 내용 수정' :
-                                            log.type === 'DELETE' ? '일정 삭제' : '시스템 변경'}
+                                            log.type === 'DELETE' ? '일정 삭제' :
+                                                log.type === 'ROLLBACK' ? '일정 되돌리기' : '시스템 변경'}
                             </h3>
                             {index === 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold tracking-tight" style={{ padding: "5px" }}>NEW</span>}
                         </div>
@@ -149,6 +224,26 @@ function LogItem({ log, index }) {
                             <span className="text-sm text-gray-400 font-medium bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">변경사항 없음</span>
                         )}
                     </div>
+                    {isRolledBack && (
+                        <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-500">
+                            되돌림 완료
+                        </span>
+                    )}
+                    {canRollback && (
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onRollback(log);
+                            }}
+                            disabled={isRollingBack}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="이 업로드 전 상태로 되돌리기"
+                        >
+                            {isRollingBack ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
+                            {isRollingBack ? '되돌리는 중' : '되돌리기'}
+                        </button>
+                    )}
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isExpanded ? 'bg-gray-200 rotate-180 text-gray-800' : 'bg-transparent text-gray-400 group-hover:bg-gray-100'}`}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                     </div>
@@ -415,8 +510,15 @@ export default function SchedulesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [uploadMonths, setUploadMonths] = useState([]);
+    const [selectedUploadMonths, setSelectedUploadMonths] = useState([]);
+    const [uploadFileName, setUploadFileName] = useState('');
+    const [uploadMode, setUploadMode] = useState('merge');
     const [activeTab, setActiveTab] = useState('list'); // 'list' | 'log'
+    const [rollingBackLogId, setRollingBackLogId] = useState(null);
     const fileInputRef = useRef(null);
+    const pendingWorkbookRef = useRef(null);
     const { openSidebar } = useOutletContext();
     
     // useAuth에서 isTester를 가져옵니다.
@@ -431,11 +533,30 @@ export default function SchedulesPage() {
         deleteSchedule,
         batchAddSchedules,
         mergeSchedules,
+        rollbackChangeLog,
         clearAllSchedules,
         clearChangeLog
     } = useSchedules();
     const { codes, loading: codesLoading } = useCommonCodes();
     const { users, loading: usersLoading } = useUsers();
+
+    const rolledBackLogIds = useMemo(() => new Set(
+        changeLog
+            .filter(log => log.type === 'ROLLBACK' && log.rollbackOf)
+            .map(log => log.rollbackOf)
+    ), [changeLog]);
+
+    const canRollbackLog = (log) => {
+        const details = log?.details;
+        const totalChanges = (details?.added?.length || 0) + (details?.updated?.length || 0) + (details?.deleted?.length || 0);
+        return !isTester
+            && ['MERGE', 'REPLACE'].includes(log?.type)
+            && Array.isArray(details?.added)
+            && Array.isArray(details?.updated)
+            && Array.isArray(details?.deleted)
+            && totalChanges > 0
+            && !rolledBackLogIds.has(log.id);
+    };
 
     // 스크롤 맨 위로 버튼 상태
     const [showScrollTop, setShowScrollTop] = useState(false);
@@ -713,27 +834,14 @@ export default function SchedulesPage() {
     };
 
     // 엑셀 업로드 처리 (새 형식: 월별 시트, 요일 헤더, 셀 형식: "HH:MM 상담종류(컨설턴트)*비고")
-    const handleExcelUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        // 업로드 방식 선택
-        const uploadMode = window.confirm(
-            '업로드 방식을 선택하세요:\n\n' +
-            '✅ 확인: 기존 데이터와 머지 (변경/삭제 추적)\n' +
-            '❌ 취소: 기존 데이터 삭제 후 새로 업로드'
-        ) ? 'merge' : 'replace';
-
+    const processExcelWorkbook = async (workbook, targetMonths, selectedUploadMode) => {
+        const targetMonthSet = new Set(targetMonths);
+        const targetMonthLabel = targetMonths.length === 1
+            ? formatMonthKey(targetMonths[0])
+            : `선택한 ${targetMonths.length}개월`;
         setIsUploading(true);
-        const reader = new FileReader();
-
-        reader.onload = async (event) => {
-            try {
-                const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-
+        try {
                 const allSchedules = [];
-                const encounteredMonths = new Set(); // 엑셀 시트들에서 발견된 모든 'YYYY-MM' 목록
                 const missingConsultants = new Set();
                 const missingTypes = new Set();
                 let totalParsed = 0;
@@ -752,78 +860,18 @@ export default function SchedulesPage() {
 
                 workbook.SheetNames.forEach(sheetName => {
                     const worksheet = workbook.Sheets[sheetName];
-                    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+                    const sheetInfo = getExcelSheetMonthInfo(worksheet, sheetName);
+                    if (!sheetInfo || sheetInfo.rawRows.length < 3) return;
 
-                    if (rawRows.length < 3) return;
+                    const {
+                        rawRows,
+                        confirmedYear,
+                        confirmedMonth,
+                        monthKey: currentMonthKey
+                    } = sheetInfo;
 
-                    // Row 0: 기준 날짜 (엑셀 시리얼 넘버)
-                    // Row 1: 요일 헤더 (월요일, 화요일, ...)
-                    // Row 2+: 데이터 행 (0~5열에 날짜 or 스케줄)
-
-                    // 시트명에서 년/월 추출 시도 (예: 2027-1월, 1월 등)
-                    let fallbackYear = new Date().getFullYear();
-                    let fallbackMonth = new Date().getMonth();
-
-                    const yearMatch = sheetName.match(/(\d{4})/);
-                    if (yearMatch) fallbackYear = parseInt(yearMatch[1]);
-
-                    const monthMatch = sheetName.match(/(\d{1,2})월/);
-                    if (monthMatch) fallbackMonth = parseInt(monthMatch[1]) - 1;
-
-                    // Row 0의 모든 셀을 검사하여 년/월 정보 추출 (엑셀 내 텍스트가 시트명보다 우선순위 높음)
-                    let baseYear = fallbackYear;
-                    let baseMonth = fallbackMonth;
-                    let headerFound = false;
-
-                    const firstRow = rawRows[0] || [];
-                    for (let i = 0; i < firstRow.length; i++) {
-                        const cell = firstRow[i];
-                        if (!cell) continue;
-
-                        if (typeof cell === 'number' && cell > 40000) {
-                            // 엑셀 시리얼 날짜 (예: 46082 -> 2026-03-01)
-                            const d = new Date((cell - 25569) * 86400 * 1000);
-                            baseYear = d.getFullYear();
-                            baseMonth = d.getMonth();
-                            headerFound = true;
-                            break;
-                        } else if (typeof cell === 'string') {
-                            // 문자열 검색 (예: "2026년 3월")
-                            const ymMatch = cell.match(/(\d{4})년\s*(\d{1,2})월/);
-                            if (ymMatch) {
-                                baseYear = parseInt(ymMatch[1]);
-                                baseMonth = parseInt(ymMatch[2]) - 1;
-                                headerFound = true;
-                                break;
-                            }
-                            // 년도만 있는 경우
-                            const yMatch = cell.match(/(\d{4})년/);
-                            if (yMatch) {
-                                baseYear = parseInt(yMatch[1]);
-                                headerFound = true;
-                            }
-                            // 월만 있는 경우
-                            const mMatch = cell.match(/(\d{1,2})월/);
-                            if (mMatch) {
-                                baseMonth = parseInt(mMatch[1]) - 1;
-                                headerFound = true;
-                            }
-                            if (headerFound) break;
-                        }
-                    }
-
-                    const baseDate = new Date(baseYear, baseMonth, 1);
-
-                    if (!baseDate || isNaN(baseDate.getTime())) {
-                        return;
-                    }
-
-                    const confirmedMonth = baseDate.getMonth();
-                    const confirmedYear = baseDate.getFullYear();
-
-                    // 이번 시트의 년-월 키 기록
-                    const currentMonthKey = `${confirmedYear}-${String(confirmedMonth + 1).padStart(2, '0')}`;
-                    encounteredMonths.add(currentMonthKey);
+                    // 선택하지 않은 월은 파싱 단계부터 제외해 다른 월 데이터에 영향을 주지 않는다.
+                    if (!targetMonthSet.has(currentMonthKey)) return;
 
                     // 현재 주의 날짜 정보 (일~토 등 7개 이상의 열에 대응할 수 있도록 넉넉히 설정)
                     let currentWeekDates = new Array(10).fill(null);
@@ -891,6 +939,9 @@ export default function SchedulesPage() {
                                     // 분 단위까지만 저장하여 매칭 정확도 향상
                                     const dateStr = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
+                                    // 시트 헤더와 일정 날짜가 다를 때도 선택하지 않은 월은 제외한다.
+                                    if (!targetMonthSet.has(dateStr.slice(0, 7))) continue;
+
                                     // 코드 매칭 (더미 코드 사용)
                                     const normType = normalize(typeName);
                                     const typeCodeObj = codes.find(c =>
@@ -941,10 +992,10 @@ export default function SchedulesPage() {
                 if (allSchedules.length > 0) {
                     let resultMsg = '';
 
-                    if (uploadMode === 'merge') {
+                    if (selectedUploadMode === 'merge') {
                         // 머지 모드: 변경 추적
                         const mergeResult = await mergeSchedules(allSchedules, false);
-                        resultMsg = `📊 엑셀 업로드 완료!\n\n` +
+                        resultMsg = `📊 엑셀 업로드 완료! (${targetMonthLabel})\n\n` +
                             `✅ 새로 추가: ${mergeResult.added.length}건\n` +
                             `🔄 변경됨: ${mergeResult.updated.length}건\n` +
                             `❌ 삭제됨: ${mergeResult.deleted.length}건\n` +
@@ -963,8 +1014,8 @@ export default function SchedulesPage() {
                         setActiveTab('log');
                     } else {
                         // 전체 교체 모드 (발견된 달들만 대상으로 교체)
-                        const mergeResult = await mergeSchedules(allSchedules, true, Array.from(encounteredMonths));
-                        resultMsg = `📊 엑셀 업로드 완료!\n\n` +
+                        const mergeResult = await mergeSchedules(allSchedules, true, targetMonths);
+                        resultMsg = `📊 엑셀 업로드 완료! (${targetMonthLabel})\n\n` +
                             `✅ 새로 등록: ${mergeResult.added.length}건\n` +
                             `🗑️ 기존 삭제: ${mergeResult.deleted.length}건`;
 
@@ -981,11 +1032,66 @@ export default function SchedulesPage() {
 
                     alert(resultMsg);
                 } else {
-                    alert(`유효한 스케줄을 찾을 수 없습니다.\n\n분석된 셀 수: ${totalParsed}\n\n엑셀 형식을 확인해주세요:\n- 각 시트가 월별로 구성되어 있는지\n- 첫 행에 기준 날짜가 있는지\n- 스케줄 형식: "10:00 서류면접(심영섭)"`);
+                    alert(`${targetMonthLabel}에서 유효한 일정을 찾을 수 없습니다.\n\n분석된 셀 수: ${totalParsed}\n\n엑셀 형식을 확인해주세요:\n- 각 시트가 월별로 구성되어 있는지\n- 첫 행에 기준 날짜가 있는지\n- 스케줄 형식: "10:00 서류면접(심영섭)"`);
                 }
+        } catch (error) {
+            console.error('Excel upload error:', error);
+            alert('엑셀 파일 처리에 실패했습니다.\n\n' + error.message);
+        } finally {
+            setIsUploading(false);
+            pendingWorkbookRef.current = null;
+        }
+    };
+
+    const closeUploadModal = () => {
+        setIsUploadModalOpen(false);
+        setUploadMonths([]);
+        setSelectedUploadMonths([]);
+        setUploadFileName('');
+        pendingWorkbookRef.current = null;
+    };
+
+    const openExcelFilePicker = () => {
+        if (isTester) {
+            alert('테스터 권한으로는 엑셀 업로드를 할 수 없습니다.');
+            return;
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        fileInputRef.current?.click();
+    };
+
+    const handleExcelUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsUploading(true);
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+            try {
+                const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
+                const months = [...new Set(workbook.SheetNames
+                    .map(sheetName => {
+                        const sheetInfo = getExcelSheetMonthInfo(workbook.Sheets[sheetName], sheetName);
+                        return sheetInfo?.rawRows.length >= 3 ? sheetInfo.monthKey : null;
+                    })
+                    .filter(Boolean))]
+                    .sort();
+
+                if (months.length === 0) {
+                    alert('엑셀에서 월별 일정 시트를 찾을 수 없습니다.\n파일 형식을 확인해주세요.');
+                    return;
+                }
+
+                pendingWorkbookRef.current = workbook;
+                setUploadFileName(file.name);
+                setUploadMonths(months);
+                setSelectedUploadMonths([]);
+                setUploadMode('merge');
+                setIsUploadModalOpen(true);
             } catch (error) {
-                console.error('Excel upload error:', error);
-                alert('엑셀 파일 처리에 실패했습니다.\n\n' + error.message);
+                console.error('Excel file read error:', error);
+                alert('엑셀 파일을 읽을 수 없습니다.\n\n' + error.message);
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -993,6 +1099,62 @@ export default function SchedulesPage() {
         };
 
         reader.readAsArrayBuffer(file);
+    };
+
+    const toggleUploadMonth = (monthKey) => {
+        setSelectedUploadMonths(prev => (
+            prev.includes(monthKey)
+                ? prev.filter(key => key !== monthKey)
+                : [...prev, monthKey].sort()
+        ));
+    };
+
+    const confirmExcelUpload = async () => {
+        if (selectedUploadMonths.length === 0) {
+            alert('업로드할 월을 한 개 이상 선택해주세요.');
+            return;
+        }
+        if (!pendingWorkbookRef.current) {
+            alert('엑셀 파일을 다시 선택해주세요.');
+            closeUploadModal();
+            return;
+        }
+
+        const workbook = pendingWorkbookRef.current;
+        const targetMonths = [...selectedUploadMonths].sort();
+        setIsUploadModalOpen(false);
+        await processExcelWorkbook(workbook, targetMonths, uploadMode);
+    };
+
+    const handleRollbackLog = async (log) => {
+        if (isTester) {
+            alert('테스터 권한으로는 변경 이력을 되돌릴 수 없습니다.');
+            return;
+        }
+
+        const details = log.details || {};
+        const message = [
+            '이 엑셀 업로드 전 상태로 되돌리시겠습니까?',
+            '',
+            `• 업로드로 추가된 일정 ${details.added?.length || 0}건 삭제`,
+            `• 업로드로 수정된 일정 ${details.updated?.length || 0}건 복원`,
+            `• 업로드로 삭제된 일정 ${details.deleted?.length || 0}건 복원`,
+            '',
+            '이후에 같은 일정이 수정된 경우에는 안전을 위해 되돌리지 않습니다.'
+        ].join('\n');
+
+        if (!window.confirm(message)) return;
+
+        try {
+            setRollingBackLogId(log.id);
+            const result = await rollbackChangeLog(log);
+            alert(`되돌리기를 완료했습니다.\n\n삭제: ${result.deleted}건\n복원(수정): ${result.updated}건\n복원(삭제): ${result.added}건`);
+        } catch (error) {
+            console.error('변경 이력 되돌리기 실패:', error);
+            alert(error?.message || '변경 이력을 되돌리지 못했습니다.');
+        } finally {
+            setRollingBackLogId(null);
+        }
     };
 
     // 일정 삭제
@@ -1230,7 +1392,7 @@ export default function SchedulesPage() {
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            if (!isTester) fileInputRef.current?.click();
+                                            if (!isTester) openExcelFilePicker();
                                         }}
                                         disabled={isUploading || isTester} // 테스터일 때 비활성화
                                         className={`btn btn-secondary shadow-sm ${
@@ -1458,11 +1620,193 @@ export default function SchedulesPage() {
                             </div>
                         ) : (
                             changeLog.map((log, index) => (
-                                <LogItem key={log.id || index} log={log} index={index} />
+                                <LogItem
+                                    key={log.id || index}
+                                    log={log}
+                                    index={index}
+                                    canRollback={canRollbackLog(log)}
+                                    isRolledBack={rolledBackLogIds.has(log.id)}
+                                    isRollingBack={rollingBackLogId === log.id}
+                                    onRollback={handleRollbackLog}
+                                />
                             ))
                         )}
                     </div>
                 )}
+
+                {/* Excel Upload Options Modal */}
+                <Modal
+                    isOpen={isUploadModalOpen}
+                    onClose={closeUploadModal}
+                    title="엑셀 일정 업로드"
+                    size="2xl"
+                >
+                    <div className="space-y-6">
+                        <div className="rounded-2xl border border-[#00462A]/10 bg-[#00462A]/[0.04] p-4">
+                            <div className="mb-4 flex items-start gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#00462A] text-white shadow-sm">
+                                    <Calendar size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-gray-900">엑셀에서 찾은 일정 월</h4>
+                                    <p className="mt-0.5 text-xs leading-5 text-gray-500">카드를 눌러 업로드할 월을 여러 개 선택할 수 있습니다.</p>
+                                </div>
+                            </div>
+
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <span className="text-xs font-semibold text-gray-600">{uploadFileName}</span>
+                                <div className="flex shrink-0 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedUploadMonths(uploadMonths)}
+                                        className="text-xs font-bold text-[#00462A] hover:underline"
+                                    >
+                                        전체 선택
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedUploadMonths([])}
+                                        className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline"
+                                    >
+                                        선택 해제
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                {uploadMonths.map(monthKey => {
+                                    const isSelected = selectedUploadMonths.includes(monthKey);
+                                    return (
+                                        <button
+                                            key={monthKey}
+                                            type="button"
+                                            aria-pressed={isSelected}
+                                            onClick={() => toggleUploadMonth(monthKey)}
+                                            className={`relative rounded-xl border px-3 py-3 text-left transition-all ${isSelected
+                                                ? 'border-[#00462A] bg-white text-[#00462A] shadow-sm ring-2 ring-[#00462A]/15'
+                                                : 'border-transparent bg-white/70 text-gray-500 hover:border-gray-200 hover:bg-white'
+                                                }`}
+                                        >
+                                            <span className="block text-sm font-bold">{formatMonthKey(monthKey)}</span>
+                                            <span className={`mt-1 block text-[11px] font-medium ${isSelected ? 'text-[#00462A]/70' : 'text-gray-400'}`}>
+                                                {isSelected ? '업로드 대상' : '선택하려면 클릭'}
+                                            </span>
+                                            <span className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border ${isSelected ? 'border-[#00462A] bg-[#00462A] text-white' : 'border-gray-200 bg-white text-transparent'}`}>
+                                                ✓
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-3 text-xs font-semibold text-[#00462A]">
+                                {selectedUploadMonths.length > 0
+                                    ? `${selectedUploadMonths.length}개월을 업로드 대상으로 선택했습니다.`
+                                    : '업로드할 월을 한 개 이상 선택해주세요.'}
+                            </p>
+                        </div>
+
+                        <div>
+                            <div className="mb-3">
+                                <h4 className="font-bold text-gray-900">반영 방식</h4>
+                                <p className="mt-1 text-xs text-gray-500">안전한 머지가 기본으로 선택됩니다.</p>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <button
+                                    type="button"
+                                    aria-pressed={uploadMode === 'merge'}
+                                    onClick={() => setUploadMode('merge')}
+                                    className={`rounded-xl border p-4 text-left transition-all ${uploadMode === 'merge'
+                                        ? 'border-[#00462A] bg-[#00462A]/[0.05] ring-2 ring-[#00462A]/15'
+                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                        }`}
+                                >
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                        <span className="font-bold text-gray-900">기존 일정과 머지</span>
+                                        <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${uploadMode === 'merge' ? 'border-[#00462A] bg-[#00462A]' : 'border-gray-300 bg-white'}`}>
+                                            {uploadMode === 'merge' && <span className="h-2 w-2 rounded-full bg-white" />}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs leading-5 text-gray-500">같은 일정은 유지하고, 달라진 항목만 추가·수정·삭제합니다.</p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    aria-pressed={uploadMode === 'replace'}
+                                    onClick={() => setUploadMode('replace')}
+                                    className={`rounded-xl border p-4 text-left transition-all ${uploadMode === 'replace'
+                                        ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-100'
+                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                        }`}
+                                >
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                        <span className="font-bold text-gray-900">선택 월 전체 교체</span>
+                                        <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${uploadMode === 'replace' ? 'border-amber-500 bg-amber-500' : 'border-gray-300 bg-white'}`}>
+                                            {uploadMode === 'replace' && <span className="h-2 w-2 rounded-full bg-white" />}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs leading-5 text-gray-500">대상 월의 기존 일정 전체를 지운 뒤 엑셀 내용을 새로 등록합니다.</p>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[#00462A] shadow-sm">
+                                    <FileText size={15} />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-bold text-gray-900">한눈에 보는 차이</h4>
+                                    <p className="text-xs text-gray-500">예: 현재 일정과 엑셀 내용이 아래와 같을 때</p>
+                                </div>
+                            </div>
+
+                            <div className="mb-3 grid gap-2 text-xs sm:grid-cols-2">
+                                <div className="rounded-lg border border-gray-200 bg-white p-3 text-gray-600">
+                                    <p className="mb-1 font-bold text-gray-800">현재 일정</p>
+                                    <p>10:00 서류면접(김)</p>
+                                    <p>11:00 진로개발(이)</p>
+                                </div>
+                                <div className="rounded-lg border border-[#00462A]/15 bg-white p-3 text-gray-600">
+                                    <p className="mb-1 font-bold text-[#00462A]">업로드할 엑셀</p>
+                                    <p>10:00 서류면접(김)</p>
+                                    <p>13:00 공기업(박)</p>
+                                </div>
+                            </div>
+
+                            <div className="grid gap-2 text-xs sm:grid-cols-2">
+                                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-900">
+                                    <p className="mb-1 font-bold">머지 결과</p>
+                                    <p>10:00은 그대로 유지</p>
+                                    <p>11:00은 엑셀에 없어 삭제</p>
+                                    <p>13:00은 새로 추가</p>
+                                </div>
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-amber-900">
+                                    <p className="mb-1 font-bold">전체 교체 결과</p>
+                                    <p>기존 10:00·11:00을 모두 삭제</p>
+                                    <p>엑셀의 10:00·13:00을 새로 등록</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className={`flex gap-2 rounded-xl border p-3 text-xs leading-5 ${uploadMode === 'replace' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800'}`}>
+                            <AlertCircle size={17} className="mt-0.5 shrink-0" />
+                            <p>
+                                {uploadMode === 'replace'
+                                    ? '전체 교체는 선택한 월의 모든 기존 일정을 엑셀 내용으로 바꿉니다.'
+                                    : '머지는 선택한 월만 비교하므로 다른 월의 일정은 변경되지 않습니다.'}
+                            </p>
+                        </div>
+
+                        <div className="flex justify-end gap-3 border-t border-gray-100 pt-5">
+                            <button type="button" onClick={closeUploadModal} className="btn btn-secondary">
+                                취소
+                            </button>
+                            <button type="button" onClick={confirmExcelUpload} className="btn btn-primary shadow-md">
+                                <Upload size={18} />
+                                선택한 월 업로드
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
 
                 {/* Add/Edit Modal */}
                 <Modal
