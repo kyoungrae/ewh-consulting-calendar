@@ -49,7 +49,8 @@ export function AuthProvider({ children }) {
     // 개발용 더미 유저 데이터 (useFirestore.js와 동기화)
     // 로컬(DISABLE_FIRESTORE)에서는 Firebase 대신 이 목록으로만 로그인됩니다.
     const DUMMY_USERS = [
-        { uid: 'admin_user', name: '관리자', role: 'admin', userId: '805246', password: '930902', status: 'approved' },
+        // 로컬 더미: 비밀번호 검증 없음(아무 값이나 통과). 실서비스 비밀번호를 코드에 넣지 마세요.
+        { uid: 'admin_user', name: '관리자', role: 'admin', userId: '805246', status: 'approved' },
         { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy', status: 'approved' },
         { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys', status: 'approved' },
         { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana', status: 'approved' },
@@ -83,11 +84,7 @@ export function AuthProvider({ children }) {
                     (u.role === 'admin' && (normalizedId === 'admin' || normalizedId === '805246'))
                 );
             if (dummyUser) {
-                // 더미 계정에 password가 있으면 검증 (관리자 805246 / 930902 등)
-                if (dummyUser.password && dummyUser.password !== password) {
-                    throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
-                }
-
+                // 더미 모드에서는 비밀번호를 검증하지 않음 (실비밀번호를 소스에 하드코딩하지 않기 위함)
                 const fakeUser = {
                     uid: dummyUser.uid,
                     email: `${dummyUser.userId}@ewha.dev`,
@@ -105,7 +102,7 @@ export function AuthProvider({ children }) {
             throw new Error(
                 loginByName
                     ? '로컬 더미 모드: 등록된 성명이 아닙니다. 목록에 있는 컨설턴트 이름을 사용해 주세요.'
-                    : '로컬 더미 모드: 관리자 아이디는 805246 / 비밀번호 930902 입니다.'
+                    : '로컬 더미 모드: 관리자 아이디는 805246 입니다. (비밀번호는 아무 값이나 가능)'
             );
         }
 
