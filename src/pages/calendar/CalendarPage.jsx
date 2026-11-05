@@ -7,6 +7,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import Datetime10MinInput from '../../components/common/Datetime10MinInput';
 import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
@@ -1406,23 +1407,17 @@ export default function CalendarPage() {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="form-group">
                                             <label className="form-label">시작 일시 *</label>
-                                            <input
-                                                type="datetime-local"
-                                                className="form-input"
+                                            <Datetime10MinInput
                                                 value={editForm.date}
-                                                onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value }))}
-                                                step={600}
+                                                onChange={(next) => setEditForm(prev => ({ ...prev, date: next }))}
                                                 required
                                             />
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">종료 일시</label>
-                                            <input
-                                                type="datetime-local"
-                                                className="form-input"
+                                            <Datetime10MinInput
                                                 value={editForm.endDate}
-                                                onChange={(e) => setEditForm(prev => ({ ...prev, endDate: e.target.value }))}
-                                                step={600}
+                                                onChange={(next) => setEditForm(prev => ({ ...prev, endDate: next }))}
                                             />
                                         </div>
                                     </div>

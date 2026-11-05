@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import Datetime10MinInput from '../../components/common/Datetime10MinInput';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
@@ -1904,23 +1905,17 @@ export default function SchedulesPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group">
                                     <label className="form-label">시작 일시 *</label>
-                                    <input
-                                        type="datetime-local"
-                                        className="form-input"
+                                    <Datetime10MinInput
                                         value={formData.date}
-                                        onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                        step={600}
+                                        onChange={(next) => setFormData({ ...formData, date: next })}
                                         required
                                     />
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label">종료 일시</label>
-                                    <input
-                                        type="datetime-local"
-                                        className="form-input"
+                                    <Datetime10MinInput
                                         value={formData.endDate}
-                                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                                        step={600}
+                                        onChange={(next) => setFormData({ ...formData, endDate: next })}
                                     />
                                 </div>
                             </div>
