@@ -13,11 +13,19 @@ import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'luci
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
-/** datetime-local 입력용 로컬 시각 문자열 */
+/** datetime-local 입력용 로컬 시각 문자열 (분은 10분 단위로 맞춤) */
 function toDatetimeLocalValue(dateStr) {
     if (!dateStr) return '';
     const d = new Date(typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr);
     if (Number.isNaN(d.getTime())) return '';
+    // 1분 단위 대신 10분 단위 선택용으로 반올림
+    const roundedMinutes = Math.round(d.getMinutes() / 10) * 10;
+    d.setSeconds(0, 0);
+    if (roundedMinutes === 60) {
+        d.setHours(d.getHours() + 1, 0);
+    } else {
+        d.setMinutes(roundedMinutes);
+    }
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -1379,6 +1387,7 @@ export default function CalendarPage() {
                                                 className="form-input"
                                                 value={editForm.date}
                                                 onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value }))}
+                                                step={600}
                                                 required
                                             />
                                         </div>
@@ -1389,6 +1398,7 @@ export default function CalendarPage() {
                                                 className="form-input"
                                                 value={editForm.endDate}
                                                 onChange={(e) => setEditForm(prev => ({ ...prev, endDate: e.target.value }))}
+                                                step={600}
                                             />
                                         </div>
                                     </div>

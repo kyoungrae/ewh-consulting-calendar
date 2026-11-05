@@ -24,7 +24,22 @@ import {
     RotateCcw,
 } from 'lucide-react';
 
-// 날짜 포맷팅 유틸리티
+/** datetime-local 값 (분은 10분 단위로 맞춤) */
+function toDatetimeLocalValue(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const roundedMinutes = Math.round(d.getMinutes() / 10) * 10;
+    d.setSeconds(0, 0);
+    if (roundedMinutes === 60) {
+        d.setHours(d.getHours() + 1, 0);
+    } else {
+        d.setMinutes(roundedMinutes);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // 날짜 포맷팅 유틸리티
 const formatters = {
     fullDate: (iso) => new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }),
@@ -800,8 +815,8 @@ export default function SchedulesPage() {
         if (schedule) {
             setEditingSchedule(schedule);
             setFormData({
-                date: schedule.date || '',
-                endDate: schedule.endDate || '',
+                date: toDatetimeLocalValue(schedule.date),
+                endDate: toDatetimeLocalValue(schedule.endDate),
                 location: schedule.location || '',
                 consultantId: schedule.consultantId || '',
                 typeCode: schedule.typeCode || '',
@@ -1894,6 +1909,7 @@ export default function SchedulesPage() {
                                         className="form-input"
                                         value={formData.date}
                                         onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                                        step={600}
                                         required
                                     />
                                 </div>
@@ -1904,6 +1920,7 @@ export default function SchedulesPage() {
                                         className="form-input"
                                         value={formData.endDate}
                                         onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                                        step={600}
                                     />
                                 </div>
                             </div>
