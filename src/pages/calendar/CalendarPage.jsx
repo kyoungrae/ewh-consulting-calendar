@@ -540,6 +540,28 @@ export default function CalendarPage() {
         return [];
     }, [filteredSchedules, downloadPeriod, currentYear, currentMonth, customStartDate, customEndDate]);
 
+    // 목록보기 상단 요약: 유형별(미취소) + 취소 세션 별도 카드
+    const listViewSummary = useMemo(() => {
+        const byType = {};
+        let cancelledCount = 0;
+
+        downloadTargetSchedules.forEach((schedule) => {
+            const isCancelled = schedule.isCancelled === true || schedule.status === '취소';
+            if (isCancelled) {
+                cancelledCount += 1;
+                return;
+            }
+            const name = codes.find(c => c.code === schedule.typeCode)?.name || '미분류';
+            byType[name] = (byType[name] || 0) + 1;
+        });
+
+        return {
+            total: downloadTargetSchedules.length,
+            cancelledCount,
+            byType: Object.entries(byType).sort(([, a], [, b]) => b - a)
+        };
+    }, [downloadTargetSchedules, codes]);
+
     // 화면 표시용 정렬 데이터
     const sortedSchedules = useMemo(() => {
         let sortableItems = [...downloadTargetSchedules];
@@ -1195,20 +1217,22 @@ export default function CalendarPage() {
                                     {/* Total Count Card */}
                                     <div className="ewh-summary-card total-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#00462A] shadow-sm relative overflow-hidden group">
                                         <div className="text-gray-500 text-sm font-bold mb-1">전체 세션</div>
-                                        <div className="text-[#00462A] text-3xl font-extrabold">{downloadTargetSchedules.length}</div>
+                                        <div className="text-[#00462A] text-3xl font-extrabold">{listViewSummary.total}</div>
                                     </div>
 
-                                    {/* Breakdown Cards */}
-                                    {Object.entries(downloadTargetSchedules.reduce((acc, curr) => {
-                                        const name = codes.find(c => c.code === curr.typeCode)?.name || '미분류';
-                                        acc[name] = (acc[name] || 0) + 1;
-                                        return acc;
-                                    }, {})).sort(([, a], [, b]) => b - a).map(([name, count]) => (
+                                    {/* Type Breakdown Cards (취소 제외) */}
+                                    {listViewSummary.byType.map(([name, count]) => (
                                         <div key={name} className="ewh-summary-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
                                             <div className="text-gray-500 text-sm font-bold mb-1">{name}</div>
                                             <div className="text-[#00462A] text-3xl font-extrabold">{count}</div>
                                         </div>
                                     ))}
+
+                                    {/* Cancelled Sessions Card */}
+                                    <div className="ewh-summary-card bg-[#FEF2F2] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#EF4444] shadow-sm hover:shadow-md transition-all">
+                                        <div className="text-red-500 text-sm font-bold mb-1">취소 세션</div>
+                                        <div className="text-red-600 text-3xl font-extrabold">{listViewSummary.cancelledCount}</div>
+                                    </div>
                                 </div>
 
                                 {/* List Table Container */}
