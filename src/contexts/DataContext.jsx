@@ -294,7 +294,7 @@ export function DataProvider({ children }) {
             const typed = (rows) => ({ consultingFeesByType: rows });
             const legacy = (n) => ({ consultingFeePerSession: n });
             setUsers([
-                { id: 'admin_user', uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin' },
+                { id: 'admin_user', uid: 'admin_user', name: '관리자', role: 'admin', userId: '805246' },
                 {
                     id: 'user_lhj',
                     uid: 'user_lhj',

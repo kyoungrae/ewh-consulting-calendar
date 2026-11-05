@@ -47,8 +47,10 @@ export function AuthProvider({ children }) {
     }
 
     // 개발용 더미 유저 데이터 (useFirestore.js와 동기화)
+    // 로컬(DISABLE_FIRESTORE)에서는 Firebase 대신 이 목록으로만 로그인됩니다.
     const DUMMY_USERS = [
-        { uid: 'admin_user', name: '관리자', role: 'admin', userId: 'admin', status: 'approved' },
+        // 로컬 더미: 비밀번호 검증 없음(아무 값이나 통과). 실서비스 비밀번호를 코드에 넣지 마세요.
+        { uid: 'admin_user', name: '관리자', role: 'admin', userId: '805246', status: 'approved' },
         { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy', status: 'approved' },
         { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys', status: 'approved' },
         { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana', status: 'approved' },
@@ -73,10 +75,16 @@ export function AuthProvider({ children }) {
     async function login(userIdOrEmailOrName, password, loginByName = false) {
         // 1. 더미 유저 체크 (개발 모드일 때만)
         if (DISABLE_FIRESTORE) {
+            const normalizedId = String(userIdOrEmailOrName || '').trim();
             const dummyUser = loginByName
-                ? DUMMY_USERS.find(u => u.name === userIdOrEmailOrName)
-                : DUMMY_USERS.find(u => u.userId === userIdOrEmailOrName);
+                ? DUMMY_USERS.find(u => u.name === normalizedId)
+                : DUMMY_USERS.find(u =>
+                    u.userId === normalizedId ||
+                    // 로컬 편의: 예전 더미 아이디도 허용
+                    (u.role === 'admin' && (normalizedId === 'admin' || normalizedId === '805246'))
+                );
             if (dummyUser) {
+                // 더미 모드에서는 비밀번호를 검증하지 않음 (실비밀번호를 소스에 하드코딩하지 않기 위함)
                 const fakeUser = {
                     uid: dummyUser.uid,
                     email: `${dummyUser.userId}@ewha.dev`,
@@ -90,6 +98,12 @@ export function AuthProvider({ children }) {
                 setUserProfile(dummyUser);
                 return { user: fakeUser };
             }
+            // 더미 모드에서는 Firebase로 넘어가지 않고 바로 안내
+            throw new Error(
+                loginByName
+                    ? '로컬 더미 모드: 등록된 성명이 아닙니다. 목록에 있는 컨설턴트 이름을 사용해 주세요.'
+                    : '로컬 더미 모드: 관리자 아이디는 805246 입니다. (비밀번호는 아무 값이나 가능)'
+            );
         }
 
         // 2. 실제 Firebase 로그인 진행 (Firestore 연동 모드)

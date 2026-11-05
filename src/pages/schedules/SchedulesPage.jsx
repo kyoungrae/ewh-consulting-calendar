@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import Datetime10MinInput from '../../components/common/Datetime10MinInput';
 import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
@@ -24,7 +25,22 @@ import {
     RotateCcw,
 } from 'lucide-react';
 
-// 날짜 포맷팅 유틸리티
+/** datetime-local 값 (분은 10분 단위로 맞춤) */
+function toDatetimeLocalValue(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const roundedMinutes = Math.round(d.getMinutes() / 10) * 10;
+    d.setSeconds(0, 0);
+    if (roundedMinutes === 60) {
+        d.setHours(d.getHours() + 1, 0);
+    } else {
+        d.setMinutes(roundedMinutes);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // 날짜 포맷팅 유틸리티
 const formatters = {
     fullDate: (iso) => new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }),
@@ -800,8 +816,8 @@ export default function SchedulesPage() {
         if (schedule) {
             setEditingSchedule(schedule);
             setFormData({
-                date: schedule.date || '',
-                endDate: schedule.endDate || '',
+                date: toDatetimeLocalValue(schedule.date),
+                endDate: toDatetimeLocalValue(schedule.endDate),
                 location: schedule.location || '',
                 consultantId: schedule.consultantId || '',
                 typeCode: schedule.typeCode || '',
@@ -1889,21 +1905,17 @@ export default function SchedulesPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group">
                                     <label className="form-label">시작 일시 *</label>
-                                    <input
-                                        type="datetime-local"
-                                        className="form-input"
+                                    <Datetime10MinInput
                                         value={formData.date}
-                                        onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                                        onChange={(next) => setFormData({ ...formData, date: next })}
                                         required
                                     />
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label">종료 일시</label>
-                                    <input
-                                        type="datetime-local"
-                                        className="form-input"
+                                    <Datetime10MinInput
                                         value={formData.endDate}
-                                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                                        onChange={(next) => setFormData({ ...formData, endDate: next })}
                                     />
                                 </div>
                             </div>

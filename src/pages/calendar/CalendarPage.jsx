@@ -7,11 +7,29 @@ import interactionPlugin from '@fullcalendar/interaction';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import Datetime10MinInput from '../../components/common/Datetime10MinInput';
 import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useFirestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+
+/** datetime-local 입력용 로컬 시각 문자열 (분은 10분 단위로 맞춤) */
+function toDatetimeLocalValue(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    // 1분 단위 대신 10분 단위 선택용으로 반올림
+    const roundedMinutes = Math.round(d.getMinutes() / 10) * 10;
+    d.setSeconds(0, 0);
+    if (roundedMinutes === 60) {
+        d.setHours(d.getHours() + 1, 0);
+    } else {
+        d.setMinutes(roundedMinutes);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function CalendarPage() {
     const [selectedEvent, setSelectedEvent] = useState(null);
@@ -28,6 +46,13 @@ export default function CalendarPage() {
     const [currentDay, setCurrentDay] = useState(new Date().getDate());
     const [currentView, setCurrentView] = useState('dayGridMonth');
     const [isDateDetailModalOpen, setIsDateDetailModalOpen] = useState(false);
+    const [editForm, setEditForm] = useState({
+        date: '',
+        endDate: '',
+        typeCode: '',
+        consultantId: ''
+    });
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
 
     // List View State
     const [downloadPeriod, setDownloadPeriod] = useState('monthly'); // 'monthly', 'yearly', 'custom'
@@ -38,9 +63,25 @@ export default function CalendarPage() {
 
     const { userProfile, isAdmin, isStrictAdmin } = useAuth();
 
+    const canEditCalendarSchedule = isStrictAdmin;
+
+    const openEventDetail = (eventData) => {
+        setSelectedEvent(eventData);
+        if (!eventData?.isSpecial) {
+            setEditForm({
+                date: toDatetimeLocalValue(eventData.date || eventData.start),
+                // FullCalendar end는 표시용이라 DB endDate가 있을 때만 채움
+                endDate: toDatetimeLocalValue(eventData.endDate || ''),
+                typeCode: eventData.typeCode || '',
+                consultantId: eventData.consultantId || ''
+            });
+        }
+        setIsModalOpen(true);
+    };
+
     const handleRestoreEvent = async () => {
         if (!selectedEvent) return;
-        if (!isStrictAdmin) {
+        if (!canEditCalendarSchedule) {
             alert('관리자만 일정 복구를 할 수 있습니다.');
             return;
         }
@@ -70,7 +111,7 @@ export default function CalendarPage() {
 
     const handleCancelEvent = async () => {
         if (!selectedEvent) return;
-        if (!isStrictAdmin) {
+        if (!canEditCalendarSchedule) {
             alert('관리자만 일정 취소를 할 수 있습니다.');
             return;
         }
@@ -89,6 +130,51 @@ export default function CalendarPage() {
         } catch (error) {
             console.error('일정 취소 중 오류 발생:', error);
             alert(error?.message || '일정 취소에 실패했습니다.');
+        }
+    };
+
+    const handleSaveEventEdit = async (e) => {
+        e.preventDefault();
+        if (!selectedEvent || selectedEvent.isSpecial) return;
+        if (!canEditCalendarSchedule) {
+            alert('관리자만 일정을 수정할 수 있습니다.');
+            return;
+        }
+        if (!editForm.date || !editForm.typeCode || !editForm.consultantId) {
+            alert('일정, 컨설팅 유형, 상담사를 모두 입력해 주세요.');
+            return;
+        }
+
+        const type = codes.find(c => c.code === editForm.typeCode);
+        const consultant = users.find(u => u.uid === editForm.consultantId);
+        if (!type) {
+            alert('선택한 컨설팅 유형을 찾을 수 없습니다.');
+            return;
+        }
+        if (!consultant) {
+            alert('선택한 상담사를 찾을 수 없습니다.');
+            return;
+        }
+
+        setIsSavingEdit(true);
+        try {
+            await updateSchedule(selectedEvent.id, {
+                date: editForm.date,
+                endDate: editForm.endDate || '',
+                typeCode: editForm.typeCode,
+                typeName: type.name,
+                consultantId: editForm.consultantId,
+                consultantName: consultant.name
+            });
+            setIsModalOpen(false);
+            if (window.innerWidth <= 1024 && selectedDate) {
+                setIsDateDetailModalOpen(true);
+            }
+        } catch (error) {
+            console.error('일정 수정 중 오류 발생:', error);
+            alert(error?.message || '일정 수정에 실패했습니다.');
+        } finally {
+            setIsSavingEdit(false);
         }
     };
 
@@ -454,6 +540,28 @@ export default function CalendarPage() {
         }
         return [];
     }, [filteredSchedules, downloadPeriod, currentYear, currentMonth, customStartDate, customEndDate]);
+
+    // 목록보기 상단 요약: 유형별(미취소) + 취소 세션 별도 카드
+    const listViewSummary = useMemo(() => {
+        const byType = {};
+        let cancelledCount = 0;
+
+        downloadTargetSchedules.forEach((schedule) => {
+            const isCancelled = schedule.isCancelled === true || schedule.status === '취소';
+            if (isCancelled) {
+                cancelledCount += 1;
+                return;
+            }
+            const name = codes.find(c => c.code === schedule.typeCode)?.name || '미분류';
+            byType[name] = (byType[name] || 0) + 1;
+        });
+
+        return {
+            total: downloadTargetSchedules.length,
+            cancelledCount,
+            byType: Object.entries(byType).sort(([, a], [, b]) => b - a)
+        };
+    }, [downloadTargetSchedules, codes]);
 
     // 화면 표시용 정렬 데이터
     const sortedSchedules = useMemo(() => {
@@ -1020,14 +1128,13 @@ export default function CalendarPage() {
                                         setIsDateDetailModalOpen(true);
                                     } else {
                                         // 데스크탑에서는 기존처럼 개별 상세 모달 표시
-                                        setSelectedEvent({
+                                        openEventDetail({
                                             ...info.event.extendedProps,
                                             id: info.event.id,
                                             title: info.event.title,
                                             start: info.event.start,
                                             end: info.event.end
                                         });
-                                        setIsModalOpen(true);
                                     }
                                 }}
                                 height="100%"
@@ -1111,20 +1218,22 @@ export default function CalendarPage() {
                                     {/* Total Count Card */}
                                     <div className="ewh-summary-card total-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#00462A] shadow-sm relative overflow-hidden group">
                                         <div className="text-gray-500 text-sm font-bold mb-1">전체 세션</div>
-                                        <div className="text-[#00462A] text-3xl font-extrabold">{downloadTargetSchedules.length}</div>
+                                        <div className="text-[#00462A] text-3xl font-extrabold">{listViewSummary.total}</div>
                                     </div>
 
-                                    {/* Breakdown Cards */}
-                                    {Object.entries(downloadTargetSchedules.reduce((acc, curr) => {
-                                        const name = codes.find(c => c.code === curr.typeCode)?.name || '미분류';
-                                        acc[name] = (acc[name] || 0) + 1;
-                                        return acc;
-                                    }, {})).sort(([, a], [, b]) => b - a).map(([name, count]) => (
+                                    {/* Type Breakdown Cards (취소 제외) */}
+                                    {listViewSummary.byType.map(([name, count]) => (
                                         <div key={name} className="ewh-summary-card bg-[#F9FAFB] rounded-xl flex flex-col items-center justify-center border-t-4 border-transparent shadow-sm hover:shadow-md transition-all">
                                             <div className="text-gray-500 text-sm font-bold mb-1">{name}</div>
                                             <div className="text-[#00462A] text-3xl font-extrabold">{count}</div>
                                         </div>
                                     ))}
+
+                                    {/* Cancelled Sessions Card */}
+                                    <div className="ewh-summary-card bg-[#FEF2F2] rounded-xl flex flex-col items-center justify-center border-t-4 border-[#EF4444] shadow-sm hover:shadow-md transition-all">
+                                        <div className="text-red-500 text-sm font-bold mb-1">취소 세션</div>
+                                        <div className="text-red-600 text-3xl font-extrabold">{listViewSummary.cancelledCount}</div>
+                                    </div>
                                 </div>
 
                                 {/* List Table Container */}
@@ -1276,53 +1385,92 @@ export default function CalendarPage() {
                             setIsDateDetailModalOpen(true);
                         }
                     }}
-                    title="일정 상세"
+                    title={canEditCalendarSchedule && selectedEvent && !selectedEvent.isSpecial ? '일정 수정' : '일정 상세'}
+                    size={canEditCalendarSchedule && selectedEvent && !selectedEvent.isSpecial ? 'lg' : 'md'}
                 >
                     {selectedEvent && (
-                        <div className="space-y-6 p-1">
-                            {/* 헤더 영역 (여백 및 아이콘 크기 조정) */}
-                            <div className="flex items-center gap-4 p-5 bg-gray-50 rounded-xl">
-                                <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#e8f5e9' }}>
-                                    <Tag size={26} style={{ color: '#00462A' }} />
+                        canEditCalendarSchedule && !selectedEvent.isSpecial ? (
+                            <form onSubmit={handleSaveEventEdit} className="space-y-5 p-1">
+                                <div className="flex items-center gap-4 p-5 bg-gray-50 rounded-xl">
+                                    <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#e8f5e9' }}>
+                                        <Tag size={26} style={{ color: '#00462A' }} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-900 text-xl mb-1">
+                                            {codes.find(c => c.code === editForm.typeCode)?.name || selectedEvent.typeName || '미분류 일정'}
+                                        </h4>
+                                        <p className="text-sm text-gray-500">달력에서 개별 일정을 바로 수정할 수 있습니다</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h4 className="font-bold text-gray-900 text-xl mb-1">{selectedEvent.typeName || '미분류 일정'}</h4>
-                                    <p className="text-sm text-gray-500">컨설팅 상세 정보</p>
-                                </div>
-                            </div>
 
-                            {/* 상세 정보 영역 (아이콘 정렬 및 간격 확보) */}
-                            <div className="space-y-4 px-3 py-2" style={{padding:'10px'}}>
-                                <div className="flex items-center gap-4 text-base">
-                                    <div className="w-6 flex justify-center">
-                                        <Clock size={20} className="text-gray-400" />
+                                <div className="space-y-4 px-1">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="form-group">
+                                            <label className="form-label">시작 일시 *</label>
+                                            <Datetime10MinInput
+                                                value={editForm.date}
+                                                onChange={(next) => setEditForm(prev => ({ ...prev, date: next }))}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">종료 일시</label>
+                                            <Datetime10MinInput
+                                                value={editForm.endDate}
+                                                onChange={(next) => setEditForm(prev => ({ ...prev, endDate: next }))}
+                                            />
+                                        </div>
                                     </div>
-                                    <span className="text-gray-700">
-                                        {new Date(selectedEvent.date).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
-                                        <span className="ml-3 font-bold text-[#00462A]">
-                                            {new Date(selectedEvent.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                        </span>
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-4 text-base">
-                                    <div className="w-6 flex justify-center">
-                                        <MapPin size={20} className="text-gray-400" />
-                                    </div>
-                                    <span className="text-gray-700">{selectedEvent.location || '장소 미정'}</span>
-                                </div>
-                                <div className="flex items-center gap-4 text-base">
-                                    <div className="w-6 flex justify-center">
-                                        <Users size={20} className="text-gray-400" />
-                                    </div>
-                                    <span className="text-gray-700">담당: <span className="font-bold">{selectedEvent.consultantName || '미배정'}</span></span>
-                                </div>
-                            </div>
 
-                            {/* 버튼 영역 (실제 관리자만 — 테스터 제외) */}
-                            <div className="pt-6 mt-2 border-t border-gray-100 flex justify-end gap-3" style={{padding:'10px'}}>
-                                {isStrictAdmin && (
-                                    (selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="form-group">
+                                            <label className="form-label">컨설팅 유형(분류) *</label>
+                                            <select
+                                                className="form-select"
+                                                value={editForm.typeCode}
+                                                onChange={(e) => setEditForm(prev => ({ ...prev, typeCode: e.target.value }))}
+                                                required
+                                            >
+                                                <option value="">선택하세요</option>
+                                                {codes.map(code => (
+                                                    <option key={code.id || code.code} value={code.code}>
+                                                        {code.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">상담사 *</label>
+                                            <select
+                                                className="form-select"
+                                                value={editForm.consultantId}
+                                                onChange={(e) => setEditForm(prev => ({ ...prev, consultantId: e.target.value }))}
+                                                required
+                                            >
+                                                <option value="">선택하세요</option>
+                                                {users
+                                                    .filter(u => u.role === 'consultant' || u.role === 'admin')
+                                                    .map(consultant => (
+                                                        <option key={consultant.id || consultant.uid} value={consultant.uid}>
+                                                            {consultant.name}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {selectedEvent.location && (
+                                        <div className="flex items-center gap-3 text-sm text-gray-600 px-1">
+                                            <MapPin size={16} className="text-gray-400" />
+                                            <span>{selectedEvent.location}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="pt-4 mt-2 border-t border-gray-100 flex flex-wrap justify-end gap-3" style={{ padding: '10px' }}>
+                                    {(selectedEvent.isCancelled || selectedEvent.status === '취소') ? (
                                         <button
+                                            type="button"
                                             onClick={handleRestoreEvent}
                                             style={{ padding: '10px 24px', minWidth: '110px' }}
                                             className="bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-bold transition-colors border border-green-200 text-[15px]"
@@ -1331,28 +1479,99 @@ export default function CalendarPage() {
                                         </button>
                                     ) : (
                                         <button
+                                            type="button"
                                             onClick={handleCancelEvent}
                                             style={{ padding: '10px 24px', minWidth: '110px' }}
                                             className="bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold transition-colors border border-red-100 text-[15px]"
                                         >
                                             일정 취소
                                         </button>
-                                    )
-                                )}
-                                <button
-                                    onClick={() => {
-                                        setIsModalOpen(false);
-                                        if (window.innerWidth <= 1024 && selectedDate) {
-                                            setIsDateDetailModalOpen(true);
-                                        }
-                                    }}
-                                    style={{ padding: '10px 24px', minWidth: '110px' }}
-                                    className="bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-bold transition-colors shadow-sm text-[15px]"
-                                >
-                                    닫기
-                                </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsModalOpen(false);
+                                            if (window.innerWidth <= 1024 && selectedDate) {
+                                                setIsDateDetailModalOpen(true);
+                                            }
+                                        }}
+                                        style={{ padding: '10px 24px', minWidth: '110px' }}
+                                        className="bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-bold transition-colors shadow-sm text-[15px]"
+                                    >
+                                        닫기
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSavingEdit}
+                                        style={{ padding: '10px 24px', minWidth: '110px' }}
+                                        className="bg-[#00462A] text-white rounded-lg hover:bg-[#00331F] font-bold transition-colors shadow-sm text-[15px] disabled:opacity-60"
+                                    >
+                                        {isSavingEdit ? '저장 중...' : '수정 완료'}
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="space-y-6 p-1">
+                                {/* 헤더 영역 (여백 및 아이콘 크기 조정) */}
+                                <div className="flex items-center gap-4 p-5 bg-gray-50 rounded-xl">
+                                    <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#e8f5e9' }}>
+                                        <Tag size={26} style={{ color: '#00462A' }} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-900 text-xl mb-1">{selectedEvent.typeName || selectedEvent.title || '미분류 일정'}</h4>
+                                        <p className="text-sm text-gray-500">컨설팅 상세 정보</p>
+                                    </div>
+                                </div>
+
+                                {/* 상세 정보 영역 (아이콘 정렬 및 간격 확보) */}
+                                <div className="space-y-4 px-3 py-2" style={{padding:'10px'}}>
+                                    <div className="flex items-center gap-4 text-base">
+                                        <div className="w-6 flex justify-center">
+                                            <Clock size={20} className="text-gray-400" />
+                                        </div>
+                                        <span className="text-gray-700">
+                                            {new Date(selectedEvent.date || selectedEvent.start).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                                            {!selectedEvent.isSpecial && (
+                                                <span className="ml-3 font-bold text-[#00462A]">
+                                                    {new Date(selectedEvent.date || selectedEvent.start).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </div>
+                                    {!selectedEvent.isSpecial && (
+                                        <>
+                                            <div className="flex items-center gap-4 text-base">
+                                                <div className="w-6 flex justify-center">
+                                                    <MapPin size={20} className="text-gray-400" />
+                                                </div>
+                                                <span className="text-gray-700">{selectedEvent.location || '장소 미정'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-4 text-base">
+                                                <div className="w-6 flex justify-center">
+                                                    <Users size={20} className="text-gray-400" />
+                                                </div>
+                                                <span className="text-gray-700">담당: <span className="font-bold">{selectedEvent.consultantName || '미배정'}</span></span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                <div className="pt-6 mt-2 border-t border-gray-100 flex justify-end gap-3" style={{padding:'10px'}}>
+                                    <button
+                                        onClick={() => {
+                                            setIsModalOpen(false);
+                                            if (window.innerWidth <= 1024 && selectedDate) {
+                                                setIsDateDetailModalOpen(true);
+                                            }
+                                        }}
+                                        style={{ padding: '10px 24px', minWidth: '110px' }}
+                                        className="bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-bold transition-colors shadow-sm text-[15px]"
+                                    >
+                                        닫기
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        )
                     )}
                 </Modal>
 
@@ -1403,14 +1622,13 @@ export default function CalendarPage() {
                                             key={event.id || idx}
                                             className="ewh-detail-item"
                                             onClick={() => {
-                                                setSelectedEvent({
+                                                openEventDetail({
                                                     ...event.extendedProps,
                                                     id: event.id,
                                                     title: event.title,
                                                     start: event.start,
                                                     end: event.end
                                                 });
-                                                setIsModalOpen(true);
                                                 setIsDateDetailModalOpen(false);
                                             }}
                                         >
