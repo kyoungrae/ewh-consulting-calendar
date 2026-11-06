@@ -3,12 +3,13 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { useUsers, useCommonCodes } from '../../hooks/useFirestore';
-import ConsultantFeesByTypeFields, {
+import { useUsers, useCommonCodes } from '../../hooks/useDataApi';
+import ConsultantFeesByTypeFields from '../../components/users/ConsultantFeesByTypeFields';
+import {
     consultantFeeRowsToPayload,
     payloadToConsultingFeeRows,
     validateConsultingFeeRows
-} from '../../components/users/ConsultantFeesByTypeFields';
+} from '../../utils/consultingFeeRows';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
@@ -138,9 +139,7 @@ export default function UsersPage() {
         e.preventDefault();
 
         try {
-            // 비밀번호가 입력된 경우 비밀번호 업데이트 로직 포함 가능
-            // (실제 Firebase Auth는 클라이언트에서 타인의 비밀번호를 직접 바꿀 수 없으므로 
-            // 별도의 Cloud Functions나 관리자 API가 필요합니다)
+            // 비밀번호 검증과 해시 저장은 관리자 API에서 처리한다.
             const updateData = { ...editForm };
 
             // 비밀번호가 비어있으면 데이터에서 제거 (변경하지 않음)
@@ -162,7 +161,7 @@ export default function UsersPage() {
             await updateUser(editingUser.id, updateData);
 
             if (updateData.password) {
-                alert('사용자 정보와 비밀번호가 업데이트되었습니다.\n(참고: Firebase Auth 비밀번호는 관리자 권한 설정에 따라 다를 수 있습니다)');
+                alert('사용자 정보와 비밀번호가 업데이트되었습니다.');
             } else {
                 alert('사용자 정보가 수정되었습니다.');
             }
@@ -251,18 +250,6 @@ export default function UsersPage() {
         }
     };
 
-    // 비밀번호 초기화 (123456으로 설정)
-    const handleResetPassword = async (user) => {
-        if (window.confirm(`'${user.name}' 사용자의 비밀번호를 '123456'으로 초기화하시겠습니까?`)) {
-            try {
-                await updateUser(user.id, { password: '123456' });
-                alert('비밀번호가 123456으로 초기화되었습니다.');
-            } catch (error) {
-                console.error('비밀번호 초기화 실패:', error);
-                alert('비밀번호 초기화에 실패했습니다.');
-            }
-        }
-    };
 
     if (loading) {
         return (
@@ -441,9 +428,7 @@ export default function UsersPage() {
                                                 )}
                                             </td>
                                             <td className="text-gray-500 text-sm">
-                                                {user.createdAt?.toDate
-                                                    ? user.createdAt.toDate().toLocaleDateString('ko-KR')
-                                                    : '-'}
+                                                {user.createdAt ? new Date(user.createdAt).toLocaleDateString('ko-KR') : '-'}
                                             </td>
                                             <td className="text-right">
                                                 <div
@@ -554,23 +539,27 @@ export default function UsersPage() {
                                     <button style={{ padding: "10px", cursor: "pointer" }}
                                         type="button"
                                         onClick={() => {
-                                            if (window.confirm('비밀번호를 123456으로 설정하시겠습니까?')) {
-                                                setEditForm({ ...editForm, password: '123456' });
+                                            const password = window.prompt('새 비밀번호를 입력하세요. (최소 8자)');
+                                            if (password === null) return;
+                                            if (password.length < 8) {
+                                                alert('비밀번호를 8자 이상 입력하세요.');
+                                                return;
                                             }
+                                            setEditForm({ ...editForm, password });
                                         }}
                                         className="text-xs font-bold text-orange-600 hover:bg-orange-50 px-2 py-1 rounded border border-orange-100 flex items-center gap-1 transition-colors"
                                     >
                                         <RotateCcw size={12} />
-                                        123456으로 초기화
+                                        새 비밀번호 입력
                                     </button>
                                 </label>
                                 <input
                                     type="password"
                                     className="form-input"
-                                    placeholder="변경할 비밀번호 (최소 6자)"
+                                    placeholder="변경할 비밀번호 (최소 8자)"
                                     value={editForm.password}
                                     onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
-                                    minLength={6}
+                                    minLength={8}
                                 />
                                 <p className="text-xs text-blue-500 mt-1">비밀번호를 변경하려면 새 비밀번호를 입력하세요. 비워두면 유지됩니다.</p>
                             </div>
@@ -633,7 +622,7 @@ export default function UsersPage() {
                                         (!editingUser?.consultingFeesByType ||
                                             editingUser.consultingFeesByType.length === 0) && (
                                         <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
-                                            현재 Firestore에 <strong>구 단일 강사료</strong>만 있습니다. 아래에서
+                                            현재 회원 정보에 <strong>구 단일 강사료</strong>만 있습니다. 아래에서
                                             유형별로 등록하면 일정의 <code className="text-xs">typeCode</code>에 맞는
                                             단가가 우선하고, 목록에 없는 유형은 구 단가를 씁니다.
                                         </div>
@@ -824,11 +813,11 @@ export default function UsersPage() {
                                 <input
                                     type="password"
                                     className="form-input"
-                                    placeholder="최소 6자 이상"
+                                    placeholder="최소 8자 이상"
                                     value={newUserForm.password}
                                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
                                     required
-                                    minLength={6}
+                                    minLength={8}
                                 />
                             </div>
 

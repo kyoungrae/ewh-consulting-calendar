@@ -1,12 +1,10 @@
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Calendar,
     CalendarPlus,
     Settings,
     Users,
-    LogOut,
-    Shield,
     X,
     Megaphone,
     CreditCard,
@@ -15,18 +13,7 @@ import {
 import ewhaLogo from '../../assets/symbol-mark.png';
 
 export default function Sidebar({ isOpen, onClose }) {
-    const { userProfile, logout, isAdmin, isTester } = useAuth();
-    const location = useLocation();
-    const navigate = useNavigate();
-
-    const handleLogout = async () => {
-        try {
-            await logout();
-            navigate('/');
-        } catch (error) {
-            console.error('로그아웃 실패:', error);
-        }
-    };
+    const { userProfile, isAdmin, isTester } = useAuth();
 
     const handleNavClick = () => {
         // 모바일에서 메뉴 클릭 시 사이드바 닫기

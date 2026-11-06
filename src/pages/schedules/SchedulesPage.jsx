@@ -4,7 +4,7 @@ import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import Datetime10MinInput from '../../components/common/Datetime10MinInput';
-import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useFirestore';
+import { useSchedules, useCommonCodes, useUsers } from '../../hooks/useDataApi';
 import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import {
@@ -592,7 +592,7 @@ export default function SchedulesPage() {
     const { openSidebar } = useOutletContext();
     
     // useAuth에서 isTester를 가져옵니다.
-    const { userProfile, isTester } = useAuth();
+    const { isTester } = useAuth();
 
     const {
         schedules,
@@ -601,11 +601,8 @@ export default function SchedulesPage() {
         addSchedule,
         updateSchedule,
         deleteSchedule,
-        batchAddSchedules,
         mergeSchedules,
         rollbackChangeLog,
-        clearAllSchedules,
-        clearChangeLog
     } = useSchedules();
     const { codes, loading: codesLoading } = useCommonCodes();
     const { users, loading: usersLoading } = useUsers();
@@ -657,7 +654,6 @@ export default function SchedulesPage() {
 
     // --- 페이지네이션 및 필터 상태 ---
     // 초기값을 'all'로 설정하여 전체 데이터 표시
-    const now = new Date();
     const [selectedYear, setSelectedYear] = useState('all');
     const [selectedMonth, setSelectedMonth] = useState('all');
 
@@ -859,50 +855,6 @@ export default function SchedulesPage() {
         }
     };
 
-    // 엑셀 날짜 변환 헬퍼 (스크린샷 형식 대응)
-    const parseExcelDate = (dateVal, timeVal) => {
-        let date;
-
-        // 1. 날짜 처리
-        if (typeof dateVal === 'number') {
-            // 엑셀 시리얼 넘버
-            date = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
-        } else if (typeof dateVal === 'string') {
-            // '2025년 11월 15일 토요일' 형식 처리
-            const match = dateVal.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
-            if (match) {
-                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
-            } else {
-                date = new Date(dateVal);
-            }
-        }
-
-        if (!date || isNaN(date.getTime())) return '';
-
-        // 2. 시간 처리
-        if (timeVal !== undefined && timeVal !== null) {
-            if (typeof timeVal === 'number') {
-                // 엑셀 시간 시리얼 (0 ~ 1 사이의 소수)
-                const totalSeconds = Math.round(timeVal * 86400);
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                date.setHours(hours, minutes, 0, 0);
-            } else if (typeof timeVal === 'string') {
-                // '9:30' 또는 '09:30' 형식 처리
-                const timeMatch = timeVal.match(/(\d{1,2}):(\d{1,2})/);
-                if (timeMatch) {
-                    date.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
-                }
-            }
-        } else {
-            date.setHours(9, 0, 0, 0);
-        }
-
-        // 로컬 시간 기준으로 ISO 포맷 생성 (YYYY-MM-DDTHH:mm)
-        const offset = date.getTimezoneOffset() * 60000;
-        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-    };
-
     // 엑셀 업로드 처리 (새 형식: 월별 시트, 요일 헤더, 셀 형식: "HH:MM 상담종류(컨설턴트)*비고")
     const processExcelWorkbook = async (workbook, targetMonths, selectedUploadMode, backupFileName) => {
         const targetMonthSet = new Set(targetMonths);
@@ -917,7 +869,6 @@ export default function SchedulesPage() {
                 let totalParsed = 0;
 
                 // 스케줄 셀 파싱 정규식: "HH:MM 상담종류(컨설턴트)*비고" 형식
-                const schedulePattern = /^(\d{1,2}:\d{2})\s+(.+?)\((.+?)\)(\*.*)?$/;
 
                 // 이름 정규화 함수
                 const normalize = (str) => {

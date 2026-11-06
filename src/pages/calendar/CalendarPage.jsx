@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -8,7 +8,7 @@ import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import Datetime10MinInput from '../../components/common/Datetime10MinInput';
-import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useFirestore';
+import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useDataApi';
 import { useAuth } from '../../contexts/AuthContext';
 import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
 import ExcelJS from 'exceljs';
@@ -43,7 +43,7 @@ export default function CalendarPage() {
     const [selectedWeek, setSelectedWeek] = useState('all');
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
     const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
-    const [currentDay, setCurrentDay] = useState(new Date().getDate());
+    const [, setCurrentDay] = useState(new Date().getDate());
     const [currentView, setCurrentView] = useState('dayGridMonth');
     const [isDateDetailModalOpen, setIsDateDetailModalOpen] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -58,8 +58,6 @@ export default function CalendarPage() {
     const [downloadPeriod, setDownloadPeriod] = useState('monthly'); // 'monthly', 'yearly', 'custom'
     const [customStartDate, setCustomStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
-    const [isPeriodSelectorOpen, setIsPeriodSelectorOpen] = useState(false);
-    const periodSelectorRef = useRef(null);
 
     const { userProfile, isAdmin, isStrictAdmin } = useAuth();
 
@@ -210,19 +208,6 @@ export default function CalendarPage() {
     const { openSidebar } = useOutletContext();
     const navigate = useNavigate();
 
-    // Close Dropdown on Outside Click
-    useEffect(() => {
-        function handleClickOutside(event) {
-            if (periodSelectorRef.current && !periodSelectorRef.current.contains(event.target)) {
-                setIsPeriodSelectorOpen(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, []);
-
     const { schedules, loading: schedulesLoading, fetchMonthSchedules, updateSchedule } = useSchedules();
     const { codes } = useCommonCodes();
     const { users } = useUsers();
@@ -310,7 +295,7 @@ export default function CalendarPage() {
 
     // 칩 배경색 + 테두리색 (원본 HTML의 .event-chip 스타일)
     // 칩 배경색 + 테두리색 (Common Codes에서 가져오거나 기본값 반환)
-    const getChipStyle = (typeCodeId, typeName) => {
+    const getChipStyle = useCallback((typeCodeId, typeName) => {
         const code = codes.find(c => c.code === typeCodeId);
         if (code && code.color) {
             return { bg: code.color, border: code.borderColor || code.color };
@@ -325,7 +310,7 @@ export default function CalendarPage() {
         if (typeName?.includes('외국계')) return { bg: '#f3e5f5', border: '#7b1fa2' };
         if (typeName?.includes('콘텐츠엔터')) return { bg: '#fff3e0', border: '#ef6c00' };
         return { bg: '#e0f2f1', border: '#00695c' };
-    };
+    }, [codes]);
 
     // FullCalendar 이벤트 형식으로 변환
     const calendarEvents = useMemo(() => {
@@ -466,7 +451,7 @@ export default function CalendarPage() {
                 };
             }
         });
-    }, [filteredSchedules, specialSchedules, codes, users]);
+    }, [filteredSchedules, specialSchedules, codes, users, getChipStyle]);
 
     // 선택된 날짜의 일정 필터링
     const selectedDateSchedules = useMemo(() => {
@@ -607,34 +592,11 @@ export default function CalendarPage() {
         return sortableItems;
     }, [downloadTargetSchedules, sortConfig, users, codes]);
 
-    // 목록 뷰용 이번달 데이터 필터링 (기존 로직 유지 - 캘린더/목록 전환 시 초기 데이터)
-    const currentMonthSchedules = useMemo(() => {
-        const targetPrefix = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-        return filteredSchedules
-            .filter(s => s.date && s.date.startsWith(targetPrefix))
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
-    }, [filteredSchedules, currentYear, currentMonth]);
-
     const handleDateClick = (info) => {
         setSelectedDate(info.dateStr);
         // 모바일에서만 팝업 표시 (1024px 이하)
         if (window.innerWidth <= 1024) {
             setIsDateDetailModalOpen(true);
-        }
-    };
-
-    const changeYear = (delta) => {
-        const newYear = currentYear + delta;
-        const monthKey = `${newYear}-${String(currentMonth).padStart(2, '0')}`;
-        setCurrentYear(newYear);
-        lastFetchedMonthRef.current = monthKey; // ref 업데이트
-
-        if (calendarRef.current && viewMode === 'calendar') {
-            const calendarApi = calendarRef.current.getApi();
-            calendarApi.gotoDate(new Date(newYear, currentMonth - 1, 1));
-        } else {
-            // 목록 보기 모드나 달력이 없을 때 데이터 로드 트리거
-            fetchMonthSchedules(newYear, currentMonth);
         }
     };
 
@@ -1106,7 +1068,7 @@ export default function CalendarPage() {
                                 }}
 
                                 eventClassNames={(arg) => {
-                                    // arg.event.extendedProps 안에 Firestore에서 가져온 원본 데이터가 들어있습니다.
+                                    // arg.event.extendedProps 안에 서버에서 가져온 원본 데이터가 들어있습니다.
                                     // DB의 스키마에 맞게 조건을 수정하세요. (예: isCancelled === true)
                                     if (arg.event.extendedProps.isCancelled === true || arg.event.extendedProps.status === '취소') {
                                         return ['cancelled-event'];

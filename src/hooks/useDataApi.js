@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 
 /**
@@ -18,7 +17,6 @@ export function useSchedules() {
         mergeSchedules: context.mergeSchedules,
         rollbackChangeLog: context.rollbackChangeLog,
         clearAllSchedules: context.clearAllSchedules,
-        setSchedules: context.setSchedules,
         fetchSchedules: context.fetchSchedules,
         fetchMonthSchedules: context.fetchMonthSchedules
     };

@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { useCommonCodes } from '../../hooks/useFirestore';
+import { useCommonCodes } from '../../hooks/useDataApi';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     Plus,
@@ -241,9 +241,7 @@ export default function CodesPage() {
                                                 {code.description || '-'}
                                             </td>
                                             <td className="text-gray-500 text-sm">
-                                                {code.createdAt?.toDate
-                                                    ? code.createdAt.toDate().toLocaleDateString('ko-KR')
-                                                    : '-'}
+                                                {code.createdAt ? new Date(code.createdAt).toLocaleDateString('ko-KR') : '-'}
                                             </td>
                                             <td>
                                                 <div className="flex items-center gap-2">

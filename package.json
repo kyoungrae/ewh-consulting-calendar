@@ -5,9 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node --env-file=.env --watch server/index.mjs",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
     "build": "vite build",
+    "build:hosting": "node scripts/build-firebase-hosting.mjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs scripts/*.test.mjs",
+    "db:user": "node --env-file=.env scripts/manage-user.mjs",
+    "db:import": "node --env-file=.env scripts/import-firestore.mjs"
   },
   "dependencies": {
     "@fullcalendar/daygrid": "^6.1.20",
@@ -15,10 +21,15 @@
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
     "@tailwindcss/vite": "^4.1.18",
+    "connect-mongo": "^5.1.0",
     "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
+    "express-session": "^1.19.0",
     "file-saver": "^2.0.5",
-    "firebase": "^12.8.0",
+    "helmet": "^8.3.0",
     "lucide-react": "^0.562.0",
+    "mongodb": "^6.22.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.12.0",

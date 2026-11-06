@@ -1,229 +1,271 @@
 # 이화 컨설팅 일정
 
-이화여대 스타일의 내부 컨설팅 일정 관리 시스템입니다. 컨설턴트와 관리자만 접속할 수 있는 일정 관리 플랫폼입니다.
+커밋·push 이후에는 Jenkins에서 수동으로 최신 `main`을 배포합니다. 설정과 실행 순서는 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요.
 
-![Ewha Green Theme](https://via.placeholder.com/800x400/00462A/FFFFFF?text=EWH+Consulting+Management+System)
+React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. `consulting-participant-analysis`의 실제 운영 방식에 맞춰 기존 Firebase Hosting 주소는 유지하고, 로그인과 데이터 저장을 맥북 프로의 Docker 서버로 옮깁니다. 운영 앱에는 Firebase Authentication·Firestore SDK가 필요하지 않습니다.
 
-## 🎯 주요 기능
+## 구성
 
-### 접근 제어
-- 등록된 컨설턴트와 관리자 계정으로만 로그인 가능
-- 관리자가 계정을 생성하거나 승인해야 접속 가능
-- 권한별 메뉴 접근 제어
-
-### 관리자 기능
-- **달력**: 전체 컨설팅 일정 조회 (FullCalendar)
-- **일정 등록**: 컨설팅 일정 CRUD
-- **코드 관리**: 컨설팅 구분 코드 관리
-- **회원 관리**: 컨설턴트/관리자 계정 관리 및 승인
-
-### 컨설턴트 기능
-- **달력**: 본인에게 배정된 컨설팅 일정만 조회
-
-### 실시간 동기화
-- Firestore `onSnapshot`을 사용한 실시간 데이터 동기화
-- 관리자가 일정을 수정하면 컨설턴트 화면에 즉시 반영
-
-## 🛠 기술 스택
-
-| 분류 | 기술 |
-|------|------|
-| Frontend | React (Vite) |
-| Styling | Tailwind CSS |
-| Calendar | FullCalendar |
-| Backend/Auth | Firebase Authentication |
-| Database | Cloud Firestore (NoSQL) |
-| Icons | Lucide React |
-
-## 📁 프로젝트 구조
-
-```
-src/
-├── components/
-│   ├── common/
-│   │   ├── LoadingSpinner.jsx
-│   │   └── Modal.jsx
-│   └── layout/
-│       ├── Header.jsx
-│       ├── MainLayout.jsx
-│       └── Sidebar.jsx
-├── contexts/
-│   └── AuthContext.jsx
-├── firebase/
-│   └── config.js
-├── hooks/
-│   └── useFirestore.js
-├── pages/
-│   ├── auth/
-│   │   └── LoginPage.jsx
-│   ├── calendar/
-│   │   └── CalendarPage.jsx
-│   ├── codes/
-│   │   └── CodesPage.jsx
-│   ├── schedules/
-│   │   └── SchedulesPage.jsx
-│   └── users/
-│       └── UsersPage.jsx
-├── routes/
-│   └── ProtectedRoute.jsx
-├── App.jsx
-├── index.css
-└── main.jsx
+```text
+사용자 → https://ewha-consulting.web.app (Firebase Hosting 정적 화면)
+                   ↓ HTTPS API 요청
+     https://macbookpro.tailf007d9.ts.net/ewh-calendar/api
+                   ↓ Tailscale Funnel
+         MacBook Pro localhost:8180 (Node API)
+                   ↓ Docker 내부 연결
+       MongoDB rs0 / ewh_consulting / 독립 영속 볼륨
 ```
 
-## 🗄 Firestore 데이터 구조
+MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 단일 노드 replica set `rs0`은 일정 업로드·되돌리기의 원자적 트랜잭션을 지원하기 위한 구성입니다. 이 구성에는 다른 장비로의 자동 복제가 없으므로 백업을 별도로 보관해야 합니다.
 
-### users 컬렉션
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| uid | string | Firebase Auth UID |
-| email | string | 이메일 |
-| name | string | 이름 |
-| tel | string | 전화번호 |
-| role | string | 권한 (admin/consultant) |
-| status | string | 상태 (pending/approved) |
-| createdAt | timestamp | 생성일 |
-| updatedAt | timestamp | 수정일 |
+로그인은 비밀번호 해시와 서버가 검증하는 세션을 사용합니다. Hosting 화면과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용해 브라우저의 서드파티 쿠키 차단에 의존하지 않습니다. 같은 출처에서 실행하는 로컬·자체 호스팅은 HttpOnly 쿠키 세션을 사용합니다. 관리자·테스터·컨설턴트 권한은 API에서 검사하고, 컨설턴트에게는 본인 일정과 본인 강사료만 제공합니다. 세션은 30분 후 만료되며 화면에서 연장할 수 있습니다.
 
-### schedules 컬렉션
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| studentName | string | 학생 이름 |
-| date | string | 시작일시 |
-| endDate | string | 종료일시 |
-| location | string | 장소 |
-| consultantId | string | 담당 컨설턴트 UID |
-| typeCode | string | 컨설팅 구분 코드 |
-| memo | string | 메모 |
-| createdAt | timestamp | 생성일 |
-| updatedAt | timestamp | 수정일 |
+참조 프로젝트의 기존 운영 화면은 `https://consultingmanagement.web.app`, API는 `https://macbookpro.tailf007d9.ts.net/api/v1`입니다. 이 달력은 별도 포트·경로·Compose 프로젝트·MongoDB 볼륨을 사용하므로 분석 서비스의 설정과 데이터를 공유하지 않습니다.
 
-### common_codes 컬렉션
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| code | string | 코드 (예: 01, 02) |
-| name | string | 코드명 (예: 진로, 취업) |
-| description | string | 설명 |
-| createdAt | timestamp | 생성일 |
-| updatedAt | timestamp | 수정일 |
+## 맥북 프로에서 실행
 
-## 🚀 시작하기
-
-### 1. Firebase 프로젝트 설정
-
-1. [Firebase Console](https://console.firebase.google.com/)에서 새 프로젝트 생성
-2. Authentication 활성화 (이메일/비밀번호)
-3. Firestore 데이터베이스 생성
-4. 프로젝트 설정에서 웹 앱 추가 및 설정값 복사
-
-### 2. 환경 변수 설정
+Docker Desktop 또는 호환 Docker Engine과 Compose, Node.js 24를 사용합니다. Apple Silicon에서도 동일한 Compose 파일을 사용합니다.
 
 ```bash
-# .env.example을 복사하여 .env.local 생성
-cp .env.example .env.local
-
-# .env.local에 Firebase 설정값 입력
+cp .env.example .env
+openssl rand -hex 32
+openssl rand -hex 32
+openssl rand -base64 48
 ```
 
-### 3. 의존성 설치 및 실행
+생성한 값을 `.env`의 `SESSION_SECRET`, `MONGO_ROOT_PASSWORD`, `MONGO_REPLICA_KEY`에 각각 입력합니다. MongoDB 비밀번호는 URI에 안전한 hex 값을 권장합니다. 비밀 값은 `VITE_` 환경 변수에 넣지 않습니다.
+
+로컬 확인에는 다음 설정을 사용합니다.
+
+```dotenv
+APP_ORIGIN=http://localhost:8180
+COOKIE_SECURE=false
+SESSION_TRANSPORT=cookie
+APP_PORT=8180
+MONGO_ROOT_USERNAME=calendar_root
+MONGODB_DB=ewh_consulting
+```
 
 ```bash
-# 의존성 설치
-npm install
+docker compose up -d --build
+docker compose ps
+curl --fail http://localhost:8180/api/health
+```
 
-# 개발 서버 실행
+브라우저에서 `http://localhost:8180`을 엽니다. 처음 MongoDB 볼륨을 생성할 때 관리자 인증과 replica set 초기화 때문에 약간의 시간이 필요합니다. `.env`의 MongoDB 자격 증명을 나중에 바꾸는 것만으로 기존 DB 사용자 비밀번호가 변경되지는 않습니다.
+
+## Firebase 데이터 이전
+
+이 저장소의 수정만으로 기존 Firebase 데이터나 운영 도메인이 변경되지는 않습니다. 아래 순서로 별도 실행합니다.
+
+1. 기존 운영 사이트의 일정·회원 변경을 잠시 중지합니다. 일관된 전체 내보내기를 위해 내보내기부터 새 서버 확인까지 변경을 막습니다.
+2. Firebase 서비스 계정을 사용해 현재 Firestore를 읽기 전용으로 내보냅니다. 기존 Firebase 프로젝트는 확인이 끝날 때까지 유지합니다.
+3. 새 MongoDB에서 dry run을 실행해 식별자와 고유 값 충돌을 확인합니다.
+4. 백업을 확보한 뒤 `--apply`로 새 문서만 가져옵니다.
+5. 관리자와 컨설턴트 계정으로 일정, 코드, 특별 일정, 강사료, 엑셀 업로드와 되돌리기를 확인합니다.
+6. 달력 전용 Funnel 경로를 검증하고 새 화면을 기존 Hosting에 배포한 뒤 Firebase Authentication·Firestore 사용을 종료합니다. Hosting과 기존 주소는 유지합니다.
+
+### Firestore 내보내기
+
+내보내기 도구에만 Firebase Admin SDK가 필요합니다. 별도 `migration/`에 설치되며 운영 이미지에는 포함되지 않습니다.
+
+```bash
+npm --prefix migration install
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/service-account.json node scripts/export-firestore.mjs --project ewha-consulting --out /absolute/path/firestore-export.json
+```
+
+서비스 계정에는 내보내기에 필요한 Firestore 읽기 권한만 부여합니다. 도구는 원본을 수정하지 않고 출력 파일도 덮어쓰지 않습니다. 파일에는 개인정보와 구 시스템의 평문 비밀번호가 포함될 수 있으므로 파일 권한을 제한하고 Git에 추가하지 않습니다.
+
+내보내기는 다음 컬렉션을 처리합니다.
+
+| Firestore 원본 | MongoDB 대상 |
+| --- | --- |
+| `users` | `users` — 기존 UID 유지 |
+| `schedules_by_month/*`의 `items` | `schedules` — 현재 화면과 같은 일정별 문서 |
+| 구 `schedules` 및 현재 화면의 중복 제외 행 | `migration_schedule_archive` — `--current-layout` 정책의 원본 보관 |
+| `special_schedules_by_year/*`의 `items` + 구 `special_schedules` | `special_schedules` — 일정별 문서 |
+| `common_codes` | `common_codes` |
+| `change_logs` | `change_logs` |
+
+기존 배열 항목의 `id`와 사용자 UID를 유지해 담당 컨설턴트 연결과 변경 이력을 보존합니다. ID가 없는 오래된 항목은 문서 ID와 배열 순번으로 결정적인 ID를 부여하고 검사 결과에 개수를 표시합니다. 한국 시간 기준으로 월을 계산합니다. 전체 원본은 제한된 권한의 내보내기 파일에 그대로 보관합니다.
+
+### 현재 화면 기준 이전 정책
+
+기본 정책은 엄격 검사입니다. 옵션 없이 실행하면 월별·구 컬렉션을 함께 검사하며, 서로 다른 내용이 같은 ID를 사용하거나 동일 일시·담당자의 일정이 중복되면 쓰기 전에 중단합니다. 이 프로젝트의 실제 데이터에는 과거 컬렉션과 중복 행이 함께 남아 있으므로, 현재 운영 화면과 맞추려면 `--current-layout`을 명시합니다.
+
+`--current-layout`은 다음 규칙을 적용합니다.
+
+- 월별 문서가 하나라도 있으면 현재 화면이 읽는 `schedules_by_month`만 활성 일정의 원본으로 사용합니다. 구 `schedules`의 모든 행은 원본 그대로 별도 보관하고 현재 일정에 합치지 않습니다. 과거 컬렉션에만 남은 삭제 전 일정이 다시 나타나지 않게 합니다.
+- 같은 슬롯의 월별 행은 기존 달력 화면과 동일하게 `updatedAt`, 없으면 `createdAt`을 비교해 최신 한 건을 사용합니다. 시간이 같으면 취소 행을 우선하고, 취소 상태까지 같으면 먼저 나온 행을 유지합니다. 제외된 모든 행을 원본 그대로 보관합니다.
+- 월별 문서가 전혀 없을 때만 구 `schedules`를 원본으로 사용하고 동일한 중복 선택 규칙을 적용합니다. 월별 문서의 `items`가 비어 있는 경우에는 구 일정을 되살리지 않습니다.
+- 보관 문서에는 원본 컬렉션·문서 ID·배열 순번·전체 원본 데이터를 기록합니다. 원본 위치와 내용의 SHA-256으로 보관 ID를 만들기 때문에 반복 실행은 중복 삽입하지 않고, 같은 위치의 내용이 바뀐 새 스냅샷은 별도 버전으로 보존합니다. 서로 다른 활성 슬롯이 같은 일정 ID를 사용하는 경우에는 계속 중단합니다.
+
+2026-11-06 실제 Firestore의 읽기 전용 스냅샷 검사 결과는 다음과 같습니다. 이 검사는 Firestore 원본을 변경하지 않았습니다.
+
+| 항목 | 개수 |
+| --- | ---: |
+| 사용자 | 21 |
+| 월별 원본 문서 / 배열 행 | 25 / 1,248 |
+| 현재 화면 기준 활성 일정 | 1,229 |
+| 구 `schedules` 전체 보관 | 775 |
+| 월별 중복 제외 행 보관 | 19 |
+| 총 보관 문서 | 794 |
+| 특별 일정 / 코드 / 변경 이력 | 20 / 8 / 947 |
+| 기존 비밀번호 재설정 필요 계정 | 3 |
+
+구 일정 775개의 슬롯 중 472개는 현재 월별 일정과 겹치고 303개는 과거 컬렉션에만 있습니다. 이 303개를 현재 일정에 추가하지 않고 원본 보관으로 남깁니다. 보관 컬렉션은 일반 일정 API로 제공하지 않습니다.
+
+### MongoDB 가져오기
+
+```bash
+docker compose cp /absolute/path/firestore-export.json app:/tmp/firestore-export.json
+docker compose exec -T -u root app chown node:node /tmp/firestore-export.json
+docker compose exec -T app node scripts/import-firestore.mjs --file /tmp/firestore-export.json --current-layout
+```
+
+컨테이너는 일반 `node` 사용자로 실행하므로 복사한 파일의 소유자를 바꿔 0600 권한을 유지한 채 읽을 수 있게 합니다. 기본 동작은 검사만 수행하는 dry run입니다. 원본과 대상 DB의 충돌, 활성 일정과 보관 문서의 추가 예정 개수만 표시하고 데이터를 쓰지 않습니다. 문서 내용·사용자 식별자·비밀번호는 출력하지 않습니다. 결과 확인과 기존 DB 백업 후 같은 정책 옵션을 유지해 실행합니다.
+
+```bash
+docker compose exec -T app node scripts/import-firestore.mjs --file /tmp/firestore-export.json --current-layout --apply
+docker compose exec -T app rm /tmp/firestore-export.json
+```
+
+`--apply`도 기존 `_id` 문서를 덮어쓰지 않습니다. 같은 파일을 다시 실행해도 기존 문서는 유지합니다. 대상 DB의 다른 문서와 아이디·이메일·일정 슬롯·코드가 충돌하면 중단합니다. 모든 문서 삽입은 하나의 트랜잭션으로 처리하므로 데이터 일부만 가져오는 상황을 방지합니다. 큰 데이터는 트랜잭션 제한에 맞는 별도 이전 절차가 필요할 수 있습니다.
+
+Firestore에 기존 평문 비밀번호가 있는 사용자는 가져오는 순간 안전한 해시로 변환하고 평문은 DB에 저장하지 않습니다. Firebase Authentication에만 있는 비밀번호는 이 도구로 옮길 수 없습니다. 해당 계정은 `mustResetPassword: true`로 가져오며 관리자가 새 비밀번호를 지정한 후 로그인할 수 있습니다. Firebase의 해시를 새 비밀번호 해시로 간주하거나 임의 기본 비밀번호를 부여하지 않습니다. 관리자 로그인도 불가능한 경우 아래 초기 관리자 도구를 사용합니다.
+
+## 관리자 계정
+
+초기 관리자 생성 명령은 `scripts/manage-user.mjs`를 사용합니다. 비밀번호는 명령줄 인자나 소스에 직접 저장하지 않고 숨김 입력으로 환경 변수에 잠시 보관합니다.
+
+```bash
+read -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+docker compose exec -e ADMIN_PASSWORD app node scripts/manage-user.mjs --user-id YOUR_ADMIN_ID --name 관리자 --email admin@YOUR-DOMAIN
+unset ADMIN_PASSWORD
+```
+
+기존 사용자 비밀번호는 관리자 로그인 후 회원 관리 화면에서 재설정합니다. 관리자 계정 자체를 재설정해야 하면 같은 방식으로 `ADMIN_PASSWORD`를 입력한 뒤 `docker compose exec -e ADMIN_PASSWORD app node scripts/manage-user.mjs --user-id EXISTING_ID --reset-password`를 실행합니다. 도구는 기본적으로 새 계정만 생성하며 명시적인 `--reset-password` 없이는 기존 계정을 덮어쓰지 않습니다. 이전에 사용하던 Firebase 전용 로그인 세션은 새 서버에 승계하지 않으므로 사용자는 다시 로그인해야 합니다.
+
+## 기존 Hosting 주소와 Funnel API 연결
+
+`https://ewha-consulting.web.app`은 그대로 사용합니다. `.firebaserc`는 기존 `ewha-consulting` 프로젝트를 가리키며, `firebase.json`은 `dist`의 정적 화면과 React Router fallback만 배포합니다. Firebase Authentication이나 Firestore에 연결하는 설정은 아닙니다.
+
+맥북 프로의 서버용 `.env`를 다음과 같이 설정합니다. `APP_ORIGIN`은 API 주소가 아니라 사용자가 여는 화면의 출처이며, CORS와 변경 요청 검증에 사용합니다.
+
+```dotenv
+APP_ORIGIN=https://ewha-consulting.web.app
+COOKIE_SECURE=true
+SESSION_TRANSPORT=bearer
+APP_PORT=8180
+```
+
+```bash
+docker compose up -d --build
+curl --fail http://localhost:8180/api/health
+```
+
+### 기존 서비스를 유지하며 달력 경로 추가
+
+2026-11-06 읽기 전용으로 확인한 맥북 프로의 기존 Tailscale 설정은 다음과 같습니다.
+
+| HTTPS 경로 | 기존 로컬 서비스 |
+| --- | --- |
+| `https://macbookpro.tailf007d9.ts.net/` | `http://127.0.0.1:8080` — 참여자 분석 |
+| `https://macbookpro.tailf007d9.ts.net/consulting-manager` | `http://127.0.0.1:3080` — 기존 별도 서비스 |
+| `https://macbookpro.tailf007d9.ts.net:8443/` | `http://127.0.0.1:4301` — tailnet 전용 |
+
+`/ewh-calendar` 경로와 포트 8180은 이 확인 시점에 사용하지 않았습니다. 설치된 Tailscale 1.102.3의 `funnel --help`에서 `--set-path` 지원을 확인했습니다. 실제 배포 직전에도 상태를 다시 읽고 경로가 비어 있는지 확인합니다. 이 문서 작성 중에는 Funnel 설정을 변경하지 않았습니다.
+
+```bash
+tailscale funnel status
+tailscale serve status
+```
+
+기존 `/`, `/consulting-manager`, 8443 설정을 확인한 뒤 달력 전용 경로만 추가합니다. 아래는 운영자가 배포 시 실행할 명령입니다.
+
+```bash
+tailscale funnel --bg --https=443 --set-path=/ewh-calendar http://127.0.0.1:8180
+tailscale funnel status
+curl --fail https://macbookpro.tailf007d9.ts.net/ewh-calendar/api/health
+```
+
+Tailscale reverse proxy는 mount 접두어를 제거하므로 외부 `/ewh-calendar/api/health`는 달력 서버의 `/api/health`로 전달됩니다. 참조: [Funnel 명령과 경로 옵션](https://tailscale.com/docs/reference/tailscale-cli/funnel), [Tailscale의 접두어 제거 구현](https://github.com/tailscale/tailscale/blob/main/ipn/ipnlocal/serve.go).
+
+경로 옵션 없는 `tailscale funnel --bg http://127.0.0.1:8180`은 기존 루트 서비스를 바꿀 수 있으므로 위 경로 지정 명령을 사용합니다. `tailscale funnel reset`도 기존 서비스를 제거하므로 사용하지 않습니다. 명령 후 기존 두 공개 경로와 tailnet 전용 설정이 유지되는지 대조합니다. macOS에서 `tailscale` 명령을 찾지 못하면 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`을 사용합니다.
+
+### Hosting 화면 빌드와 배포
+
+빌드하는 컴퓨터에서 공개 API 주소만 담은 `.env.hosting`을 준비합니다. 비밀번호·MongoDB URI·세션 비밀 값은 이 파일에 넣지 않습니다.
+
+```bash
+cp .env.hosting.example .env.hosting
+npm ci
+npm run build:hosting
+```
+
+`.env.hosting`의 기본값은 다음과 같습니다.
+
+```dotenv
+FUNNEL_API_BASE_URL=https://macbookpro.tailf007d9.ts.net/ewh-calendar/api
+```
+
+`build:hosting`은 HTTPS와 전체 `/api` 경로를 검증한 뒤 `VITE_API_BASE_URL`을 빌드 프로세스에 전달합니다. API 주소가 없거나 HTTP이면 중단합니다. 다른 주소로 배포할 때는 환경 변수로 명시할 수도 있습니다.
+
+```bash
+FUNNEL_API_BASE_URL=https://macbookpro.tailf007d9.ts.net/ewh-calendar/api npm run build:hosting
+```
+
+기존 Firebase CLI 인증 계정에서 대상 프로젝트와 API health를 확인한 뒤 정적 화면만 배포합니다.
+
+```bash
+firebase deploy --only hosting --project ewha-consulting
+```
+
+Firebase CLI는 화면 배포 도구이며 앱의 로그인·DB용 SDK와 별개입니다. 배포 후 기존 `https://ewha-consulting.web.app`에서 관리자와 컨설턴트 로그인, 새로고침, 로그아웃, 일정 조회·변경을 확인합니다. 서버 Mac만 Docker·Tailscale·Funnel을 유지하면 되고 일반 사용자는 Tailscale을 설치할 필요가 없습니다.
+
+## 자체 호스팅 선택지
+
+Firebase Hosting까지 제거하려는 경우에는 소유한 사용자 도메인의 HTTPS 프록시가 React 화면과 `/api`를 모두 `http://127.0.0.1:8180`으로 전달하도록 구성할 수 있습니다. 이 모드에서는 `.env`를 `APP_ORIGIN=https://실제-도메인`, `COOKIE_SECURE=true`, `SESSION_TRANSPORT=cookie`로 설정하고 일반 `npm run build`로 화면을 빌드합니다. Hosting용 `VITE_API_BASE_URL`이 남아 있지 않아야 같은 출처의 `/api`를 호출합니다.
+
+현재 요청에 맞는 기본 운영 방식은 Hosting 주소 유지입니다. 자체 호스팅으로 변경하면 Firebase 제공 `web.app` 주소를 외부 서버로 이전할 수 없으므로 접속 주소도 사용자 도메인으로 바뀝니다. 참조: [Firebase Hosting 도메인 안내](https://firebase.google.com/docs/hosting/custom-domain).
+
+서버용 맥북은 절전 중 서비스를 제공할 수 없으므로 전원·네트워크·Docker 자동 시작을 운영 환경에 맞게 설정합니다.
+
+## 백업과 복원
+
+백업은 볼륨과 다른 저장 위치에도 복사합니다. 아래 명령은 MongoDB 컨테이너 안의 인증 환경 변수를 사용합니다.
+
+```bash
+mkdir -p backups
+docker compose exec -T mongo sh -c 'mongodump --host localhost --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > backups/mongo.archive.gz
+chmod 600 backups/mongo.archive.gz
+```
+
+출력 파일 이름은 매번 변경해 이전 백업을 덮어쓰지 않도록 합니다. 복원은 현재 데이터에 영향을 주므로 점검 시간에 앱을 중지하고 현재 백업을 먼저 만든 뒤 실행합니다. `--drop`은 백업에 포함된 컬렉션의 현재 데이터를 교체합니다.
+
+```bash
+docker compose stop app
+docker compose exec -T mongo sh -c 'mongorestore --host localhost --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive --gzip --drop --oplogReplay' < backups/mongo.archive.gz
+docker compose up -d app
+```
+
+`docker compose down`은 데이터를 named volume에 남깁니다. `docker compose down -v`는 DB 볼륨을 삭제하므로 운영 데이터에 사용하지 않습니다. MongoDB replica set 및 기동 순서는 [MongoDB 인증 문서](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set-with-keyfile-access-control/), [Compose healthcheck 문서](https://docs.docker.com/compose/how-tos/startup-order/)를 참고하세요.
+
+## 개발과 점검
+
+```bash
+npm ci
+npm run dev:server
 npm run dev
-```
-
-### 4. 초기 관리자 계정 생성
-
-Firebase Console에서 직접 관리자 계정을 생성하세요:
-
-1. **Authentication**: 이메일/비밀번호로 사용자 생성
-2. **Firestore**: users 컬렉션에 문서 추가
-
-```javascript
-// Firestore > users 컬렉션에 추가
-{
-  uid: "[Authentication에서 생성된 UID]",
-  email: "admin@example.com",
-  name: "관리자",
-  tel: "010-0000-0000",
-  role: "admin",
-  status: "approved",
-  createdAt: serverTimestamp(),
-  updatedAt: serverTimestamp()
-}
-```
-
-### 5. Firestore 보안 규칙
-
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // 인증된 사용자만 접근 가능
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    match /schedules/{scheduleId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    match /common_codes/{codeId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-  }
-}
-```
-
-## 🎨 디자인 가이드
-
-### 컬러 팔레트 (이화여대 스타일)
-
-| 용도 | 색상 | HEX |
-|------|------|-----|
-| Primary | Deep Green | #00462A |
-| Primary Light | Light Green | #005c37 |
-| Background | Light Gray | #f9fafb |
-| Text Primary | Dark Gray | #1f2937 |
-| Text Secondary | Medium Gray | #6b7280 |
-
-### 폰트
-
-- **Pretendard**: 기본 UI 폰트
-- Google Fonts CDN 사용
-
-## 📜 스크립트
-
-```bash
-# 개발 서버
-npm run dev
-
-# 프로덕션 빌드
 npm run build
-
-# 빌드 미리보기
-npm run preview
-
-# ESLint 검사
-npm run lint
+npm test
 ```
 
-## 🔐 보안 참고사항
+개발 API 서버는 `.env`의 `MONGODB_URI`로 접근 가능한 개발 MongoDB replica set이 필요합니다. Compose의 MongoDB는 외부 포트를 공개하지 않으므로 호스트에서 직접 연결할 수 없습니다. 기존 운영 DB의 포트를 열기보다 별도 개발 DB를 사용합니다.
 
-- Firebase 설정값은 환경 변수로 관리하세요
-- `.env.local` 파일은 `.gitignore`에 포함되어 있습니다
-- 프로덕션 배포 시 Firestore 보안 규칙을 반드시 설정하세요
-- 관리자 초대 이메일 방식보다 직접 계정 생성을 권장합니다
+Vite 개발 모드에서는 `.env`를 `APP_ORIGIN=http://localhost:5173`, `COOKIE_SECURE=false`, `SESSION_TRANSPORT=cookie`, `PORT=3001`로 설정합니다. API 프록시 대상은 기본 `http://127.0.0.1:3001`이며 필요하면 `API_PROXY_TARGET`으로 바꿉니다. `APP_ORIGIN`은 브라우저 주소와 정확히 일치해야 합니다.
 
-## 📄 라이선스
+`npm test`는 기본 단위·이전 데이터 테스트를 실행합니다. 별도의 테스트용 MongoDB replica set이 있으면 `MONGODB_TEST_URI='mongodb://127.0.0.1:27781/?replicaSet=rs0' npm test`로 실제 API 인증·권한·업로드·되돌리기 통합 테스트도 실행합니다. 이 테스트는 임의 이름의 테스트 DB를 만들고 종료 시 해당 DB만 삭제합니다.
 
-MIT License
+운영 로그는 `docker compose logs --tail=100 app`과 `docker compose logs --tail=100 mongo`로 확인합니다. 서버용 비밀 값과 개인정보는 로그나 저장소에 넣지 않습니다.

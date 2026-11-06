@@ -8,7 +8,7 @@ function pad(n) {
 }
 
 /** 저장용 datetime-local 문자열 → { date, hour, minute } */
-export function splitDatetimeLocalValue(value) {
+function splitDatetimeLocalValue(value) {
     if (!value) return { date: '', hour: '', minute: '' };
     const normalized = String(value).replace(' ', 'T');
     const match = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{1,2}):(\d{1,2})/);
@@ -29,7 +29,7 @@ export function splitDatetimeLocalValue(value) {
 }
 
 /** { date, hour, minute } → YYYY-MM-DDTHH:mm */
-export function joinDatetimeLocalValue({ date, hour, minute }) {
+function joinDatetimeLocalValue({ date, hour, minute }) {
     if (!date || hour === '' || minute === '') return '';
     return `${date}T${pad(Number(hour))}:${pad(Number(minute))}`;
 }
@@ -52,6 +52,8 @@ export default function Datetime10MinInput({
     useEffect(() => {
         // 부모에서 값이 바뀐 경우만 동기화 (입력 중간 상태는 유지)
         if (value !== lastEmittedRef.current) {
+            // External value changes reset partial date/hour/minute edits together.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setParts(splitDatetimeLocalValue(value));
             lastEmittedRef.current = value;
         }

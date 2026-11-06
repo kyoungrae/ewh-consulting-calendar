@@ -1,16 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import { initializeApp, deleteApp } from 'firebase/app';
-import {
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged,
-    getAuth,
-    createUserWithEmailAndPassword,
-    setPersistence,
-    browserSessionPersistence
-} from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db, firebaseConfig, DISABLE_FIRESTORE } from '../firebase/config';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { api, clearCsrfToken } from '../lib/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const AuthContext = createContext();
@@ -19,341 +8,134 @@ export function useAuth() {
     return useContext(AuthContext);
 }
 
+function sessionExpiry(value) {
+    if (typeof value === 'number') return value;
+    const date = Date.parse(value);
+    return Number.isFinite(date) ? date : 0;
+}
+
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [connectionError, setConnectionError] = useState('');
+    const [expiresAt, setExpiresAt] = useState(0);
+    const [remainingTime, setRemainingTime] = useState(0);
 
-    // ID로 사용자 이메일 조회
-    async function getEmailByUserId(userId) {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('userId', '==', userId));
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-            return null;
-        }
-
-        return querySnapshot.docs[0].data().email;
-    }
-
-    // ID 중복 체크
-    async function checkUserIdExists(userId) {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('userId', '==', userId));
-        const querySnapshot = await getDocs(q);
-
-        return !querySnapshot.empty;
-    }
-
-    // 개발용 더미 유저 데이터 (useFirestore.js와 동기화)
-    // 로컬(DISABLE_FIRESTORE)에서는 Firebase 대신 이 목록으로만 로그인됩니다.
-    const DUMMY_USERS = [
-        // 로컬 더미: 비밀번호 검증 없음(아무 값이나 통과). 실서비스 비밀번호를 코드에 넣지 마세요.
-        { uid: 'admin_user', name: '관리자', role: 'admin', userId: '805246', status: 'approved' },
-        { uid: 'user_lhj', name: '이희영', role: 'consultant', userId: 'lhy', status: 'approved' },
-        { uid: 'user_sys', name: '심영섭', role: 'consultant', userId: 'sys', status: 'approved' },
-        { uid: 'user_hn', name: '한 나', role: 'consultant', userId: 'hana', status: 'approved' },
-        { uid: 'user_lsh', name: '이상환', role: 'consultant', userId: 'lsh', status: 'approved' },
-        { uid: 'user_ksh', name: '김세희', role: 'consultant', userId: 'ksh', status: 'approved' },
-        { uid: 'user_kmk', name: '김민경', role: 'consultant', userId: 'kmk', status: 'approved' },
-        { uid: 'user_jsh', name: '장신혜', role: 'consultant', userId: 'jsh', status: 'approved' },
-        { uid: 'user_kny', name: '김나영', role: 'consultant', userId: 'kny', status: 'approved' },
-        { uid: 'user_sjw', name: '성지우', role: 'consultant', userId: 'sjw', status: 'approved' },
-        { uid: 'user_smi', name: '신민이', role: 'consultant', userId: 'smi', status: 'approved' },
-        { uid: 'user_ksh2', name: '김선화', role: 'consultant', userId: 'sunhwa', status: 'approved' },
-        { uid: 'user_yws', name: '양우석', role: 'consultant', userId: 'yws', status: 'approved' },
-        { uid: 'user_kj', name: '강 진', role: 'consultant', userId: 'kangjin', status: 'approved' },
-        { uid: 'user_kjh', name: '김지현', role: 'consultant', userId: 'kjh', status: 'approved' },
-        { uid: 'user_jjs', name: '정지선', role: 'consultant', userId: 'jjs', status: 'approved' },
-        { uid: 'user_wmy', name: '원미영', role: 'consultant', userId: 'wmy', status: 'approved' },
-        { uid: 'user_jms', name: '지명선', role: 'consultant', userId: 'jms', status: 'approved' },
-        { uid: 'user_mhj', name: '민현정', role: 'consultant', userId: 'mhj', status: 'approved' }
-    ];
-
-    // 로그인 (ID 또는 이메일 또는 이름으로 로그인)
-    async function login(userIdOrEmailOrName, password, loginByName = false) {
-        // 1. 더미 유저 체크 (개발 모드일 때만)
-        if (DISABLE_FIRESTORE) {
-            const normalizedId = String(userIdOrEmailOrName || '').trim();
-            const dummyUser = loginByName
-                ? DUMMY_USERS.find(u => u.name === normalizedId)
-                : DUMMY_USERS.find(u =>
-                    u.userId === normalizedId ||
-                    // 로컬 편의: 예전 더미 아이디도 허용
-                    (u.role === 'admin' && (normalizedId === 'admin' || normalizedId === '805246'))
-                );
-            if (dummyUser) {
-                // 더미 모드에서는 비밀번호를 검증하지 않음 (실비밀번호를 소스에 하드코딩하지 않기 위함)
-                const fakeUser = {
-                    uid: dummyUser.uid,
-                    email: `${dummyUser.userId}@ewha.dev`,
-                    displayName: dummyUser.name
-                };
-
-                // 세션 유지용 데이터 저장 (sessionStorage는 창을 닫으면 자동 삭제됨)
-                sessionStorage.setItem('ewh_dummy_user', JSON.stringify({ user: fakeUser, profile: dummyUser }));
-
-                setCurrentUser(fakeUser);
-                setUserProfile(dummyUser);
-                return { user: fakeUser };
-            }
-            // 더미 모드에서는 Firebase로 넘어가지 않고 바로 안내
-            throw new Error(
-                loginByName
-                    ? '로컬 더미 모드: 등록된 성명이 아닙니다. 목록에 있는 컨설턴트 이름을 사용해 주세요.'
-                    : '로컬 더미 모드: 관리자 아이디는 805246 입니다. (비밀번호는 아무 값이나 가능)'
-            );
-        }
-
-        // 2. 실제 Firebase 로그인 진행 (Firestore 연동 모드)
-        let userDoc = null;
-        let email = userIdOrEmailOrName;
-
-        // 이름, 이메일 또는 ID로 사용자 조회
-        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userIdOrEmailOrName);
-        const usersRef = collection(db, 'users');
-        let q;
-        if (loginByName) {
-            q = query(usersRef, where('name', '==', userIdOrEmailOrName));
-        } else if (isEmail) {
-            q = query(usersRef, where('email', '==', userIdOrEmailOrName));
-        } else {
-            q = query(usersRef, where('userId', '==', userIdOrEmailOrName));
-        }
-
-        const querySnapshot = await getDocs(q);
-        if (querySnapshot.empty) {
-            throw new Error(loginByName ? '등록되지 않은 성명입니다.' : '등록되지 않은 아이디 또는 이메일입니다.');
-        }
-
-        userDoc = querySnapshot.docs[0];
-        const userData = userDoc.data();
-        email = userData.email;
-
-        // 상태 확인
-        if (userData.status !== 'approved') {
-            throw new Error('계정이 아직 승인되지 않았습니다. 관리자에게 문의하세요.');
-        }
-
-        // DB에 저장된 비밀번호와 일치하는지 확인 (우선순위 1)
-        if (userData.password && userData.password === password) {
-
-
-            // 사이트 종료 시 자동으로 로그아웃 되도록 세션 유지 방식 설정
-            await setPersistence(auth, browserSessionPersistence);
-
-            // Firebase Auth 로그인은 선택적으로 시도 (성공하면 좋고 실패해도 DB 세션으로 인증)
-            let authUser = null;
-            try {
-                const cred = await signInWithEmailAndPassword(auth, email, password);
-                authUser = cred.user;
-            } catch (authError) {
-                console.warn('Auth sync required, but using DB session');
-                // Auth 비밀번호가 구형이어도 DB 세션으로 대체 인증
-                authUser = {
-                    uid: userData.uid,
-                    email: userData.email,
-                    displayName: userData.name,
-                    isCustomAuth: true
-                };
-            }
-
-            // 세션 유지용 데이터 저장 (sessionStorage는 창을 닫으면 자동 삭제됨)
-            sessionStorage.setItem('ewh_db_auth_session', JSON.stringify({ uid: authUser.uid }));
-
-            setCurrentUser(authUser);
-            setUserProfile(userData);
-            return { user: authUser };
-        }
-
-        // DB 비밀번호가 다르거나 없는 경우, 표준 Auth 로그인 시도 (최종 수단)
-        try {
-            await setPersistence(auth, browserSessionPersistence);
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            setCurrentUser(userCredential.user);
-            const profile = await fetchUserProfile(userCredential.user.uid);
-            setUserProfile(profile);
-            return userCredential;
-        } catch (error) {
-            console.error('Login failed:', error);
-            throw new Error('비밀번호가 일치하지 않습니다.');
-        }
-    }
-
-    // 로그아웃
-    function logout() {
-        sessionStorage.removeItem('ewh_dummy_user'); // 더미 세션 삭제
-        sessionStorage.removeItem('ewh_db_auth_session'); // DB 세션 삭제
-        setCurrentUser(null);
-        setUserProfile(null);
-        return signOut(auth);
-    }
-
-    // 회원가입 (관리자만 사용 가능)
-    // 보조 Firebase 앱을 사용하여 현재 관리자 세션이 변경되지 않도록 함
-    async function registerUser(email, password, userData) {
-        // ID 중복 체크
-        if (userData.userId) {
-            const exists = await checkUserIdExists(userData.userId);
-            if (exists) {
-                throw new Error('이미 사용 중인 아이디입니다.');
-            }
-        }
-
-        // 임시 보조 앱 초기화
-        const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
-        const secondaryAuth = getAuth(secondaryApp);
-
-        try {
-            const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-            const uid = userCredential.user.uid;
-
-            // Firestore에 사용자 정보 저장 (기본 db 인스턴스 사용)
-            const role = userData.role || 'consultant';
-            const feeList =
-                role === 'consultant' && Array.isArray(userData.consultingFeesByType)
-                    ? userData.consultingFeesByType.filter(
-                          (x) =>
-                              x &&
-                              String(x.typeCode || '').trim() &&
-                              Number.isFinite(x.amount) &&
-                              x.amount >= 0
-                      )
-                    : [];
-
-            await setDoc(doc(db, 'users', uid), {
-                uid: uid,
-                userId: userData.userId || '',  // 사용자 ID 저장
-                email: email,
-                name: userData.name,
-                tel: userData.tel || '',
-                role,
-                status: userData.status || 'approved',
-                ...(role === 'consultant' && feeList.length > 0 ? { consultingFeesByType: feeList } : {}),
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-            });
-
-            // 보조 앱의 로그아웃 및 삭제
-            await signOut(secondaryAuth);
-            await deleteApp(secondaryApp);
-
-            return userCredential;
-        } catch (error) {
-            // 에러 발생 시에도 보조 앱 정리
-            await deleteApp(secondaryApp);
-            throw error;
-        }
-    }
-
-    // 사용자 프로필 조회
-    async function fetchUserProfile(uid) {
-        const userDoc = await getDoc(doc(db, 'users', uid));
-        if (userDoc.exists()) {
-            return { id: userDoc.id, ...userDoc.data() };
-        }
-        return null;
-    }
-
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                setCurrentUser(user);
-                try {
-                    const profile = await fetchUserProfile(user.uid);
-                    setUserProfile(profile);
-                } catch (err) {
-                    console.error('Failed to fetch user profile:', err);
-                }
-            } else {
-                // Firebase 유저가 없을 때, 커스텀 세션 확인
-                const storedDummy = sessionStorage.getItem('ewh_dummy_user');
-                const storedDbAuth = sessionStorage.getItem('ewh_db_auth_session');
-
-                if (storedDummy) {
-                    try {
-                        const { user: fakeUser } = JSON.parse(storedDummy);
-                        const latestDummyProfile = DUMMY_USERS.find(u => u.uid === fakeUser.uid);
-                        setCurrentUser(fakeUser);
-                        setUserProfile(latestDummyProfile || null);
-                    } catch (e) {
-                        sessionStorage.removeItem('ewh_dummy_user');
-                    }
-                } else if (storedDbAuth) {
-                    try {
-                        const { uid } = JSON.parse(storedDbAuth);
-                        const profile = await fetchUserProfile(uid);
-                        if (profile) {
-                            setCurrentUser({
-                                uid: profile.uid,
-                                email: profile.email,
-                                displayName: profile.name,
-                                isCustomAuth: true
-                            });
-                            setUserProfile(profile);
-                        } else {
-                            sessionStorage.removeItem('ewh_db_auth_session');
-                        }
-                    } catch (e) {
-                        sessionStorage.removeItem('ewh_db_auth_session');
-                    }
-                } else {
-                    setCurrentUser(null);
-                    setUserProfile(null);
-                }
-            }
-
-            setLoading(false);
-        }, (error) => {
-            console.error('Firebase Auth Error:', error);
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
+    const applySession = useCallback((session) => {
+        const expiry = sessionExpiry(session.expiresAt);
+        setCurrentUser(session.user || null);
+        setUserProfile(session.profile || null);
+        setExpiresAt(expiry);
+        setRemainingTime(Math.max(0, Math.ceil((expiry - Date.now()) / 1000)));
     }, []);
 
-    const [remainingTime, setRemainingTime] = useState(1800); // 30분 = 1800초
+    const clearSession = useCallback(() => {
+        clearCsrfToken();
+        setCurrentUser(null);
+        setUserProfile(null);
+        setExpiresAt(0);
+        setRemainingTime(0);
+    }, []);
 
-    // ... (onAuthStateChanged useEffect)
-
-    // 30분 타이머 로직 (활동 감지 없이 고정 시간, 수동 연장 가능)
     useEffect(() => {
-        if (!currentUser) return;
+        let active = true;
+        api('/auth/session')
+            .then((session) => {
+                if (active) applySession(session);
+            })
+            .catch((error) => {
+                if (active) setConnectionError(error.message);
+            })
+            .finally(() => {
+                if (active) setLoading(false);
+            });
+        return () => { active = false; };
+    }, [applySession]);
 
-        const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30분
-        let lastReset = Date.now();
+    useEffect(() => {
+        const onExpired = () => clearSession();
+        window.addEventListener('ewh-auth-expired', onExpired);
+        return () => window.removeEventListener('ewh-auth-expired', onExpired);
+    }, [clearSession]);
 
-        const checkTimer = () => {
-            const now = Date.now();
-            const diff = now - lastReset;
-
-            if (diff >= INACTIVITY_TIMEOUT) {
-                logout();
+    useEffect(() => {
+        if (!currentUser || !expiresAt) return;
+        const updateTimer = () => {
+            const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+            setRemainingTime(seconds);
+            if (seconds === 0) {
+                clearSession();
                 alert('로그인 세션(30분)이 만료되어 자동 로그아웃되었습니다.');
-            } else {
-                setRemainingTime(Math.max(0, Math.floor((INACTIVITY_TIMEOUT - diff) / 1000)));
             }
         };
+        const timer = setInterval(updateTimer, 1000);
+        return () => clearInterval(timer);
+    }, [currentUser, expiresAt, clearSession]);
 
-        const interval = setInterval(checkTimer, 1000);
-
-        // 수동 연장 처리를 위한 커스텀 이벤트 리스너
-        const handleManualReset = () => {
-            lastReset = Date.now();
-            setRemainingTime(1800);
+    // 다른 탭에서 로그아웃하거나 세션을 연장한 경우 서버 상태를 다시 확인합니다.
+    useEffect(() => {
+        if (!currentUser) return;
+        let active = true;
+        const checkSession = () => {
+            api('/auth/session')
+                .then((session) => { if (active) applySession(session); })
+                .catch(() => { /* 일시적인 연결 오류는 다음 API 요청에서 다시 확인합니다. */ });
         };
-        window.addEventListener('ewh-reset-timer', handleManualReset);
-
+        window.addEventListener('focus', checkSession);
         return () => {
-            clearInterval(interval);
-            window.removeEventListener('ewh-reset-timer', handleManualReset);
+            active = false;
+            window.removeEventListener('focus', checkSession);
         };
-    }, [currentUser]);
+    }, [currentUser, applySession]);
 
-    const resetTimer = () => {
-        window.dispatchEvent(new CustomEvent('ewh-reset-timer'));
-    };
+    async function retryConnection() {
+        setLoading(true);
+        setConnectionError('');
+        try {
+            applySession(await api('/auth/session'));
+        } catch (error) {
+            setConnectionError(error.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function login(identifier, password, loginByName = false) {
+        const session = await api('/auth/login', {
+            method: 'POST',
+            body: { identifier: identifier.trim(), password, loginByName }
+        });
+        applySession(session);
+        return { user: session.user };
+    }
+
+    async function logout() {
+        await api('/auth/logout', { method: 'POST' });
+        clearSession();
+    }
+
+    async function registerUser(email, password, userData) {
+        const user = await api('/users', {
+            method: 'POST',
+            body: { ...userData, email, password }
+        });
+        window.dispatchEvent(new Event('ewh-users-changed'));
+        return { user };
+    }
+
+    async function checkUserIdExists(userId) {
+        const result = await api(`/users/check-id?userId=${encodeURIComponent(userId)}`);
+        return result.exists;
+    }
+
+    async function resetTimer() {
+        try {
+            applySession(await api('/auth/extend', { method: 'POST' }));
+        } catch (error) {
+            alert(error.message || '로그인 시간을 연장하지 못했습니다.');
+        }
+    }
 
     const value = {
         currentUser,
@@ -363,13 +145,10 @@ export function AuthProvider({ children }) {
         registerUser,
         checkUserIdExists,
         remainingTime,
-        resetTimer, // 수동 연장 함수 추가
-        // 테스터도 관리자 화면을 볼 수 있도록 수정
+        resetTimer,
         isAdmin: userProfile?.role === 'admin' || userProfile?.role === 'tester',
-        /** 실제 관리자만 (테스터 제외) — 취소/예산/회원 등 민감 권한 */
         isStrictAdmin: userProfile?.role === 'admin',
         isConsultant: userProfile?.role === 'consultant',
-        // 테스터인지 여부를 별도로 전달 (버튼 제어용)
         isTester: userProfile?.role === 'tester'
     };
 
@@ -379,9 +158,15 @@ export function AuthProvider({ children }) {
                 <div className="min-h-screen flex items-center justify-center bg-gray-50">
                     <LoadingSpinner message="인증 정보를 확인하는 중..." />
                 </div>
-            ) : (
-                children
-            )}
+            ) : connectionError ? (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+                    <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-md" role="alert">
+                        <h1 className="text-xl font-semibold mb-3">서버에 연결할 수 없습니다</h1>
+                        <p className="text-gray-600 mb-6">{connectionError}</p>
+                        <button className="btn btn-primary" onClick={retryConnection}>다시 연결</button>
+                    </div>
+                </div>
+            ) : children}
         </AuthContext.Provider>
     );
 }

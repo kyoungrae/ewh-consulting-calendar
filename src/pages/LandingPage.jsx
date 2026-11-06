@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import leaf1 from '../assets/reaf-1.png';
 import leaf2 from '../assets/reaf-2.png';
@@ -11,6 +11,25 @@ import leaf7 from '../assets/reaf-7.png';
 
 const leafImages = [leaf1, leaf2, leaf3, leaf4, leaf5, leaf6, leaf7];
 
+function createPetal(id) {
+    return {
+        id: id || Math.random(),
+        x: Math.random() * window.innerWidth, // 시작 X
+        y: -Math.random() * 500, // 시작 Y
+        imageIndex: Math.floor(Math.random() * 7),
+        speed: Math.random() * 0.8 + 0.2, // 낙하 속도
+        swayAmplitude: Math.random() * 50 + 40, // 흔들림 폭
+        swayFrequency: Math.random() * 0.05 + 0.2, // 흔들림 주기
+        // JS 애니메이션을 위한 시간/각도 변수
+        t: Math.random() * 100,
+        rotationX: 0,
+        rotationY: 0,
+        rotationZ: 0,
+        scale: Math.random() * 0.6 + 0.6,
+        width: Math.random() * 15 + 20,
+    };
+}
+
 export default function LandingPage() {
     const navigate = useNavigate();
 
@@ -20,34 +39,8 @@ export default function LandingPage() {
     const consultantBtnRef = useRef(null);
 
     // 상태 관리
-    const [fallingPetals, setFallingPetals] = useState([]);
+    const [fallingPetals, setFallingPetals] = useState(() => Array.from({ length: 30 }, (_, i) => createPetal(i)));
     const [landedPetals, setLandedPetals] = useState([]);
-
-    // 벚꽃 생성 함수
-    const createPetal = (id) => {
-        return {
-            id: id || Math.random(),
-            x: Math.random() * window.innerWidth, // 시작 X
-            y: -Math.random() * 500, // 시작 Y
-            imageIndex: Math.floor(Math.random() * 7),
-            speed: Math.random() * 0.8 + 0.2, // 낙하 속도
-            swayAmplitude: Math.random() * 50 + 40, // 흔들림 폭
-            swayFrequency: Math.random() * 0.05 + 0.2, // 흔들림 주기
-            // JS 애니메이션을 위한 시간/각도 변수
-            t: Math.random() * 100,
-            rotationX: 0,
-            rotationY: 0,
-            rotationZ: 0,
-            scale: Math.random() * 0.6 + 0.6,
-            width: Math.random() * 15 + 20,
-        };
-    };
-
-    // 초기화
-    useEffect(() => {
-        const initPetals = Array.from({ length: 30 }).map((_, i) => createPetal(i));
-        setFallingPetals(initPetals);
-    }, []);
 
     // 애니메이션 루프
     useEffect(() => {

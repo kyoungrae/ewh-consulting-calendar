@@ -11,6 +11,16 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+!.env.hosting.example
+backups/
+*firestore*export*.json
+*service-account*.json
+migration/node_modules/
+.firebase/
+.cache/jenkins/
 
 # Editor directories and files
 .vscode/*

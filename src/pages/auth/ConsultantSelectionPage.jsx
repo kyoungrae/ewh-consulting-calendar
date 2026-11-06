@@ -1,12 +1,24 @@
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useUsers } from '../../hooks/useFirestore';
-import { Loader2, ArrowLeft, User, Home } from 'lucide-react';
+import { api } from '../../lib/api';
+import { Loader2, User, Home } from 'lucide-react';
 
 export default function ConsultantSelectionPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const mode = searchParams.get('mode');
-    const { users, loading } = useUsers();
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let active = true;
+        api('/auth/consultants')
+            .then((list) => { if (active) setUsers(list); })
+            .catch((err) => { if (active) setError(err.message); })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, []);
 
     // 역할이 'consultant'인 유저만 필터링 및 이름순 정렬
     const consultants = users
@@ -43,6 +55,12 @@ export default function ConsultantSelectionPage() {
 
                 {/* Grid Area - Corrected spacing */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 md:gap-8 justify-items-center w-full max-w-6xl">
+                    {error && (
+                        <div className="col-span-full text-center text-red-700" role="alert">
+                            <p>{error}</p>
+                            <button className="btn btn-secondary mt-4" onClick={() => window.location.reload()}>다시 불러오기</button>
+                        </div>
+                    )}
                     {consultants.map((consultant) => (
                         <button
                             key={consultant.id}
@@ -50,7 +68,7 @@ export default function ConsultantSelectionPage() {
                                 if (mode === 'admin') {
                                     navigate(`/calendar?consultantId=${consultant.uid}`);
                                 } else {
-                                    navigate(`/login?userId=${encodeURIComponent(consultant.userId || consultant.email)}&name=${encodeURIComponent(consultant.name)}`);
+                                    navigate(`/login?role=consultant&name=${encodeURIComponent(consultant.name)}`);
                                 }
                             }}
                             className="bg-white border border-gray-100 rounded-2xl text-center shadow-sm hover:shadow-xl hover:border-[#00462A]/30 hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden w-full flex flex-col items-center justify-center cursor-pointer"
@@ -68,7 +86,7 @@ export default function ConsultantSelectionPage() {
                         </button>
                     ))}
 
-                    {consultants.length === 0 && (
+                    {!error && consultants.length === 0 && (
                         <div className="col-span-full py-40 flex flex-col items-center justify-center w-full">
                             <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-sm border border-gray-100">
                                 <User size={40} className="text-gray-200" />

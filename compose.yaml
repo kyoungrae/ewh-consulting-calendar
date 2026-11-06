@@ -1,0 +1,68 @@
+name: ewh-consulting-calendar
+
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_REPLICA_KEY: ${MONGO_REPLICA_KEY:?Set MONGO_REPLICA_KEY in .env}
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        printf '%s' "$$MONGO_REPLICA_KEY" > /tmp/mongo-keyfile
+        chmod 600 /tmp/mongo-keyfile
+        chown mongodb:mongodb /tmp/mongo-keyfile
+        exec /usr/local/bin/docker-entrypoint.sh mongod --replSet rs0 --keyFile /tmp/mongo-keyfile --bind_ip_all
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host localhost --username "$$MONGO_INITDB_ROOT_USERNAME"
+          --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+          --eval 'try { rs.status(); } catch (e) { if (e.code === 94) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]}); } else { throw e; } } if (!db.hello().isWritablePrimary) quit(1);'
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      - database
+
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8180}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TRANSPORT: ${SESSION_TRANSPORT:-cookie}
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/?replicaSet=rs0&authSource=admin
+      MONGODB_DB: ${MONGODB_DB:-ewh_consulting}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8180}:3001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - database
+
+volumes:
+  mongo_data:
+  mongo_config:
+
+networks:
+  database:

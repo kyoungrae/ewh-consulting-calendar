@@ -1,0 +1,9 @@
+{
+  "name": "ewh-firestore-export-only",
+  "private": true,
+  "type": "module",
+  "description": "One-time Firestore export tooling; never included in the app runtime",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

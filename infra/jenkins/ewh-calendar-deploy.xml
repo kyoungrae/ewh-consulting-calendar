@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job">
+  <description>수동 실행 전용. GitHub origin/main 최신 커밋의 검증·Docker API·Firebase Hosting 배포.</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <jenkins.model.BuildDiscarderProperty>
+      <strategy class="hudson.tasks.LogRotator"><numToKeep>20</numToKeep></strategy>
+    </jenkins.model.BuildDiscarderProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+    <script><![CDATA[
+// Keep this loader fixed: deployment logic is read from the freshly checked-out commit.
+properties([
+  pipelineTriggers([]),
+  disableConcurrentBuilds(),
+  buildDiscarder(logRotator(numToKeepStr: '20'))
+])
+node {
+  timestamps {
+    stage('Checkout') {
+      deleteDir()
+      def GITHUB_CREDENTIAL_ID = 'consultingManager'
+      withCredentials([usernamePassword(
+        credentialsId: GITHUB_CREDENTIAL_ID,
+        usernameVariable: 'GITHUB_USERNAME',
+        passwordVariable: 'GITHUB_TOKEN'
+      )]) {
+        sh '''#!/bin/sh
+set -eu
+askpass="$(mktemp)"
+trap 'rm -f "$askpass"' EXIT HUP INT TERM
+cat > "$askpass" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\\n' "$GITHUB_USERNAME" ;;
+  *Password*) printf '%s\\n' "$GITHUB_TOKEN" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod 700 "$askpass"
+GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch main https://github.com/kyoungrae/ewh-consulting-calendar.git .
+git rev-parse --verify HEAD
+'''
+      }
+      env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+      currentBuild.description = "main ${env.GIT_COMMIT.take(12)}"
+    }
+    load 'Jenkinsfile'
+  }
+}
+]]></script>
+    <sandbox>true</sandbox>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>

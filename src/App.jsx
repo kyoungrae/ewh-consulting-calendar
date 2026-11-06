@@ -13,7 +13,6 @@ import EventsPage from './pages/events/EventsPage';
 import BudgetPage from './pages/budget/BudgetPage';
 import MyConsultingFeePage from './pages/profile/MyConsultingFeePage';
 import { DataProvider } from './contexts/DataContext';
-import FirebaseMonitor from './components/common/FirebaseMonitor';
 import './index.css';
 
 function App() {
@@ -86,7 +85,6 @@ function App() {
               but for simplified UX we point to root */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          {/* <FirebaseMonitor /> */}
         </DataProvider>
       </AuthProvider>
     </BrowserRouter>

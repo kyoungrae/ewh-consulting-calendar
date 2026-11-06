@@ -1,0 +1,15 @@
+.git
+.firebase
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+dist
+coverage
+backups
+migration
+*.xlsx
+*.log
+*firestore*export*.json
+package-lock 2.json

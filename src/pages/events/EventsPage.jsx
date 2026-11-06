@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
-import { useSpecialSchedules } from '../../hooks/useFirestore';
+import { useSpecialSchedules } from '../../hooks/useDataApi';
 import {
     Plus,
     Edit2,

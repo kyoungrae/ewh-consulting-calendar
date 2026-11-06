@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
-import { useUsers, useCommonCodes } from '../../hooks/useFirestore';
-import ConsultantFeesByTypeFields, {
+import { useUsers, useCommonCodes } from '../../hooks/useDataApi';
+import ConsultantFeesByTypeFields from '../../components/users/ConsultantFeesByTypeFields';
+import {
     consultantFeeRowsToPayload,
     payloadToConsultingFeeRows,
     validateConsultingFeeRows
-} from '../../components/users/ConsultantFeesByTypeFields';
+} from '../../utils/consultingFeeRows';
 
 export default function MyConsultingFeePage() {
     const { openSidebar } = useOutletContext();
@@ -25,7 +26,7 @@ export default function MyConsultingFeePage() {
         );
     }, [users, userProfile]);
 
-    const firestoreId = myRow?.id;
+    const profileId = myRow?.id;
 
     useEffect(() => {
         if (!myRow) return;
@@ -34,7 +35,7 @@ export default function MyConsultingFeePage() {
 
     const handleSave = async (e) => {
         e.preventDefault();
-        if (!firestoreId) {
+        if (!profileId) {
             alert('회원 정보를 찾을 수 없습니다. 잠시 후 다시 시도해 주세요.');
             return;
         }
@@ -45,7 +46,7 @@ export default function MyConsultingFeePage() {
         }
         setSaving(true);
         try {
-            await updateUser(firestoreId, {
+            await updateUser(profileId, {
                 consultingFeesByType: consultantFeeRowsToPayload(feeRows)
             });
             alert('유형별 강사료가 저장되었습니다.');
@@ -106,7 +107,7 @@ export default function MyConsultingFeePage() {
                             </div>
                         )}
                         <ConsultantFeesByTypeFields value={feeRows} onChange={setFeeRows} codes={codes} />
-                        <button type="submit" className="btn btn-primary" disabled={saving || !firestoreId}>
+                        <button type="submit" className="btn btn-primary" disabled={saving || !profileId}>
                             {saving ? '저장 중…' : '저장'}
                         </button>
                     </form>

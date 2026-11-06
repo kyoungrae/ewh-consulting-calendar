@@ -307,14 +307,13 @@ export default function BudgetPage() {
     );
 
     useEffect(() => {
-        fetchSchedules();
-        fetchUsers();
+        Promise.allSettled([fetchSchedules(), fetchUsers()]);
     }, [fetchSchedules, fetchUsers]);
 
     const handleRefresh = useCallback(async () => {
         setRefreshing(true);
         try {
-            await Promise.all([fetchSchedules(), fetchUsers()]);
+            await Promise.allSettled([fetchSchedules(), fetchUsers()]);
         } finally {
             setRefreshing(false);
         }
