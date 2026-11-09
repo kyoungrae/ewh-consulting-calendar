@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-mode="${1:?Specify verify, build, build-hosting, deploy, firebase-check, firebase, smoke, smoke-hosting or cleanup}"
+mode="${1:?Specify verify, build, build-hosting, backup, deploy, firebase-check, firebase, smoke, smoke-hosting or cleanup}"
 deploy_tag="${2:-manual}"
 case "$deploy_tag" in *[!A-Za-z0-9_.-]*|'') printf 'Invalid deployment tag.\n' >&2; exit 64 ;; esac
 
@@ -17,9 +17,19 @@ rollback_image="ewh-calendar/rollback:$deploy_tag"
 test_network="ewh-test-$deploy_tag"
 test_mongo="ewh-test-mongo-$deploy_tag"
 candidate_name="ewh-candidate-$deploy_tag"
+backup_path="${BACKUP_DIR:-}/${deploy_tag}.archive.gz"
+checksum_path="${BACKUP_DIR:-}/${deploy_tag}.sha256"
 
 die() { printf '%s\n' "$1" >&2; exit 1; }
 require_file() { [ -r "$1" ] && [ -s "$1" ] || die 'A required Jenkins Secret file is empty or unreadable.'; }
+verify_backup() {
+  case "${BACKUP_DIR:-}" in /*) ;; *) die 'BACKUP_DIR must be an absolute persistent directory.' ;; esac
+  [ -s "$backup_path" ] && [ -s "$checksum_path" ] || die 'A verified MongoDB backup is required; the current API was kept.'
+  gzip -t "$backup_path" 2>/dev/null || die 'The MongoDB backup is corrupt; the current API was kept.'
+  expected_checksum="$(cat "$checksum_path")"
+  actual_checksum="$(sha256sum "$backup_path")"
+  [ "$actual_checksum" = "$expected_checksum" ] || die 'MongoDB backup checksum verification failed; the current API was kept.'
+}
 compose() {
   docker compose --env-file "$RUNTIME_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" \
     -f compose.yaml -f infra/jenkins/compose.deploy.yaml "$@"
@@ -74,17 +84,19 @@ firebase_command() {
 
 case "$mode" in
   verify)
+    test_network_id=''
+    test_mongo_id=''
     cleanup_test() {
-      docker rm -f "$test_mongo" >/dev/null 2>&1 || true
-      docker network rm "$test_network" >/dev/null 2>&1 || true
+      [ -z "$test_mongo_id" ] || docker rm -f "$test_mongo_id" >/dev/null 2>&1 || true
+      [ -z "$test_network_id" ] || docker network rm "$test_network_id" >/dev/null 2>&1 || true
     }
     trap cleanup_test EXIT
     trap 'exit 130' INT
     trap 'exit 143' HUP TERM
     docker build --target verify -t "$VERIFY_IMAGE" -f infra/jenkins/Dockerfile .
-    docker network create "$test_network" >/dev/null
-    docker run --detach --rm --name "$test_mongo" --network "$test_network" \
-      mongo:8.0 --replSet rs0 --bind_ip_all >/dev/null
+    test_network_id="$(docker network create "$test_network")"
+    test_mongo_id="$(docker run --detach --rm --name "$test_mongo" --network "$test_network" \
+      mongo:8.0 --replSet rs0 --bind_ip_all)"
     ready=false
     attempt=1
     while [ "$attempt" -le 40 ]; do
@@ -115,20 +127,57 @@ case "$mode" in
     docker build --target firebase --build-arg "FUNNEL_API_BASE_URL=$FUNNEL_API_BASE_URL" \
       -t "$FIREBASE_IMAGE" -f infra/jenkins/Dockerfile .
     ;;
+  backup)
+    : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"
+    require_file "$RUNTIME_ENV_FILE"
+    case "$BACKUP_DIR" in /*) ;; *) die 'BACKUP_DIR must be an absolute persistent directory.' ;; esac
+    mongo_id="$(service_id mongo)"
+    [ -n "$mongo_id" ] || die 'The existing production MongoDB must be running before backup.'
+    umask 077
+    mkdir -p "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR"
+    [ ! -e "$backup_path" ] && [ ! -e "$checksum_path" ] || die 'A backup for this build already exists; refusing to overwrite it.'
+    backup_tmp="$(mktemp "$BACKUP_DIR/.${deploy_tag}.archive.XXXXXX")"
+    checksum_tmp=''
+    cleanup_backup() {
+      [ -z "$backup_tmp" ] || rm -f "$backup_tmp"
+      [ -z "$checksum_tmp" ] || rm -f "$checksum_tmp"
+    }
+    trap cleanup_backup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' HUP TERM
+    # Stream the authenticated, consistent replica-set dump to Jenkins' persistent volume.
+    if ! docker exec "$mongo_id" sh -c 'exec mongodump --host localhost --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > "$backup_tmp" 2>/dev/null; then
+      die 'MongoDB backup failed; the current API was kept.'
+    fi
+    [ -s "$backup_tmp" ] && gzip -t "$backup_tmp" 2>/dev/null || die 'MongoDB backup was empty or corrupt; the current API was kept.'
+    ln "$backup_tmp" "$backup_path" || die 'Could not preserve the MongoDB backup without overwriting an existing file.'
+    rm -f "$backup_tmp"
+    backup_tmp=''
+    checksum_tmp="$(mktemp "$BACKUP_DIR/.${deploy_tag}.checksum.XXXXXX")"
+    sha256sum "$backup_path" > "$checksum_tmp"
+    ln "$checksum_tmp" "$checksum_path" || die 'Could not preserve the backup checksum without overwriting an existing file.'
+    rm -f "$checksum_tmp"
+    checksum_tmp=''
+    verify_backup
+    printf 'MongoDB backup saved and checked: %s\n' "$backup_path"
+    ;;
   deploy)
     : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"
     require_file "$RUNTIME_ENV_FILE"
+    verify_backup
     mongo_id="$(service_id mongo)"
     [ -n "$mongo_id" ] || die 'The existing production MongoDB must be running before Jenkins deploys the API.'
     previous_id="$(service_id app)"
     [ -n "$previous_id" ] || die 'Initial server setup must complete before Jenkins deployments.'
     previous_image="$(docker inspect --format '{{.Image}}' "$previous_id")"
     docker image tag "$previous_image" "$rollback_image"
-    cleanup_candidate() { docker rm -f "$candidate_name" >/dev/null 2>&1 || true; }
+    candidate_id=''
+    cleanup_candidate() { [ -z "$candidate_id" ] || docker rm -f "$candidate_id" >/dev/null 2>&1 || true; }
     trap cleanup_candidate EXIT
     trap 'exit 130' INT
     trap 'exit 143' HUP TERM
-    compose run --detach --no-deps --name "$candidate_name" app >/dev/null
+    candidate_id="$(compose run --detach --no-deps --name "$candidate_name" app)"
     if ! wait_healthy "$candidate_name"; then
       report_candidate_failure
       die 'The candidate API failed its health check; the current API was kept.'
@@ -173,8 +222,8 @@ case "$mode" in
         console.log("Hosting page check passed; API deployment was not attempted.");'
     ;;
   cleanup)
-    docker rm -f "$candidate_name" "$test_mongo" >/dev/null 2>&1 || true
-    docker network rm "$test_network" >/dev/null 2>&1 || true
+    # Temporary containers and networks are cleaned by their creation-stage traps.
+    # Never remove by name here: a failed creation could refer to a pre-existing resource.
     docker image rm "$VERIFY_IMAGE" "$FIREBASE_IMAGE" >/dev/null 2>&1 || true
     ;;
   *) die 'Unknown Jenkins operation.' ;;
