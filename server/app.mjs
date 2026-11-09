@@ -44,7 +44,7 @@ function userFields(input) {
     return out;
 }
 
-export function createApp({ db, client, config, sessionStore, firebaseAuth, firebaseDirectory, authDiagnostic = reason => console.warn('AUTH_DIAGNOSTIC', reason) }) {
+export function createApp({ db, client, config, sessionStore, firebaseAuth, firebaseDirectory }) {
     const app = express();
     const useBearer = config.sessionTransport === 'bearer';
     const useFirebase = config.authProvider === 'firebase';
@@ -120,16 +120,10 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     app.post('/api/auth/login', loginLimit, async (req, res) => {
         const identifier = text(req.body.identifier, '아이디', true);
         let fresh;
-        let diagnosticReason;
         if (useFirebase) {
             const found = await firebaseDirectory.lookup(identifier, req.body.loginByName === true);
-            if (!found) diagnosticReason = 'lookup_missing';
-            else {
-                const uid = await firebaseAuth.signIn(found.email, req.body.password);
-                if (!uid) diagnosticReason = 'firebase_credentials_rejected';
-                else if (found.uid && found.uid !== uid) diagnosticReason = 'uid_mismatch';
-                else fresh = await firebaseDirectory.get(uid);
-            }
+            const uid = found ? await firebaseAuth.signIn(found.email, req.body.password) : null;
+            fresh = uid && (!found.uid || found.uid === uid) ? await firebaseDirectory.get(uid) : null;
         } else {
             const filter = req.body.loginByName === true ? { name: identifier, role: 'consultant' } : { $or: [{ userId: identifier }, { email: identifier.toLowerCase() }] };
             const matches = await db.collection('users').find(filter).limit(2).toArray();
@@ -139,10 +133,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
                 if ((fresh?.authVersion || 0) !== (user.authVersion || 0)) fresh = null;
             }
         }
-        if (!fresh || fresh.disabled || fresh.status !== 'approved' || fresh.authSyncPending) {
-            if (useFirebase) authDiagnostic(diagnosticReason || 'profile_rejected');
-            throw httpError(401, '계정 정보 또는 비밀번호가 올바르지 않거나 승인되지 않은 계정입니다.');
-        }
+        if (!fresh || fresh.disabled || fresh.status !== 'approved' || fresh.authSyncPending) throw httpError(401, '계정 정보 또는 비밀번호가 올바르지 않거나 승인되지 않은 계정입니다.');
         await regenerate(req);
         req.session.uid = fresh.uid;
         req.session.authVersion = fresh.authVersion || 0;
