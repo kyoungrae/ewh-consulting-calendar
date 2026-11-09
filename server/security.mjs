@@ -28,7 +28,7 @@ export async function verifyPassword(password, encoded) {
 
 export function safeUser(user, includePrivate = true) {
     const fields = includePrivate
-        ? ['uid', 'userId', 'email', 'name', 'tel', 'role', 'status', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'mustResetPassword']
+        ? ['uid', 'userId', 'email', 'name', 'tel', 'role', 'status', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'mustResetPassword', 'authSyncPending']
         : ['uid', 'name', 'role', 'status'];
     return Object.fromEntries([['id', String(user._id)], ...fields.filter(key => user[key] !== undefined).map(key => [key, user[key]])]);
 }

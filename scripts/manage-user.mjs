@@ -5,6 +5,7 @@ import { ensureIndexes } from '../server/db.mjs';
 import { randomUUID } from 'node:crypto';
 
 const { values } = parseArgs({ options: { 'user-id': { type: 'string' }, name: { type: 'string' }, email: { type: 'string' }, 'reset-password': { type: 'boolean', default: false } } });
+if (process.env.AUTH_PROVIDER === 'firebase' || (process.env.NODE_ENV === 'production' && !process.env.AUTH_PROVIDER)) throw new Error('Firebase authentication is enabled. Manage account passwords using Firebase Authentication, not this MongoDB-only tool.');
 if (!values['user-id'] || !process.env.ADMIN_PASSWORD) throw new Error('Use --user-id ID [--name NAME --email EMAIL] [--reset-password] and provide ADMIN_PASSWORD via environment.');
 const passwordHash = await hashPassword(process.env.ADMIN_PASSWORD);
 const client = new MongoClient(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/?replicaSet=rs0');

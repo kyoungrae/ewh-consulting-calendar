@@ -2,7 +2,7 @@
 
 커밋·push 이후에는 Jenkins에서 수동으로 최신 `main`을 배포합니다. 설정과 실행 순서는 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요.
 
-React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. `consulting-participant-analysis`의 실제 운영 방식에 맞춰 기존 Firebase Hosting 주소는 유지하고, 로그인과 데이터 저장을 맥북 프로의 Docker 서버로 옮깁니다. 운영 앱에는 Firebase Authentication·Firestore SDK가 필요하지 않습니다.
+React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. Firebase Hosting은 화면을, Firebase Authentication은 계정 인증을 담당하며, 사용자 프로필과 일정은 맥북 프로의 MongoDB에 보관합니다. Firestore는 운영 데이터 저장에 사용하지 않습니다.
 
 ## 구성
 
@@ -18,7 +18,36 @@ React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨�
 
 MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 단일 노드 replica set `rs0`은 일정 업로드·되돌리기의 원자적 트랜잭션을 지원하기 위한 구성입니다. 이 구성에는 다른 장비로의 자동 복제가 없으므로 백업을 별도로 보관해야 합니다.
 
-로그인은 비밀번호 해시와 서버가 검증하는 세션을 사용합니다. Hosting 화면과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용해 브라우저의 서드파티 쿠키 차단에 의존하지 않습니다. 같은 출처에서 실행하는 로컬·자체 호스팅은 HttpOnly 쿠키 세션을 사용합니다. 관리자·테스터·컨설턴트 권한은 API에서 검사하고, 컨설턴트에게는 본인 일정과 본인 강사료만 제공합니다. 세션은 30분 후 만료되며 화면에서 연장할 수 있습니다.
+운영 로그인은 Firebase Authentication에서 이메일과 비밀번호를 검증하고 반환된 UID를 MongoDB의 승인된 사용자 UID와 비교합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. 권한과 승인 상태는 MongoDB에서 검사합니다.
+
+## Firebase 로그인 전환과 Jenkins 설정
+
+전환은 기존 계정을 먼저 대조한 뒤 진행합니다. 이전 앱은 Firestore 비밀번호와 Firebase 비밀번호가 서로 다른 경우에도 어느 쪽이든 허용했으므로, Firebase 비밀번호가 없는 계정이나 이전에 Firestore 비밀번호를 쓰던 계정은 개별 복구가 필요합니다. `805246`에 MongoDB로 설정한 임시 비밀번호는 Firebase 비밀번호를 바꾸지 않았습니다. 기존 UID와 이메일을 자동으로 결합하거나 기존 계정의 비밀번호를 일괄 변경하지 않습니다.
+
+운영 Jenkins의 `ewh-calendar-runtime-env` Secret file에 다음을 기존 MongoDB·세션 설정과 함께 추가합니다. 서비스 계정은 대상 Firebase 프로젝트의 Authentication 사용자 조회·생성·수정·삭제에 필요한 권한만 부여하고 키와 런타임 파일은 비공개로 보관합니다. Web API 키는 Firebase 프로젝트 설정의 웹 앱 설정에서 가져오고 Identity Toolkit API 및 이메일/비밀번호 로그인 사용 여부를 확인합니다.
+
+```dotenv
+AUTH_PROVIDER=firebase
+FIREBASE_PROJECT_ID=ewha-consulting
+FIREBASE_WEB_API_KEY=<Firebase web API key>
+FIREBASE_SERVICE_ACCOUNT_BASE64=<service account JSON encoded as one-line base64>
+```
+
+서비스 계정 JSON의 개행 없는 base64 값을 생성해 비공개 환경 파일에 넣고, 원본 키나 값을 로그·Git에 넣지 않습니다. Jenkins는 후보 API의 health 확인 후 Firebase와 MongoDB 계정을 읽기 전용으로 대조하며, UID·이메일·비활성 상태 불일치나 중단된 동기화가 있으면 기존 API를 유지하고 배포를 중단합니다. 사용자 목록 대조에는 Firebase Authentication 사용자 목록 조회 권한이 필요합니다. 감사는 암호나 암호 해시를 확인하지 않으므로 **Firebase 비밀번호가 실제 사용자에게 알려져 있는지까지 보장하지 않습니다.** 사용자별 실제 로그인 확인이 필요합니다.
+
+서버의 비공개 운영 환경을 사용하는 새 이미지에서 `node scripts/audit-firebase-users.mjs`를 실행하면 불일치한 아이디·UID와 사유를 확인할 수 있습니다. Firebase에만 있는 계정은 개수만 보고하며 자동 삭제하거나 연결하지 않습니다. 정상 로그인 사례와 이름 로그인, 일정·권한을 검증한 뒤 운영에 반영하세요. `AUTH_PROVIDER=mongo`는 Firebase에 접속하지 않는 격리된 로컬 개발 환경을 위한 것입니다.
+
+관리자가 앱에서 새 사용자를 만들면 Firebase 계정을 만든 다음 동일 UID로 MongoDB 프로필을 생성합니다. 프로필 저장 실패 시 생성한 Firebase 계정 삭제를 시도하고, 정리가 실패하면 서버 로그에 해당 UID를 남깁니다. Firebase 계정 생성 요청의 응답이 유실된 경우에도 로그의 UID를 확인해 고아 계정 여부를 수동으로 조사해야 합니다. 이메일·이름·비밀번호·승인 상태 변경이나 삭제는 두 시스템에 반영됩니다. 중간에 실패하면 `authSyncPending`으로 계정을 잠그고 기존 세션을 무효화합니다. Firebase 또는 MongoDB를 수동으로 편집해 잠금을 해제하지 마세요. 먼저 해당 UID와 실제 Firebase 상태를 확인하고 비공개 서버에서 아래 도구를 실행합니다.
+
+```bash
+docker exec -i <app-container> node scripts/recover-firebase-sync.mjs --user-id <아이디>
+# dry-run 검토 후에만 적용: Firebase 이메일·이름·비활성 상태를 MongoDB 프로필 기준으로 되돌립니다.
+docker exec -i <app-container> node scripts/recover-firebase-sync.mjs --user-id <아이디> --apply
+```
+
+복구 도구는 비밀번호를 변경하거나 없는 Firebase 계정을 새로 만들지 않습니다. 실패한 작업이 비밀번호 변경이었다면 실제 Firebase 비밀번호가 어느 값인지 확인할 수 없으므로 Firebase에서 비밀번호를 재설정해야 합니다. 삭제 중단으로 Firebase 계정이 없는 경우에는 자동 복구하지 않고 관리자가 계정과 데이터를 검토해야 합니다.
+
+전환 후 Firebase에서 새 사용자를 만들거나 비밀번호를 변경한 뒤 구 MongoDB 인증 버전으로 롤백하면 해당 사용자가 로그인하지 못할 수 있습니다. 롤백은 계정 변경 내역과 백업을 확인하고 진행합니다.
 
 참조 프로젝트의 기존 운영 화면은 `https://consultingmanagement.web.app`, API는 `https://macbookpro.tailf007d9.ts.net/api/v1`입니다. 이 달력은 별도 포트·경로·Compose 프로젝트·MongoDB 볼륨을 사용하므로 분석 서비스의 설정과 데이터를 공유하지 않습니다.
 
@@ -132,11 +161,11 @@ docker compose exec -T app rm /tmp/firestore-export.json
 
 `--apply`도 기존 `_id` 문서를 덮어쓰지 않습니다. 같은 파일을 다시 실행해도 기존 문서는 유지합니다. 대상 DB의 다른 문서와 아이디·이메일·일정 슬롯·코드가 충돌하면 중단합니다. 모든 문서 삽입은 하나의 트랜잭션으로 처리하므로 데이터 일부만 가져오는 상황을 방지합니다. 큰 데이터는 트랜잭션 제한에 맞는 별도 이전 절차가 필요할 수 있습니다.
 
-Firestore에 기존 평문 비밀번호가 있는 사용자는 가져오는 순간 안전한 해시로 변환하고 평문은 DB에 저장하지 않습니다. Firebase Authentication에만 있는 비밀번호는 이 도구로 옮길 수 없습니다. 해당 계정은 `mustResetPassword: true`로 가져오며 관리자가 새 비밀번호를 지정한 후 로그인할 수 있습니다. Firebase의 해시를 새 비밀번호 해시로 간주하거나 임의 기본 비밀번호를 부여하지 않습니다. 관리자 로그인도 불가능한 경우 아래 초기 관리자 도구를 사용합니다.
+기존 가져오기 도구는 Firestore의 평문 비밀번호를 MongoDB 해시로 변환했지만, Firebase Authentication 전환 후에는 이 해시를 운영 로그인에 사용하지 않습니다. `mustResetPassword`는 당시 이전 도구의 기록이며 Firebase 계정의 현재 비밀번호 유무를 뜻하지 않습니다. Firebase 비밀번호는 자동으로 가져오거나 변경하지 않습니다.
 
 ## 관리자 계정
 
-초기 관리자 생성 명령은 `scripts/manage-user.mjs`를 사용합니다. 비밀번호는 명령줄 인자나 소스에 직접 저장하지 않고 숨김 입력으로 환경 변수에 잠시 보관합니다.
+다음 도구는 MongoDB 전용 로컬 개발 모드에서만 사용합니다. Firebase 모드에서는 거부되며, 운영 계정은 Firebase Authentication과 MongoDB 프로필의 UID를 대조해 관리합니다.
 
 ```bash
 read -s ADMIN_PASSWORD
@@ -145,7 +174,7 @@ docker compose exec -e ADMIN_PASSWORD app node scripts/manage-user.mjs --user-id
 unset ADMIN_PASSWORD
 ```
 
-기존 사용자 비밀번호는 관리자 로그인 후 회원 관리 화면에서 재설정합니다. 관리자 계정 자체를 재설정해야 하면 같은 방식으로 `ADMIN_PASSWORD`를 입력한 뒤 `docker compose exec -e ADMIN_PASSWORD app node scripts/manage-user.mjs --user-id EXISTING_ID --reset-password`를 실행합니다. 도구는 기본적으로 새 계정만 생성하며 명시적인 `--reset-password` 없이는 기존 계정을 덮어쓰지 않습니다. 이전에 사용하던 Firebase 전용 로그인 세션은 새 서버에 승계하지 않으므로 사용자는 다시 로그인해야 합니다.
+Firebase 모드에서는 관리자 로그인 후 회원 관리 화면에서 비밀번호를 변경하면 Firebase Authentication의 비밀번호가 변경됩니다. 기존 세션은 유지되지 않으며 다시 로그인해야 합니다.
 
 ## 기존 Hosting 주소와 Funnel API 연결
 

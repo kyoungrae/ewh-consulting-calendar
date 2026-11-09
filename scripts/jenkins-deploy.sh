@@ -108,6 +108,11 @@ case "$mode" in
     trap 'exit 143' HUP TERM
     compose run --detach --no-deps --name "$candidate_name" app >/dev/null
     wait_healthy "$candidate_name" || die 'The candidate API failed its health check; the current API was kept.'
+    docker exec "$candidate_name" node -e "if(process.env.AUTH_PROVIDER !== 'firebase') process.exit(1)" || die 'Production deployment requires AUTH_PROVIDER=firebase; the current API was kept.'
+    # Read-only and fail closed: do not replace the working API while identities disagree.
+    if ! docker exec "$candidate_name" node scripts/audit-firebase-users.mjs >/dev/null; then
+      die 'Firebase/MongoDB account audit failed; the current API was kept. Run the audit privately on the server.'
+    fi
     rollback() {
       export APP_IMAGE="$rollback_image"
       compose up -d --no-deps --no-build app
