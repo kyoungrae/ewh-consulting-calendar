@@ -16,8 +16,9 @@ test('failed candidate reports a recognized reason without disclosing container 
         await mkdir(join(dir, 'infra', 'jenkins'), { recursive: true });
         await mkdir(join(dir, 'bin'));
         await writeFile(join(dir, 'scripts', 'jenkins-deploy.sh'), await readFile(new URL('./jenkins-deploy.sh', import.meta.url)));
-        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nBACKUP_DIR=${dir}/backups\n`);
+        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nFIREBASE_PROJECT=calendar-test\nFIREBASE_WEB_API_KEY=public-key\nBACKUP_DIR=${dir}/backups\n`);
         await writeFile(join(dir, 'runtime.env'), 'APP_ORIGIN=https://example.test\n');
+        await writeFile(join(dir, 'firebase-key.json'), '{"fake":"key"}');
         await mkdir(join(dir, 'backups'));
         const backup = join(dir, 'backups', 'test.archive.gz');
         const archive = gzipSync('simulated backup');
@@ -48,7 +49,7 @@ esac
         try {
             await execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], {
                 cwd: dir,
-                env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, RUNTIME_ENV_FILE: join(dir, 'runtime.env') },
+                env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), FIREBASE_SERVICE_ACCOUNT_FILE: join(dir, 'firebase-key.json') },
             });
             assert.fail('deployment should fail');
         } catch (error) {
@@ -89,6 +90,7 @@ test('Jenkins requires backup before API and Hosting deployment', async () => {
     assert.match(pipeline, /jenkins-deploy\.sh verify /);
     assert.match(pipeline, /jenkins-deploy\.sh build /);
     assert.match(pipeline, /ewh-calendar-runtime-env/);
+    assert.match(pipeline, /ewh-calendar-firebase-admin/);
     assert.match(pipeline, /jenkins-deploy\.sh backup /);
     assert.match(pipeline, /jenkins-deploy\.sh deploy /);
     assert.match(pipeline, /jenkins-deploy\.sh firebase /);
@@ -104,8 +106,9 @@ test('API deployment refuses to run when a backup is missing or corrupted', asyn
         await mkdir(join(dir, 'infra', 'jenkins'), { recursive: true });
         await mkdir(join(dir, 'backups'));
         await writeFile(join(dir, 'scripts', 'jenkins-deploy.sh'), await readFile(new URL('./jenkins-deploy.sh', import.meta.url)));
-        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nBACKUP_DIR=${dir}/backups\n`);
+        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nFIREBASE_PROJECT=calendar-test\nFIREBASE_WEB_API_KEY=public-key\nBACKUP_DIR=${dir}/backups\n`);
         await writeFile(join(dir, 'runtime.env'), 'test=1\n');
+        await writeFile(join(dir, 'firebase-key.json'), '{"fake":"key"}');
         const env = { ...process.env, RUNTIME_ENV_FILE: join(dir, 'runtime.env') };
         const run = () => execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env });
         await assert.rejects(run(), error => error.code === 1 && /verified MongoDB backup is required/.test(error.stderr));
@@ -149,8 +152,9 @@ test('successful API deploy replaces only the app and never deletes MongoDB or i
         await mkdir(join(dir, 'backups'));
         await mkdir(join(dir, 'bin'));
         await writeFile(join(dir, 'scripts', 'jenkins-deploy.sh'), await readFile(new URL('./jenkins-deploy.sh', import.meta.url)));
-        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nBACKUP_DIR=${dir}/backups\n`);
+        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nFIREBASE_PROJECT=calendar-test\nFIREBASE_WEB_API_KEY=public-key\nBACKUP_DIR=${dir}/backups\n`);
         await writeFile(join(dir, 'runtime.env'), 'test=1\n');
+        await writeFile(join(dir, 'firebase-key.json'), '{"fake":"key"}');
         const backup = join(dir, 'backups', 'test.archive.gz');
         const archive = gzipSync('simulated backup');
         await writeFile(backup, archive);
@@ -164,7 +168,9 @@ case "$1" in
     case "$*" in
       *' ps -q mongo') echo mongo-id ;;
       *' ps -q app') echo app-id ;;
-      *' run --detach '*) echo candidate-id ;;
+      *' run --detach '*)
+        test "$AUTH_PROVIDER" = firebase && test "$FIREBASE_PROJECT_ID" = calendar-test && test -n "$FIREBASE_SERVICE_ACCOUNT_BASE64" || exit 1
+        echo candidate-id ;;
     esac ;;
   inspect)
     case "$*" in
@@ -174,13 +180,14 @@ case "$1" in
 esac
 `);
         await chmod(docker, 0o755);
-        const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, DOCKER_TEST_LOG: log, RUNTIME_ENV_FILE: join(dir, 'runtime.env') };
+        const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, DOCKER_TEST_LOG: log, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), FIREBASE_SERVICE_ACCOUNT_FILE: join(dir, 'firebase-key.json') };
         const result = await execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env });
         assert.match(result.stdout, /API healthy/);
         const calls = await readFile(log, 'utf8');
         assert.match(calls, /up -d --no-deps --no-build app/);
         assert.match(calls, /rm -f candidate-id/);
         assert.doesNotMatch(calls, /rm -f mongo-id|volume rm|\bdown\b|--volumes/);
+        assert.equal(await readFile(join(dir, 'runtime.env'), 'utf8'), 'test=1\n');
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

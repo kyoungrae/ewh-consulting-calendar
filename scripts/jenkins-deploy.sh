@@ -166,6 +166,15 @@ case "$mode" in
     : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"
     require_file "$RUNTIME_ENV_FILE"
     verify_backup
+    : "${FIREBASE_SERVICE_ACCOUNT_FILE:?Configure ewh-calendar-firebase-admin as a Jenkins Secret file}"
+    require_file "$FIREBASE_SERVICE_ACCOUNT_FILE"
+    : "${FIREBASE_WEB_API_KEY:?Configure the public Firebase web API key}"
+    # Credentials are read from a separate Jenkins Secret file; keep the existing
+    # MongoDB/runtime credential unchanged. Never enable shell tracing here.
+    FIREBASE_SERVICE_ACCOUNT_BASE64="$(base64 < "$FIREBASE_SERVICE_ACCOUNT_FILE" | tr -d '\r\n')"
+    FIREBASE_PROJECT_ID="$FIREBASE_PROJECT"
+    AUTH_PROVIDER=firebase
+    export FIREBASE_SERVICE_ACCOUNT_BASE64 FIREBASE_PROJECT_ID FIREBASE_WEB_API_KEY AUTH_PROVIDER
     mongo_id="$(service_id mongo)"
     [ -n "$mongo_id" ] || die 'The existing production MongoDB must be running before Jenkins deploys the API.'
     previous_id="$(service_id app)"

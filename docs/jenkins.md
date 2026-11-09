@@ -20,9 +20,10 @@ Jenkins 실행 노드에는 Docker CLI, Compose, Git, gzip, sha256sum, 호스트
 | --- | --- | --- |
 | `consultingManager` | Username with password | GitHub 저장소 읽기. password에는 GitHub 토큰 |
 | `firebase-consulting-deploy` | Secret file | 기존 Firebase CI 토큰 파일. `ewha-consulting` Hosting 배포 권한 필요 |
-| `ewh-calendar-runtime-env` | Secret file | 기존 MongoDB·세션 설정과 Firebase 인증 설정을 포함한 운영 환경 파일 |
+| `ewh-calendar-runtime-env` | Secret file | 기존 MongoDB·세션 운영 환경 파일. 교체하지 않고 유지 |
+| `ewh-calendar-firebase-admin` | Secret file | Firebase 서비스 계정 JSON 파일 |
 
-기존 `ewh-calendar-runtime-env`에 MongoDB 자격 증명과 세션 설정을 보존하고 Firebase 설정을 추가해야 합니다. 이 파일의 준비가 끝나기 전에는 후보 서버 기동이 실패하고 기존 API가 유지됩니다. 설정 값은 로그나 Git에 넣지 않습니다. 공개 API URL, Hosting 프로젝트와 백업 저장 경로는 `infra/jenkins/deploy.env`에서 관리합니다.
+기존 `ewh-calendar-runtime-env`는 수정하지 않습니다. Firebase 서비스 계정 JSON을 별도 Secret file `ewh-calendar-firebase-admin`으로 등록합니다. Jenkins는 실행 중에만 키를 인코딩해 후보 서버에 전달하며 키 파일이나 값을 로그·Git에 넣지 않습니다. 웹 API 키는 Firebase 웹 앱의 공개 설정이며 API URL, Hosting 프로젝트와 백업 저장 경로와 함께 `infra/jenkins/deploy.env`에서 관리합니다. 서비스 계정 준비가 끝나기 전에는 배포를 시작하지 않습니다.
 
 `infra/jenkins/ewh-calendar-deploy.xml`을 Pipeline 작업으로 등록합니다. 기존 작업이 있으면 registrar가 설정을 먼저 0600 파일로 백업하고, 저장 후 다시 읽어 동일한 로더인지 확인합니다.
 

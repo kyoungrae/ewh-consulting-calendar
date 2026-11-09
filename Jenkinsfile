@@ -19,6 +19,7 @@ withEnv([
     }
     withCredentials([
       file(credentialsId: 'ewh-calendar-runtime-env', variable: 'RUNTIME_ENV_FILE'),
+      file(credentialsId: 'ewh-calendar-firebase-admin', variable: 'FIREBASE_SERVICE_ACCOUNT_FILE'),
       file(credentialsId: 'firebase-consulting-deploy', variable: 'FIREBASE_TOKEN_FILE')
     ]) {
       stage('Check Hosting access') {
