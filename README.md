@@ -1,6 +1,6 @@
 # 이화 컨설팅 일정
 
-커밋·push 이후에는 Jenkins에서 수동으로 최신 `main`을 배포합니다. 설정과 실행 순서는 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요.
+커밋·push 이후에는 Jenkins에서 수동으로 최신 `main`의 Firebase Hosting 화면만 배포합니다. API 서버는 별도로 배포해야 합니다. 설정과 실행 순서는 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요.
 
 React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. Firebase Hosting은 화면을, Firebase Authentication은 계정 인증을 담당하며, 사용자 프로필과 권한은 기존 Firestore에 보관하고, 일정과 서버 세션은 맥북 프로의 MongoDB에 보관합니다.
 
@@ -20,11 +20,11 @@ MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 
 
 운영 로그인은 Firebase Authentication에서 이메일과 비밀번호 및 ID 토큰을 검증합니다. 같은 UID의 Firestore 프로필이 있으면 권한과 승인 상태를 확인하고, 프로필이 없는 Firebase 계정은 기본 컨설턴트 권한으로 로그인합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. MongoDB 사용자 문서는 로그인이나 권한 확인에 사용하지 않습니다.
 
-## Firebase 로그인 전환과 Jenkins 설정
+## Firebase 로그인 서버 전환 설정
 
 전환은 기존 계정을 먼저 대조한 뒤 진행합니다. 이전 앱은 Firestore 비밀번호와 Firebase 비밀번호가 서로 다른 경우에도 어느 쪽이든 허용했으므로, Firebase 비밀번호가 없는 계정이나 이전에 Firestore 비밀번호를 쓰던 계정은 개별 복구가 필요합니다. `805246`에 MongoDB로 설정한 임시 비밀번호는 Firebase 비밀번호를 바꾸지 않았습니다. 기존 UID와 이메일을 자동으로 결합하거나 기존 계정의 비밀번호를 일괄 변경하지 않습니다.
 
-운영 Jenkins의 `ewh-calendar-runtime-env` Secret file에 다음을 기존 MongoDB·세션 설정과 함께 추가합니다. 서비스 계정은 대상 Firebase 프로젝트의 Authentication 사용자 조회·생성·수정·삭제와 Firestore 사용자 프로필 읽기·쓰기에 필요한 권한만 부여하고 키와 런타임 파일은 비공개로 보관합니다. Web API 키는 Firebase 프로젝트 설정의 웹 앱 설정에서 가져오고 Identity Toolkit API 및 이메일/비밀번호 로그인 사용 여부를 확인합니다.
+로그인 서버를 별도로 배포할 때 운영 서버 환경 파일에 다음을 기존 MongoDB·세션 설정과 함께 추가합니다. 화면만 배포하는 기본 Jenkins 작업은 이 환경 파일을 사용하지 않습니다. 서비스 계정은 대상 Firebase 프로젝트의 Authentication 사용자 조회·생성·수정·삭제와 Firestore 사용자 프로필 읽기·쓰기에 필요한 권한만 부여하고 키와 런타임 파일은 비공개로 보관합니다. Web API 키는 Firebase 프로젝트 설정의 웹 앱 설정에서 가져오고 Identity Toolkit API 및 이메일/비밀번호 로그인 사용 여부를 확인합니다.
 
 ```dotenv
 AUTH_PROVIDER=firebase
@@ -35,7 +35,7 @@ FIREBASE_SERVICE_ACCOUNT_BASE64=<service account JSON encoded as one-line base64
 
 Firestore 사용자 프로필에는 권한과 승인 상태가 있으므로 클라이언트가 해당 문서를 수정하지 못하도록 규칙을 유지해야 합니다. 서버 Admin SDK는 규칙을 우회하므로 서비스 계정의 IAM 접근도 제한합니다. Firebase Authentication에 계정만 있고 프로필이 없으면 누구나 기본 컨설턴트로 접속할 수 있습니다. 이 Firebase 프로젝트의 계정이 모두 이 앱에 접속할 수 있어도 되는지 확인하세요.
 
-서비스 계정 JSON의 개행 없는 base64 값을 생성해 비공개 환경 파일에 넣고, 원본 키나 값을 로그·Git에 넣지 않습니다. Jenkins는 후보 API의 health 확인 후 Firebase Authentication 계정과 Firestore 프로필을 읽기 전용으로 대조하며, 일치하지 않는 UID·중복 아이디·중단된 동기화가 있으면 기존 API를 유지하고 배포를 중단합니다. 사용자 목록 대조에는 Firebase Authentication 사용자 목록 조회 권한이 필요합니다. 감사는 암호나 암호 해시를 확인하지 않으므로 **Firebase 비밀번호가 실제 사용자에게 알려져 있는지까지 보장하지 않습니다.** 사용자별 실제 로그인 확인이 필요합니다.
+서비스 계정 JSON의 개행 없는 base64 값을 생성해 비공개 환경 파일에 넣고, 원본 키나 값을 로그·Git에 넣지 않습니다. 서버를 전환하기 전에 Firebase Authentication 계정과 Firestore 프로필을 읽기 전용으로 대조하고, 일치하지 않는 UID·중복 아이디·중단된 동기화를 해결해야 합니다. 기본 Hosting 전용 Jenkins 작업은 서버나 계정 대조를 실행하지 않습니다. 사용자 목록 대조에는 Firebase Authentication 사용자 목록 조회 권한이 필요합니다. 감사는 암호나 암호 해시를 확인하지 않으므로 **Firebase 비밀번호가 실제 사용자에게 알려져 있는지까지 보장하지 않습니다.** 사용자별 실제 로그인 확인이 필요합니다.
 
 서버의 비공개 운영 환경을 사용하는 새 이미지에서 `node scripts/audit-firebase-users.mjs`를 실행하면 불일치한 아이디·UID와 사유를 확인할 수 있습니다. 프로필 없이 Firebase Authentication에만 있는 계정은 개수만 보고하며 컨설턴트로 로그인할 수 있습니다. 이름 선택이나 아이디 로그인에 필요한 프로필이 없으므로 이메일로 로그인해야 합니다. 정상 로그인 사례와 이름 로그인, 일정·권한을 검증한 뒤 운영에 반영하세요. `AUTH_PROVIDER=mongo`는 Firebase에 접속하지 않는 격리된 로컬 개발 환경을 위한 것입니다.
 

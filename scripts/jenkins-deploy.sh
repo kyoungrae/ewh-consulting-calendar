@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-mode="${1:?Specify verify, build, deploy, firebase-check, firebase, smoke or cleanup}"
+mode="${1:?Specify verify, build, build-hosting, deploy, firebase-check, firebase, smoke, smoke-hosting or cleanup}"
 deploy_tag="${2:-manual}"
 case "$deploy_tag" in *[!A-Za-z0-9_.-]*|'') printf 'Invalid deployment tag.\n' >&2; exit 64 ;; esac
 
@@ -40,6 +40,24 @@ wait_healthy() {
     attempt=$((attempt + 1))
   done
   return 1
+}
+report_candidate_failure() {
+  # Never print raw container logs: connection errors can include credentials.
+  candidate_logs="$(docker logs "$candidate_name" 2>&1 || true)"
+  case "$candidate_logs" in
+    *'Firebase authentication requires FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_BASE64'*)
+      printf '%s\n' 'Candidate startup: Firebase runtime configuration is missing. Add FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_BASE64 to ewh-calendar-runtime-env.' >&2 ;;
+    *'Invalid FIREBASE_SERVICE_ACCOUNT_BASE64'*)
+      printf '%s\n' 'Candidate startup: FIREBASE_SERVICE_ACCOUNT_BASE64 is not valid base64-encoded service account JSON.' >&2 ;;
+    *'Firebase service account does not match FIREBASE_PROJECT_ID'*)
+      printf '%s\n' 'Candidate startup: the Firebase service account is incomplete or does not match FIREBASE_PROJECT_ID.' >&2 ;;
+    *'Failed to parse private key'*|*'Invalid PEM formatted message'*|*'Invalid PEM formatted message.'*)
+      printf '%s\n' 'Candidate startup: the Firebase service account private key could not be parsed.' >&2 ;;
+    *'MongoServerSelectionError'*|*'MongoNetworkError'*)
+      printf '%s\n' 'Candidate startup: the API could not connect to MongoDB. Inspect database connectivity on the server.' >&2 ;;
+    *)
+      printf '%s\n' 'Candidate startup: no recognized error was found. Reproduce the candidate privately and inspect its logs.' >&2 ;;
+  esac
 }
 firebase_command() {
   : "${FIREBASE_TOKEN_FILE:?Configure firebase-consulting-deploy as a Jenkins Secret file}"
@@ -93,6 +111,10 @@ case "$mode" in
     docker build --target firebase --build-arg "FUNNEL_API_BASE_URL=$FUNNEL_API_BASE_URL" \
       -t "$FIREBASE_IMAGE" -f infra/jenkins/Dockerfile .
     ;;
+  build-hosting)
+    docker build --target firebase --build-arg "FUNNEL_API_BASE_URL=$FUNNEL_API_BASE_URL" \
+      -t "$FIREBASE_IMAGE" -f infra/jenkins/Dockerfile .
+    ;;
   deploy)
     : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"
     require_file "$RUNTIME_ENV_FILE"
@@ -107,7 +129,10 @@ case "$mode" in
     trap 'exit 130' INT
     trap 'exit 143' HUP TERM
     compose run --detach --no-deps --name "$candidate_name" app >/dev/null
-    wait_healthy "$candidate_name" || die 'The candidate API failed its health check; the current API was kept.'
+    if ! wait_healthy "$candidate_name"; then
+      report_candidate_failure
+      die 'The candidate API failed its health check; the current API was kept.'
+    fi
     docker exec "$candidate_name" node -e "if(process.env.AUTH_PROVIDER !== 'firebase') process.exit(1)" || die 'Production deployment requires AUTH_PROVIDER=firebase; the current API was kept.'
     # Read-only and fail closed: do not replace the working API while identities disagree.
     if ! docker exec "$candidate_name" node scripts/audit-firebase-users.mjs >/dev/null; then
@@ -139,6 +164,13 @@ case "$mode" in
         const hosting = await fetch(process.env.SMOKE_HOSTING, { signal: AbortSignal.timeout(20000) });
         if (!hosting.ok || !(await hosting.text()).includes("/assets/")) throw new Error("Hosting page failed");
         console.log("Public API and Hosting smoke checks passed.");'
+    ;;
+  smoke-hosting)
+    docker run --rm -e "SMOKE_HOSTING=$HOSTING_ORIGIN" "$FIREBASE_IMAGE" \
+      node --input-type=module -e '
+        const hosting = await fetch(process.env.SMOKE_HOSTING, { signal: AbortSignal.timeout(20000) });
+        if (!hosting.ok || !(await hosting.text()).includes("/assets/")) throw new Error("Hosting page check failed");
+        console.log("Hosting page check passed; API deployment was not attempted.");'
     ;;
   cleanup)
     docker rm -f "$candidate_name" "$test_mongo" >/dev/null 2>&1 || true
