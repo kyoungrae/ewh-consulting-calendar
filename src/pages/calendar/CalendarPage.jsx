@@ -11,8 +11,6 @@ import Datetime10MinInput from '../../components/common/Datetime10MinInput';
 import { useSchedules, useCommonCodes, useUsers, useSpecialSchedules } from '../../hooks/useDataApi';
 import { useAuth } from '../../contexts/AuthContext';
 import { Calendar, Users, Clock, MapPin, Tag, Download, ChevronDown } from 'lucide-react';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 
 /** datetime-local 입력용 로컬 시각 문자열 (분은 10분 단위로 맞춤) */
 function toDatetimeLocalValue(dateStr) {
@@ -665,6 +663,15 @@ export default function CalendarPage() {
 
     // 엑셀 다운로드 핸들러
     const handleExcelDownload = async () => {
+        let ExcelJS, saveAs;
+        try {
+            [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+                import('exceljs'), import('file-saver')
+            ]);
+        } catch {
+            alert('엑셀 다운로드를 준비하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요. 문제가 계속되면 저장하지 않은 내용을 확인하고 새로고침해 주세요.');
+            return;
+        }
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('일정 목록');
 

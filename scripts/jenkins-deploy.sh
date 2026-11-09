@@ -30,6 +30,27 @@ verify_backup() {
   actual_checksum="$(sha256sum "$backup_path")"
   [ "$actual_checksum" = "$expected_checksum" ] || die 'MongoDB backup checksum verification failed; the current API was kept.'
 }
+prune_previous_backups() {
+  # Only this Jenkins job's numbered, verified archive/checksum pairs are ours
+  # to remove. Do not touch manual backups, orphans, symlinks or other jobs.
+  prefix='jenkins-ewh-consulting-calendar-deploy-'
+  case "$deploy_tag" in "$prefix"*) current_number="${deploy_tag#"$prefix"}" ;; *) return ;; esac
+  case "$current_number" in ''|*[!0-9]*) return ;; esac
+  for old_archive in "$BACKUP_DIR"/"$prefix"*.archive.gz; do
+    [ -f "$old_archive" ] && [ ! -L "$old_archive" ] || continue
+    old_name="${old_archive##*/}"
+    old_number="${old_name#"$prefix"}"
+    old_number="${old_number%.archive.gz}"
+    case "$old_number" in ''|*[!0-9]*) continue ;; esac
+    [ "$old_number" -lt "$current_number" ] 2>/dev/null || continue
+    old_checksum="${old_archive%.archive.gz}.sha256"
+    [ -f "$old_checksum" ] && [ ! -L "$old_checksum" ] || continue
+    gzip -t "$old_archive" 2>/dev/null || continue
+    [ "$(cat "$old_checksum")" = "$(sha256sum "$old_archive")" ] || continue
+    rm -f "$old_archive" "$old_checksum"
+    printf 'Removed previous verified MongoDB backup: %s\n' "$old_name"
+  done
+}
 compose() {
   docker compose --env-file "$RUNTIME_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" \
     -f compose.yaml -f infra/jenkins/compose.deploy.yaml "$@"
@@ -161,6 +182,7 @@ case "$mode" in
     checksum_tmp=''
     verify_backup
     printf 'MongoDB backup saved and checked: %s\n' "$backup_path"
+    prune_previous_backups
     ;;
   deploy)
     : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"

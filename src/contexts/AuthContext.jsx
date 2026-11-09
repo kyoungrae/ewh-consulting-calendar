@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, clearCsrfToken } from '../lib/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
@@ -15,6 +16,7 @@ function sessionExpiry(value) {
 }
 
 export function AuthProvider({ children }) {
+    const { pathname } = useLocation();
     const [currentUser, setCurrentUser] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -154,7 +156,7 @@ export function AuthProvider({ children }) {
 
     return (
         <AuthContext.Provider value={value}>
-            {loading ? (
+            {loading && pathname !== '/' ? (
                 <div className="min-h-screen flex items-center justify-center bg-gray-50">
                     <LoadingSpinner message="인증 정보를 확인하는 중..." />
                 </div>

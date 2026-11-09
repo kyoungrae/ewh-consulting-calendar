@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, writeFile, readFile, chmod, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, chmod, rm, readdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -240,5 +240,55 @@ esac
         assert.deepEqual(await readdir(join(dir, 'backups')), []);
         const calls = await readFile(log, 'utf8');
         assert.doesNotMatch(calls, /up -d|volume rm|\bdown\b/);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('backup retention removes only older verified pairs after the new backup succeeds', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'calendar-retention-'));
+    try {
+        await mkdir(join(dir, 'scripts'));
+        await mkdir(join(dir, 'infra', 'jenkins'), { recursive: true });
+        await mkdir(join(dir, 'bin'));
+        await mkdir(join(dir, 'backups'));
+        await writeFile(join(dir, 'scripts', 'jenkins-deploy.sh'), await readFile(new URL('./jenkins-deploy.sh', import.meta.url)));
+        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nBACKUP_DIR=${dir}/backups\n`);
+        await writeFile(join(dir, 'runtime.env'), 'test=1\n');
+        const archive = gzipSync('simulated backup');
+        const fixture = join(dir, 'fixture.gz');
+        await writeFile(fixture, archive);
+        const name = n => `jenkins-ewh-consulting-calendar-deploy-${n}`;
+        const makePair = async n => {
+            const file = join(dir, 'backups', `${name(n)}.archive.gz`);
+            await writeFile(file, archive);
+            await writeFile(join(dir, 'backups', `${name(n)}.sha256`), `${createHash('sha256').update(archive).digest('hex')}  ${file}\n`);
+        };
+        await makePair(1);
+        await makePair(99); // A newer build must never be removed.
+        await writeFile(join(dir, 'backups', `${name(2)}.archive.gz`), archive); // Orphan.
+        await writeFile(join(dir, 'backups', `${name(3)}.archive.gz`), archive);
+        await writeFile(join(dir, 'backups', `${name(3)}.sha256`), 'invalid');
+        await symlink(fixture, join(dir, 'backups', `${name(4)}.archive.gz`));
+        await writeFile(join(dir, 'backups', 'unrelated.archive.gz'), archive);
+        const docker = join(dir, 'bin', 'docker');
+        await writeFile(docker, `#!/bin/sh
+case "$1" in
+  compose) echo mongo-id ;;
+  inspect) echo false ;;
+  exec) if [ "\${FAIL_DUMP:-}" = yes ]; then exit 1; fi; cat "$DUMP_FIXTURE" ;;
+esac
+`);
+        await chmod(docker, 0o755);
+        const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), DUMP_FIXTURE: fixture };
+        const run = vars => execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'backup', name(10)], { cwd: dir, env: { ...env, ...vars } });
+        const before = await readdir(join(dir, 'backups'));
+        await assert.rejects(run({ FAIL_DUMP: 'yes' }), /MongoDB backup failed/);
+        assert.deepEqual(await readdir(join(dir, 'backups')), before);
+        await run({});
+        const after = await readdir(join(dir, 'backups'));
+        assert.ok(!after.includes(`${name(1)}.archive.gz`));
+        assert.ok(!after.includes(`${name(1)}.sha256`));
+        for (const file of before.filter(file => !file.startsWith(name(1) + '.'))) assert.ok(after.includes(file), file);
+        assert.ok(after.includes(`${name(10)}.archive.gz`));
+        assert.ok(after.includes(`${name(10)}.sha256`));
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
