@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { api } from '../lib/api';
+import { runListMutation } from '../lib/list-mutation';
 
 const DataContext = createContext();
 
@@ -37,13 +38,39 @@ function useApiList(path, scope, enabled) {
 
     useEffect(() => {
         if (enabled) reload().catch(() => {});
+        // A request from a previous user/session must not update this list after
+        // logout or a scope change, even if it completes later.
+        return () => { inFlight.current = null; };
     }, [enabled, reload]);
+
+    const upsert = useCallback((item) => {
+        if (!enabled || snapshot.scope !== scope || !item || typeof item.id !== 'string') return false;
+        setSnapshot(previous => {
+            if (previous.scope !== scope) return previous;
+            const index = previous.items.findIndex(existing => existing.id === item.id);
+            const items = [...previous.items];
+            if (index < 0) items.push(item);
+            else items[index] = item;
+            return { ...previous, items };
+        });
+        return true;
+    }, [enabled, scope, snapshot.scope]);
+
+    const remove = useCallback((id) => {
+        if (!enabled || snapshot.scope !== scope || typeof id !== 'string') return false;
+        setSnapshot(previous => previous.scope === scope
+            ? { ...previous, items: previous.items.filter(item => item.id !== id) }
+            : previous);
+        return true;
+    }, [enabled, scope, snapshot.scope]);
 
     return {
         items: enabled && snapshot.scope === scope ? snapshot.items : [],
         loading: enabled && snapshot.scope !== scope,
         error: enabled && snapshot.scope === scope ? snapshot.error : null,
-        reload
+        reload,
+        upsert,
+        remove
     };
 }
 
@@ -88,30 +115,29 @@ export function DataProvider({ children }) {
         await Promise.all([fetchSchedules(true), fetchLogs(true)]);
     };
 
-    const mutate = async (path, method, body, refresh) => {
-        const result = await api(path, { method, body });
-        // 성공한 저장을 재조회 실패로 오인해 다시 실행하지 않도록 조회 오류는 목록에 표시한다.
-        await refresh().catch(() => {});
-        return result;
-    };
+    // Individual writes return the saved item: show that immediately while the
+    // server list refreshes. Bulk changes still wait for the full refreshed list.
+    const mutate = (path, method, body, refresh, apply) => runListMutation({
+        request: () => api(path, { method, body }), refresh, apply
+    });
 
-    const addSchedule = (data) => mutate('/schedules', 'POST', data, refreshSchedules);
-    const updateSchedule = (id, data) => mutate(`/schedules/${encodeURIComponent(id)}`, 'PATCH', data, refreshSchedules);
-    const deleteSchedule = (id) => mutate(`/schedules/${encodeURIComponent(id)}`, 'DELETE', undefined, refreshSchedules);
+    const addSchedule = (data) => mutate('/schedules', 'POST', data, refreshSchedules, schedulesList.upsert);
+    const updateSchedule = (id, data) => mutate(`/schedules/${encodeURIComponent(id)}`, 'PATCH', data, refreshSchedules, schedulesList.upsert);
+    const deleteSchedule = (id) => mutate(`/schedules/${encodeURIComponent(id)}`, 'DELETE', undefined, refreshSchedules, result => result?.ok === true && schedulesList.remove(id));
     const batchAddSchedules = (schedules) => mutate('/schedules/import', 'POST', { schedules, mode: 'append' }, refreshSchedules);
     const mergeSchedules = (schedules, isReplace = false, targetMonths = null) => (
         mutate('/schedules/import', 'POST', { schedules, isReplace, targetMonths }, refreshSchedules)
     );
     const rollbackChangeLog = (log) => mutate(`/change-logs/${encodeURIComponent(log.id)}/rollback`, 'POST', {}, refreshSchedules);
     const clearAllSchedules = () => mutate('/schedules', 'DELETE', undefined, refreshSchedules);
-    const updateUser = (id, data) => mutate(`/users/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchUsers(true));
-    const deleteUser = (id) => mutate(`/users/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchUsers(true));
-    const addCode = (data) => mutate('/codes', 'POST', data, () => fetchCodes(true));
-    const updateCode = (id, data) => mutate(`/codes/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchCodes(true));
-    const deleteCode = (id) => mutate(`/codes/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchCodes(true));
-    const addSpecialSchedule = (data) => mutate('/special-schedules', 'POST', data, () => fetchSpecialSchedules(true));
-    const updateSpecialSchedule = (id, data) => mutate(`/special-schedules/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchSpecialSchedules(true));
-    const deleteSpecialSchedule = (id) => mutate(`/special-schedules/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchSpecialSchedules(true));
+    const updateUser = (id, data) => mutate(`/users/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchUsers(true), usersList.upsert);
+    const deleteUser = (id) => mutate(`/users/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchUsers(true), result => result?.ok === true && usersList.remove(id));
+    const addCode = (data) => mutate('/codes', 'POST', data, () => fetchCodes(true), codesList.upsert);
+    const updateCode = (id, data) => mutate(`/codes/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchCodes(true), codesList.upsert);
+    const deleteCode = (id) => mutate(`/codes/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchCodes(true), result => result?.ok === true && codesList.remove(id));
+    const addSpecialSchedule = (data) => mutate('/special-schedules', 'POST', data, () => fetchSpecialSchedules(true), specialsList.upsert);
+    const updateSpecialSchedule = (id, data) => mutate(`/special-schedules/${encodeURIComponent(id)}`, 'PATCH', data, () => fetchSpecialSchedules(true), specialsList.upsert);
+    const deleteSpecialSchedule = (id) => mutate(`/special-schedules/${encodeURIComponent(id)}`, 'DELETE', undefined, () => fetchSpecialSchedules(true), result => result?.ok === true && specialsList.remove(id));
 
     const errors = [schedulesList.error, usersList.error, codesList.error, specialsList.error, logsList.error].filter(Boolean);
 

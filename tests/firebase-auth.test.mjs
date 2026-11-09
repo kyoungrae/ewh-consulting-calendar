@@ -42,3 +42,72 @@ test('Firebase-only identity receives consultant role; existing Firebase profile
     assert.equal(await directory.get('missing'), null);
     assert.deepEqual(await directory.lookup('new@example.test', false), { email: 'new@example.test', uid: null });
 });
+
+test('directory lists Firebase accounts with batched profiles, preserving roles and account state', async () => {
+    const identities = Array.from({ length: 103 }, (_, i) => ({ uid: `uid-${i}`, email: `user-${i}@example.test`, disabled: i === 2 }));
+    const docs = new Map([
+        ['uid-0', { name: '관리자', role: 'admin', status: 'approved', userId: 'admin', password: 'legacy-secret' }],
+        ['uid-2', { name: '대기', role: 'consultant', status: 'pending', authSyncPending: true }],
+        ['uid-102', { name: '끝', role: 'tester', status: 'approved', authVersion: 3 }],
+    ]);
+    const calls = [];
+    const auth = { async listUsers(_limit, token) { return token ? { users: identities.slice(70) } : { users: identities.slice(0, 70), pageToken: 'next' }; } };
+    const firestore = {
+        collection() { return { doc(id) { return { id }; } }; },
+        async getAll(...args) {
+            const options = args.pop();
+            calls.push({ ids: args.map(ref => ref.id), fields: options.fieldMask });
+            return args.map(ref => ({ exists: docs.has(ref.id), data: () => docs.get(ref.id) }));
+        },
+    };
+    const result = await createFirebaseDirectory(auth, firestore).list();
+    assert.equal(result.length, identities.length);
+    assert.deepEqual(result.map(user => user.uid), identities.map(user => user.uid));
+    assert.deepEqual(calls.map(call => call.ids.length), [100, 3]);
+    assert.ok(calls.every(call => call.fields.includes('role') && call.fields.includes('status') && !call.fields.includes('password')));
+    assert.equal(result[0].role, 'admin');
+    assert.equal(result[0].password, undefined);
+    assert.equal(result[1].hasProfile, false);
+    assert.equal(result[1].status, 'approved');
+    assert.equal(result[2].disabled, true);
+    assert.equal(result[2].status, 'pending');
+    assert.equal(result[2].authSyncPending, true);
+    assert.equal(result[102].authVersion, 3);
+});
+
+test('directory returns an empty list without a Firestore batch read', async () => {
+    const firestore = { collection() { return {}; }, async getAll() { throw new Error('unexpected Firestore read'); } };
+    const auth = { async listUsers() { return { users: [] }; } };
+    assert.deepEqual(await createFirebaseDirectory(auth, firestore).list(), []);
+});
+
+test('account and profile reads start together and keep disabled, pending and revocation state', async () => {
+    let releaseIdentity, releaseProfile;
+    let startedIdentity = false, startedProfile = false;
+    const identity = { uid: 'u', email: 'user@example.test', disabled: true, tokensValidAfterTime: 'revoked-after' };
+    const profile = { name: '사용자', role: 'consultant', status: 'pending', authSyncPending: true, authVersion: 5 };
+    const auth = { getUser() { startedIdentity = true; return new Promise(resolve => { releaseIdentity = resolve; }); } };
+    const firestore = { collection() { return { doc() { return { get() { startedProfile = true; return new Promise(resolve => { releaseProfile = resolve; }); } }; } }; } };
+    const result = createFirebaseDirectory(auth, firestore).get('u');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(startedIdentity, true);
+    assert.equal(startedProfile, true);
+    releaseIdentity(identity);
+    releaseProfile({ exists: true, data: () => profile });
+    const user = await result;
+    assert.equal(user.disabled, true);
+    assert.equal(user.status, 'pending');
+    assert.equal(user.authSyncPending, true);
+    assert.equal(user.authVersion, 5);
+    assert.equal(user.tokensValidAfterTime, 'revoked-after');
+});
+
+test('concurrent profile errors preserve account-first error behavior', async () => {
+    const firestore = { collection() { return { doc() { return { async get() { throw new Error('profile unavailable'); } }; } }; } };
+    const missing = { async getUser() { throw Object.assign(new Error('account missing'), { code: 'auth/user-not-found' }); } };
+    assert.equal(await createFirebaseDirectory(missing, firestore).get('missing'), null);
+    const authError = { async getUser() { throw new Error('account unavailable'); } };
+    await assert.rejects(createFirebaseDirectory(authError, firestore).get('u'), /account unavailable/);
+    const existing = { async getUser() { return { uid: 'u', email: 'user@example.test' }; } };
+    await assert.rejects(createFirebaseDirectory(existing, firestore).get('u'), /profile unavailable/);
+});

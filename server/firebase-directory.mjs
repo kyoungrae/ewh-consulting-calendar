@@ -1,6 +1,10 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { httpError } from './security.mjs';
 
+const PROFILE_FIELDS = ['userId', 'name', 'tel', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'authVersion', 'authSyncPending'];
+const DIRECTORY_FIELDS = [...PROFILE_FIELDS, 'role', 'status'];
+const PROFILE_BATCH_SIZE = 100;
+
 // The legacy Firebase users collection holds application roles and profile data;
 // Firebase Authentication remains the sole password and identity authority.
 export function createFirebaseDirectory(auth, firestore = getFirestore()) {
@@ -11,8 +15,7 @@ export function createFirebaseDirectory(auth, firestore = getFirestore()) {
     };
     const profileFrom = (uid, identity, snapshot) => {
         const data = snapshot.exists ? snapshot.data() : null;
-        const allowed = ['userId', 'name', 'tel', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'authVersion', 'authSyncPending'];
-        const profile = Object.fromEntries(allowed.filter(key => data?.[key] !== undefined).map(key => [key, data[key]]));
+        const profile = Object.fromEntries(PROFILE_FIELDS.filter(key => data?.[key] !== undefined).map(key => [key, data[key]]));
         return { ...profile, _id: uid, uid, hasProfile: snapshot.exists, email: identity.email || '', name: profile.name || identity.displayName || identity.email || uid,
             role: ['admin', 'tester', 'consultant'].includes(data?.role) ? data.role : 'consultant',
             status: data ? (data.status || 'pending') : 'approved', disabled: identity.disabled,
@@ -20,9 +23,18 @@ export function createFirebaseDirectory(auth, firestore = getFirestore()) {
     };
     return {
         async get(uid) {
-            const identity = await account(uid);
+            // The account and profile are independent reads. Start both at
+            // once while retaining the account-first error behavior: missing
+            // Firebase users still return null even if their profile read fails.
+            const identityRead = account(uid);
+            const profileRead = Promise.resolve()
+                .then(() => profiles.doc(uid).get())
+                .then(snapshot => ({ snapshot }), error => ({ error }));
+            const identity = await identityRead;
             if (!identity) return null;
-            return profileFrom(uid, identity, await profiles.doc(uid).get());
+            const result = await profileRead;
+            if ('error' in result) throw result.error;
+            return profileFrom(uid, identity, result.snapshot);
         },
         async lookup(identifier, byName) {
             if (!byName && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) return { email: identifier.toLowerCase(), uid: null };
@@ -38,7 +50,17 @@ export function createFirebaseDirectory(auth, firestore = getFirestore()) {
             const identities = [];
             let next;
             do { const page = await auth.listUsers(1000, next); identities.push(...page.users); next = page.pageToken; } while (next);
-            return Promise.all(identities.map(async identity => profileFrom(identity.uid, identity, await profiles.doc(identity.uid).get())));
+            if (!identities.length) return [];
+            // Batch profile reads instead of opening one Firestore read per
+            // identity. Keep the Firebase Auth ordering, and read only fields
+            // used by profileFrom (legacy password fields are not needed).
+            const batches = [];
+            for (let start = 0; start < identities.length; start += PROFILE_BATCH_SIZE) {
+                const slice = identities.slice(start, start + PROFILE_BATCH_SIZE);
+                batches.push(firestore.getAll(...slice.map(identity => profiles.doc(identity.uid)), { fieldMask: DIRECTORY_FIELDS }));
+            }
+            const snapshots = (await Promise.all(batches)).flat();
+            return identities.map((identity, index) => profileFrom(identity.uid, identity, snapshots[index]));
         },
         async idExists(userId) { return !(await profiles.where('userId', '==', userId).limit(1).get()).empty; },
         async create(uid, fields) {
