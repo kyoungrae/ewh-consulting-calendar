@@ -9,6 +9,12 @@ withEnv([
   "APP_IMAGE=ewh-calendar/app:${env.BUILD_TAG}",
   "FIREBASE_IMAGE=ewh-calendar/firebase-deploy:${env.BUILD_TAG}"
 ]) {
+  // The gateway credential is only required after the gateway is explicitly
+  // enabled; existing direct-Funnel deployments continue without it.
+  def gatewayLines = readFile('infra/jenkins/deploy.env').readLines().findAll { it.startsWith('GATEWAY_ENABLED=') }
+  if (gatewayLines.size() > 1) error('GATEWAY_ENABLED must be specified at most once')
+  def gatewayEnabled = gatewayLines ? gatewayLines[0].substring('GATEWAY_ENABLED='.length()).trim() : 'false'
+  if (!['true', 'false'].contains(gatewayEnabled)) error('GATEWAY_ENABLED must be true or false')
   writeFile file: 'release-metadata.txt', text: "commit=${env.GIT_COMMIT}\ndeployment=api-and-hosting\napi_image=${env.APP_IMAGE}\nhosting_image=${env.FIREBASE_IMAGE}\n"
   try {
     stage('Verify') {
@@ -29,7 +35,13 @@ withEnv([
         sh 'sh ./scripts/jenkins-deploy.sh backup "$BUILD_TAG"'
       }
       stage('Deploy API') {
-        sh 'sh ./scripts/jenkins-deploy.sh deploy "$BUILD_TAG"'
+        if (gatewayEnabled == 'true') {
+          withCredentials([string(credentialsId: 'ewh-calendar-gateway-hmac', variable: 'GATEWAY_HMAC_SECRET')]) {
+            sh 'sh ./scripts/jenkins-deploy.sh deploy "$BUILD_TAG"'
+          }
+        } else {
+          sh 'sh ./scripts/jenkins-deploy.sh deploy "$BUILD_TAG"'
+        }
       }
       stage('Firebase Hosting') {
         sh 'sh ./scripts/jenkins-deploy.sh firebase "$BUILD_TAG"'

@@ -14,6 +14,8 @@ export function readConfig(env = process.env) {
         firebase = { apiKey: env.FIREBASE_WEB_API_KEY, projectId: env.FIREBASE_PROJECT_ID, serviceAccount };
     }
     if (!['cookie', 'bearer'].includes(sessionTransport)) throw new Error('SESSION_TRANSPORT must be cookie or bearer.');
+    const gatewayHmacSecret = env.GATEWAY_HMAC_SECRET || '';
+    if (gatewayHmacSecret && gatewayHmacSecret.length < 32) throw new Error('GATEWAY_HMAC_SECRET must contain at least 32 characters.');
     if (new URL(origin).origin !== origin) throw new Error('APP_ORIGIN must be an origin without a trailing slash or path.');
     if (sessionTransport === 'cookie' && (!env.SESSION_SECRET || env.SESSION_SECRET.length < 32)) throw new Error('SESSION_SECRET must contain at least 32 characters.');
     const secure = env.COOKIE_SECURE === undefined ? production : env.COOKIE_SECURE === 'true';
@@ -25,5 +27,6 @@ export function readConfig(env = process.env) {
         mongoUri: env.MONGODB_URI || 'mongodb://127.0.0.1:27017/?replicaSet=rs0',
         database: env.MONGODB_DB || 'ewh_consulting',
         sessionSecret: env.SESSION_SECRET,
+        gatewayHmacSecret,
     };
 }

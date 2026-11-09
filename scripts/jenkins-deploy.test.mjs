@@ -91,6 +91,8 @@ test('Jenkins requires backup before API and Hosting deployment', async () => {
     assert.match(pipeline, /jenkins-deploy\.sh build /);
     assert.match(pipeline, /ewh-calendar-runtime-env/);
     assert.match(pipeline, /ewh-calendar-firebase-admin/);
+    assert.match(pipeline, /ewh-calendar-gateway-hmac/);
+    assert.match(pipeline, /gatewayEnabled == 'true'/);
     assert.match(pipeline, /jenkins-deploy\.sh backup /);
     assert.match(pipeline, /jenkins-deploy\.sh deploy /);
     assert.match(pipeline, /jenkins-deploy\.sh firebase /);
@@ -170,7 +172,12 @@ case "$1" in
       *' ps -q app') echo app-id ;;
       *' run --detach '*)
         test "$AUTH_PROVIDER" = firebase && test "$FIREBASE_PROJECT_ID" = calendar-test && test -n "$FIREBASE_SERVICE_ACCOUNT_BASE64" || exit 1
+        if [ "\${TEST_ENSURE_NO_GATEWAY_SECRET:-}" = 1 ]; then test -z "\${GATEWAY_HMAC_SECRET:-}" || exit 1; fi
+        if [ -n "\${TEST_EXPECT_GATEWAY_SECRET:-}" ]; then test "$GATEWAY_HMAC_SECRET" = "$TEST_EXPECT_GATEWAY_SECRET" || exit 1; fi
         echo candidate-id ;;
+      *' up -d --no-deps --no-build app'*)
+        if [ "\${TEST_ENSURE_NO_GATEWAY_SECRET:-}" = 1 ]; then test -z "\${GATEWAY_HMAC_SECRET:-}" || exit 1; fi
+        if [ -n "\${TEST_EXPECT_GATEWAY_SECRET:-}" ]; then test "$GATEWAY_HMAC_SECRET" = "$TEST_EXPECT_GATEWAY_SECRET" || exit 1; fi ;;
     esac ;;
   inspect)
     case "$*" in
@@ -180,7 +187,7 @@ case "$1" in
 esac
 `);
         await chmod(docker, 0o755);
-        const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, DOCKER_TEST_LOG: log, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), FIREBASE_SERVICE_ACCOUNT_FILE: join(dir, 'firebase-key.json') };
+        const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, DOCKER_TEST_LOG: log, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), FIREBASE_SERVICE_ACCOUNT_FILE: join(dir, 'firebase-key.json'), GATEWAY_HMAC_SECRET: 'stale-secret-from-shell', TEST_ENSURE_NO_GATEWAY_SECRET: '1' };
         const result = await execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env });
         assert.match(result.stdout, /API healthy/);
         const calls = await readFile(log, 'utf8');
@@ -188,6 +195,22 @@ esac
         assert.match(calls, /rm -f candidate-id/);
         assert.doesNotMatch(calls, /rm -f mongo-id|volume rm|\bdown\b|--volumes/);
         assert.equal(await readFile(join(dir, 'runtime.env'), 'utf8'), 'test=1\n');
+
+        // Once the gateway is enabled, refuse a cutover until its secret is
+        // supplied; on success it must reach candidate and production compose
+        // without appearing in command arguments or logs.
+        await writeFile(join(dir, 'infra', 'jenkins', 'deploy.env'), `COMPOSE_PROJECT_NAME=calendar-test\nGATEWAY_ENABLED=true\nFIREBASE_PROJECT=calendar-test\nFIREBASE_WEB_API_KEY=public-key\nBACKUP_DIR=${dir}/backups\n`);
+        delete env.GATEWAY_HMAC_SECRET;
+        delete env.TEST_ENSURE_NO_GATEWAY_SECRET;
+        await assert.rejects(execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env }), error => error.code === 1 && /Configure the gateway secret/.test(error.stderr));
+        env.GATEWAY_HMAC_SECRET = 'short';
+        await assert.rejects(execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env }), error => error.code === 1 && /Configure the gateway secret/.test(error.stderr));
+        const secret = 'gateway-test-secret-with-at-least-32-characters';
+        env.GATEWAY_HMAC_SECRET = secret;
+        env.TEST_EXPECT_GATEWAY_SECRET = secret;
+        const enabled = await execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env });
+        assert.match(enabled.stdout, /API healthy/);
+        assert.doesNotMatch(`${enabled.stdout}${enabled.stderr}${await readFile(log, 'utf8')}`, /gateway-test-secret-with-at-least-32-characters/);
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

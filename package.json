@@ -11,7 +11,7 @@
     "build:hosting": "node scripts/build-firebase-hosting.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs scripts/*.test.mjs",
+    "test": "node --test tests/*.test.mjs scripts/*.test.mjs infra/cloudflare-api-gateway/*.test.mjs",
     "db:user": "node --env-file=.env scripts/manage-user.mjs",
     "db:import": "node --env-file=.env scripts/import-firestore.mjs"
   },

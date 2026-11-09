@@ -165,6 +165,20 @@ case "$mode" in
   deploy)
     : "${RUNTIME_ENV_FILE:?Configure ewh-calendar-runtime-env as a Jenkins Secret file}"
     require_file "$RUNTIME_ENV_FILE"
+    case "${GATEWAY_ENABLED:-false}" in
+      true)
+        gateway_secret="${GATEWAY_HMAC_SECRET:-}"
+        [ "${#gateway_secret}" -ge 32 ] || die 'Configure the gateway secret in Jenkins before deploying the gateway-enabled API.'
+        GATEWAY_HMAC_SECRET="$gateway_secret"
+        export GATEWAY_HMAC_SECRET
+        ;;
+      false)
+        # Prevent a stale shell or runtime-file value from enabling this feature.
+        GATEWAY_HMAC_SECRET=''
+        export GATEWAY_HMAC_SECRET
+        ;;
+      *) die 'GATEWAY_ENABLED must be true or false.' ;;
+    esac
     verify_backup
     : "${FIREBASE_SERVICE_ACCOUNT_FILE:?Configure ewh-calendar-firebase-admin as a Jenkins Secret file}"
     require_file "$FIREBASE_SERVICE_ACCOUNT_FILE"

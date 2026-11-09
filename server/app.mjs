@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { hashPassword, verifyPassword, safeUser, httpError, SESSION_MS, newToken } from './security.mjs';
 import { publicDocument, normalizeSchedule, withTransaction, writeChangeLog, importSchedules, rollbackImport } from './schedules.mjs';
 import { bearerSession } from './bearer-session.mjs';
+import { loginRateKey } from './gateway-rate.mjs';
 
 const saveSession = req => new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
 const regenerate = req => new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
@@ -115,7 +116,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
             : await db.collection('users').find({ role: 'consultant', status: 'approved' }, { projection: { _id: 1, uid: 1, name: 1, role: 1 } }).sort({ name: 1 }).toArray();
         res.json(consultants.map(user => safeUser(user, false)));
     });
-    const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: '로그인 시도가 많습니다. 15분 후 다시 시도해 주세요.' } });
+    const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: req => loginRateKey(req, config.gatewayHmacSecret), message: { error: '로그인 시도가 많습니다. 15분 후 다시 시도해 주세요.' } });
     app.post('/api/auth/login', loginLimit, async (req, res) => {
         const identifier = text(req.body.identifier, '아이디', true);
         let fresh;
