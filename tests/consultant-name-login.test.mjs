@@ -47,7 +47,23 @@ test('consultant name login verifies the linked Firebase password and account st
             return { matchedCount: 1 };
         },
     };
-    const db = { collection(name) { assert.equal(name, 'api_sessions'); return sessions; } };
+    const localUser = {
+        _id: identity.uid, uid: identity.uid, name: profile.name,
+        email: identity.email, role: profile.role, status: profile.status,
+        disabled: false, hasProfile: true, tokensValidAfterTime: 'v1', authVersion: 0,
+    };
+    const users = {
+        find(filter) {
+            const matches = Object.entries(filter).every(([key, value]) => localUser[key] === value);
+            return { limit() { return { async toArray() { return matches ? [{ ...localUser }] : []; } }; } };
+        },
+        async findOne(query) { return query.uid === localUser.uid ? { ...localUser } : null; },
+    };
+    const db = { collection(name) {
+        if (name === 'api_sessions') return sessions;
+        if (name === 'firebase_user_states') return users;
+        throw new Error(`Unexpected collection ${name}`);
+    } };
     const origin = 'http://localhost:5173';
     const server = createApp({
         db, client: {}, firebaseAuth, firebaseDirectory,

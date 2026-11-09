@@ -23,6 +23,7 @@ function text(value, label, required = false) {
     if (typeof value !== 'string' || value.length > 10000 || (required && !value.trim())) throw httpError(400, `${label} 항목이 올바르지 않습니다.`);
     return value.trim();
 }
+const normalizedEmail = value => typeof value === 'string' ? value.toLowerCase() : '';
 function fees(value) {
     if (!Array.isArray(value) || value.length > 100 || value.some(row => !row || typeof row.typeCode !== 'string' || !row.typeCode.trim() || !Number.isFinite(row.amount) || row.amount < 0)) throw httpError(400, '유형별 강사료가 올바르지 않습니다.');
     return value.map(({ typeCode, amount }) => ({ typeCode: typeCode.trim(), amount }));
@@ -49,6 +50,10 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     const useBearer = config.sessionTransport === 'bearer';
     const useFirebase = config.authProvider === 'firebase';
     if (useFirebase && (!firebaseAuth || !firebaseDirectory)) throw new Error('Firebase auth and directory adapters are required.');
+    // A dedicated collection avoids trusting legacy migrated MongoDB users.
+    // It is initialized from Firebase during the controlled cutover and is the
+    // authority for application access thereafter.
+    const firebaseUsers = useFirebase ? db.collection('firebase_user_states') : null;
     app.disable('x-powered-by');
     if (config.production) app.set('trust proxy', 1);
     app.use(helmet({ crossOriginResourcePolicy: { policy: useBearer ? 'cross-origin' : 'same-origin' }, contentSecurityPolicy: { directives: {
@@ -100,7 +105,11 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     });
     const findSessionUser = async req => {
         if (!req.session.uid || req.session.expiresAt <= Date.now()) return null;
-        const user = useFirebase ? await firebaseDirectory.get(req.session.uid) : await db.collection('users').findOne({ uid: req.session.uid, status: 'approved' });
+        const user = useFirebase ? await firebaseUsers.findOne({ uid: req.session.uid }) : await db.collection('users').findOne({ uid: req.session.uid, status: 'approved' });
+        // A temporary synchronization lock must deny access without destroying
+        // the caller's session. After it clears the version check below still
+        // revokes security-sensitive changes; failed sync stays inaccessible.
+        if (user?.authSyncPending) throw httpError(503, '계정 정보가 동기화 중입니다. 잠시 후 다시 시도해 주세요.');
         return user && !user.disabled && user.status === 'approved' && !user.authSyncPending && (user.authVersion || 0) === req.session.authVersion && (!useFirebase || user.tokensValidAfterTime === req.session.firebaseTokensValidAfterTime) ? user : null;
     };
     app.get('/api/auth/session', async (req, res) => {
@@ -112,7 +121,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     });
     app.get('/api/auth/consultants', async (_req, res) => {
         const consultants = useFirebase
-            ? (await firebaseDirectory.list()).filter(user => user.hasProfile && user.name !== user.email && user.role === 'consultant' && user.status === 'approved' && !user.disabled && !user.authSyncPending)
+            ? (await firebaseUsers.find({ role: 'consultant', status: 'approved', hasProfile: true, disabled: { $ne: true }, authSyncPending: { $ne: true } }).sort({ name: 1 }).toArray()).filter(user => normalizedEmail(user.name) !== normalizedEmail(user.email))
             : await db.collection('users').find({ role: 'consultant', status: 'approved' }, { projection: { _id: 1, uid: 1, name: 1, role: 1 } }).sort({ name: 1 }).toArray();
         res.json(consultants.map(user => safeUser(user, false)));
     });
@@ -121,9 +130,21 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         const identifier = text(req.body.identifier, '아이디', true);
         let fresh;
         if (useFirebase) {
-            const found = await firebaseDirectory.lookup(identifier, req.body.loginByName === true);
-            const uid = found ? await firebaseAuth.signIn(found.email, req.body.password) : null;
-            fresh = uid && (!found.uid || found.uid === uid) ? await firebaseDirectory.get(uid) : null;
+            const byName = req.body.loginByName === true;
+            const isEmail = !byName && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+            const filter = byName ? { name: identifier, role: 'consultant', hasProfile: true } : isEmail ? { email: identifier.toLowerCase() } : { userId: identifier };
+            const matches = await firebaseUsers.find(filter).limit(2).toArray();
+            const found = matches.length === 1 ? matches[0] : null;
+            const uid = found && !found.authSyncPending ? await firebaseAuth.signIn(found.email, req.body.password) : null;
+            // Verify Firebase at login, then re-read local state to prevent a
+            // concurrent account lock or deletion from creating a stale session.
+            const remote = uid && uid === found?.uid ? await firebaseDirectory.get(uid) : null;
+            const local = remote ? await firebaseUsers.findOne({ uid }) : null;
+            if (local && !remote.disabled && !remote.authSyncPending
+                && remote.uid === local.uid && normalizedEmail(remote.email) === normalizedEmail(local.email)
+                && remote.role === local.role && remote.status === local.status
+                && (remote.authVersion || 0) === (local.authVersion || 0)
+                && remote.tokensValidAfterTime === local.tokensValidAfterTime) fresh = local;
         } else {
             const filter = req.body.loginByName === true ? { name: identifier, role: 'consultant' } : { $or: [{ userId: identifier }, { email: identifier.toLowerCase() }] };
             const matches = await db.collection('users').find(filter).limit(2).toArray();
@@ -162,10 +183,10 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
 
     app.get('/api/users/check-id', admin, async (req, res) => {
         const userId = text(req.query.userId, '아이디', true);
-        res.json({ exists: useFirebase ? await firebaseDirectory.idExists(userId) : Boolean(await db.collection('users').findOne({ userId }, { projection: { _id: 1 } })) });
+        res.json({ exists: Boolean(await (useFirebase ? firebaseUsers : db.collection('users')).findOne({ userId }, { projection: { _id: 1 } })) });
     });
     app.get('/api/users', async (req, res) => {
-        const users = useFirebase ? (req.user.role === 'consultant' ? [req.user] : await firebaseDirectory.list()) : await db.collection('users').find(req.user.role === 'consultant' ? { uid: req.user.uid } : {}).toArray();
+        const users = useFirebase ? (req.user.role === 'consultant' ? [req.user] : await firebaseUsers.find({}).toArray()) : await db.collection('users').find(req.user.role === 'consultant' ? { uid: req.user.uid } : {}).toArray();
         res.json(users.map(user => safeUser(user, req.user.role === 'admin' || req.user.uid === user.uid)));
     });
     app.post('/api/users', admin, async (req, res) => {
@@ -174,22 +195,28 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         const uid = randomUUID();
         const now = new Date().toISOString();
         if (useFirebase && !fields.email) throw httpError(400, 'Firebase 로그인에 사용할 이메일을 입력해 주세요.');
-        if (useFirebase && await firebaseDirectory.idExists(fields.userId)) throw httpError(409, '이미 사용 중인 아이디입니다.');
+        if (useFirebase && await firebaseUsers.findOne({ userId: fields.userId })) throw httpError(409, '이미 사용 중인 아이디입니다.');
         if (typeof req.body.password !== 'string' || req.body.password.length < 8 || req.body.password.length > 256) throw httpError(400, '비밀번호는 8자 이상 256자 이하로 입력해 주세요.');
         const user = { _id: uid, uid, role: 'consultant', status: 'approved', ...fields, authVersion: 0, createdAt: now, updatedAt: now };
         if (useFirebase) {
+            // Reserve and deny the account before touching Firebase. Unknown
+            // outcomes or partial failures stay locked for manual reconciliation.
+            await firebaseUsers.insertOne({ ...user, disabled: user.status !== 'approved', hasProfile: true, tokensValidAfterTime: '', authSyncPending: true });
             try { await firebaseAuth.createUser({ uid, email: fields.email, password: req.body.password, displayName: fields.name, disabled: user.status !== 'approved' }); }
             catch (error) {
                 // A timeout can leave an account created remotely even when the response was lost.
                 console.error('Firebase account creation failed; inspect UID if outcome is uncertain:', uid);
                 throw error;
             }
-            try { const { _id, ...profile } = user; await firebaseDirectory.create(uid, profile); }
-            catch (error) {
-                try { await firebaseAuth.deleteUser(uid); }
-                catch { console.error('Firebase account cleanup required for UID:', uid); }
-                throw error;
-            }
+            const { _id, ...profile } = user;
+            await firebaseDirectory.create(uid, { ...profile, authSyncPending: true });
+            await firebaseDirectory.finish(uid, {});
+            const remote = await firebaseDirectory.get(uid);
+            if (!remote || remote.authSyncPending || remote.uid !== uid || normalizedEmail(remote.email) !== normalizedEmail(user.email)
+                || remote.role !== user.role || remote.status !== user.status
+                || remote.disabled !== (user.status !== 'approved') || (remote.authVersion || 0) !== 0) throw new Error('New Firebase user could not be verified');
+            const result = await firebaseUsers.updateOne({ _id: uid, authSyncPending: true, authVersion: 0 }, { $set: { disabled: remote.disabled, tokensValidAfterTime: remote.tokensValidAfterTime, authSyncPending: false } });
+            if (!result.matchedCount) throw new Error('New local user lock was lost');
         } else {
             user.passwordHash = await hashPassword(req.body.password);
             await db.collection('users').insertOne(user);
@@ -197,14 +224,14 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         res.status(201).json(safeUser(user));
     });
     app.patch('/api/users/:id', async (req, res) => {
-        const existing = useFirebase ? await firebaseDirectory.get(req.params.id) : await db.collection('users').findOne({ _id: req.params.id });
+        const existing = useFirebase ? await firebaseUsers.findOne({ _id: req.params.id }) : await db.collection('users').findOne({ _id: req.params.id });
         if (!existing) throw httpError(404, '회원을 찾을 수 없습니다.');
         const isAdmin = req.user.role === 'admin';
         if (!isAdmin && (req.user.role !== 'consultant' || existing.uid !== req.user.uid || Object.keys(req.body).some(key => key !== 'consultingFeesByType'))) throw httpError(403, '본인의 유형별 강사료만 수정할 수 있습니다.');
         const patch = isAdmin ? userFields(req.body) : { consultingFeesByType: fees(req.body.consultingFeesByType) };
         if (existing.uid === req.user.uid && ((patch.role && patch.role !== existing.role) || (patch.status && patch.status !== 'approved'))) throw httpError(400, '본인 계정의 권한이나 승인은 해제할 수 없습니다.');
         if (existing.authSyncPending) throw httpError(409, '계정 동기화가 중단되어 관리자 확인이 필요합니다.');
-        if (useFirebase && patch.userId && patch.userId !== existing.userId && await firebaseDirectory.idExists(patch.userId)) throw httpError(409, '이미 사용 중인 아이디입니다.');
+        if (useFirebase && patch.userId && patch.userId !== existing.userId && await firebaseUsers.findOne({ userId: patch.userId })) throw httpError(409, '이미 사용 중인 아이디입니다.');
         const changingPassword = isAdmin && req.body.password !== undefined;
         if (changingPassword && (typeof req.body.password !== 'string' || req.body.password.length < 8 || req.body.password.length > 256)) throw httpError(400, '비밀번호는 8자 이상 256자 이하로 입력해 주세요.');
         const firebaseChanges = {};
@@ -222,14 +249,27 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         const needsSync = Object.keys(firebaseChanges).length > 0;
         const invalidate = changingPassword || (patch.status && patch.status !== existing.status) || (patch.role && patch.role !== existing.role) || needsSync;
         if (useFirebase) {
-            if (needsSync || (patch.role && patch.role !== existing.role)) {
+            const currentVersion = existing.authVersion || 0;
+            const nextVersion = currentVersion + (invalidate ? 1 : 0);
+            const locked = await firebaseUsers.updateOne({ _id: existing._id, authSyncPending: { $ne: true }, authVersion: currentVersion }, { $set: { authSyncPending: true, authVersion: nextVersion } });
+            if (!locked.matchedCount) throw httpError(409, '계정 정보가 변경 중입니다. 다시 시도해 주세요.');
+            const updatedAt = new Date().toISOString();
+            if (invalidate) {
                 await firebaseDirectory.lock(existing);
                 if (needsSync) await firebaseAuth.updateUser(existing.uid, firebaseChanges);
-                await firebaseDirectory.finish(existing.uid, { ...patch, updatedAt: new Date().toISOString() });
+                await firebaseDirectory.finish(existing.uid, { ...patch, updatedAt });
             } else {
-                await firebaseDirectory.update(existing, { ...patch, updatedAt: new Date().toISOString() });
+                await firebaseDirectory.update(existing, { ...patch, updatedAt });
             }
-            return res.json(safeUser(await firebaseDirectory.get(existing.uid)));
+            const remote = await firebaseDirectory.get(existing.uid);
+            const expected = { ...existing, ...patch };
+            const expectedDisabled = firebaseChanges.disabled ?? existing.disabled;
+            if (!remote || remote.authSyncPending || remote.uid !== existing.uid || normalizedEmail(remote.email) !== normalizedEmail(expected.email)
+                || remote.role !== expected.role || remote.status !== expected.status || remote.disabled !== expectedDisabled
+                || (remote.authVersion || 0) !== nextVersion) throw new Error('Firebase user state could not be verified');
+            const saved = await firebaseUsers.findOneAndUpdate({ _id: existing._id, authSyncPending: true, authVersion: nextVersion }, { $set: { ...patch, updatedAt, disabled: remote.disabled, tokensValidAfterTime: remote.tokensValidAfterTime, hasProfile: remote.hasProfile, authSyncPending: false } }, { returnDocument: 'after' });
+            if (!saved) throw new Error('Local user lock was lost');
+            return res.json(safeUser(saved));
         }
         const update = { $set: { ...patch, updatedAt: new Date().toISOString() } };
         if (invalidate) update.$inc = { authVersion: 1 };
@@ -237,14 +277,19 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         res.json(safeUser(user));
     });
     app.delete('/api/users/:id', admin, async (req, res) => {
-        const target = useFirebase ? await firebaseDirectory.get(req.params.id) : await db.collection('users').findOne({ _id: req.params.id });
+        const target = useFirebase ? await firebaseUsers.findOne({ _id: req.params.id }) : await db.collection('users').findOne({ _id: req.params.id });
         if (!target) throw httpError(404, '회원을 찾을 수 없습니다.');
         if (target.uid === req.user.uid) throw httpError(400, '본인 계정은 삭제할 수 없습니다.');
         if (useFirebase) {
             if (target.authSyncPending) throw httpError(409, '계정 동기화가 중단되어 관리자 확인이 필요합니다.');
+            const version = target.authVersion || 0;
+            const locked = await firebaseUsers.updateOne({ _id: target._id, authSyncPending: { $ne: true }, authVersion: version }, { $set: { authSyncPending: true, authVersion: version + 1 } });
+            if (!locked.matchedCount) throw httpError(409, '계정 정보가 변경 중입니다. 다시 시도해 주세요.');
             await firebaseDirectory.lock(target);
             await firebaseAuth.deleteUser(target.uid);
             await firebaseDirectory.remove(target.uid);
+            const removed = await firebaseUsers.deleteOne({ _id: target._id, authSyncPending: true, authVersion: version + 1 });
+            if (!removed.deletedCount) throw new Error('Local user lock was lost');
             return res.json({ ok: true });
         }
         await db.collection('users').deleteOne({ _id: target._id });

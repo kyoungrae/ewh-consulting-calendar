@@ -16,7 +16,7 @@ export function createFirebaseDirectory(auth, firestore = getFirestore()) {
     const profileFrom = (uid, identity, snapshot) => {
         const data = snapshot.exists ? snapshot.data() : null;
         const profile = Object.fromEntries(PROFILE_FIELDS.filter(key => data?.[key] !== undefined).map(key => [key, data[key]]));
-        return { ...profile, _id: uid, uid, hasProfile: snapshot.exists, email: identity.email || '', name: profile.name || identity.displayName || identity.email || uid,
+        return { ...profile, _id: uid, uid, hasProfile: snapshot.exists, email: (identity.email || '').toLowerCase(), name: profile.name || identity.displayName || identity.email || uid,
             role: ['admin', 'tester', 'consultant'].includes(data?.role) ? data.role : 'consultant',
             status: data ? (data.status || 'pending') : 'approved', disabled: identity.disabled,
             tokensValidAfterTime: identity.tokensValidAfterTime || '' };

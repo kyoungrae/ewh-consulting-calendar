@@ -216,6 +216,9 @@ case "$mode" in
     previous_id="$(service_id app)"
     [ -n "$previous_id" ] || die 'Initial server setup must complete before Jenkins deployments.'
     previous_image="$(docker inspect --format '{{.Image}}' "$previous_id")"
+    previous_contract="$(docker image inspect --format '{{index .Config.Labels "com.ewh.user-state-contract"}}' "$previous_image")"
+    next_contract="$(docker image inspect --format '{{index .Config.Labels "com.ewh.user-state-contract"}}' "$APP_IMAGE")"
+    [ "$previous_contract" = v1 ] && [ "$next_contract" = v1 ] || die 'This rollout requires the explicit offline user-state cutover; the current API was kept.'
     docker image tag "$previous_image" "$rollback_image"
     candidate_id=''
     cleanup_candidate() { [ -z "$candidate_id" ] || docker rm -f "$candidate_id" >/dev/null 2>&1 || true; }

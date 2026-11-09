@@ -1,5 +1,9 @@
 // The fixed Jenkins job checks out origin/main, then loads this file.
 properties([
+  parameters([
+    booleanParam(name: 'INITIAL_USER_STATE_CUTOVER', defaultValue: false,
+      description: '최초 전환 전용: 점검 시간을 확보하고 사용자 관리 접근 차단과 진행 중인 모든 사용자 변경의 정상 완료를 확인하세요.')
+  ]),
   pipelineTriggers([]),
   disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '20'))
@@ -35,12 +39,23 @@ withEnv([
         sh 'sh ./scripts/jenkins-deploy.sh backup "$BUILD_TAG"'
       }
       stage('Deploy API') {
-        if (gatewayEnabled == 'true') {
-          withCredentials([string(credentialsId: 'ewh-calendar-gateway-hmac', variable: 'GATEWAY_HMAC_SECRET')]) {
+        def deployApi = {
+          if (params.INITIAL_USER_STATE_CUTOVER == true) {
+            // Selecting this option explicitly confirms the scheduled outage
+            // and external user-management quiescence required by the script.
+            withEnv(['FIREBASE_USER_STATES_QUIESCED=1']) {
+              sh 'sh ./scripts/jenkins-user-state-cutover.sh "$BUILD_TAG"'
+            }
+          } else {
             sh 'sh ./scripts/jenkins-deploy.sh deploy "$BUILD_TAG"'
           }
+        }
+        if (gatewayEnabled == 'true') {
+          withCredentials([string(credentialsId: 'ewh-calendar-gateway-hmac', variable: 'GATEWAY_HMAC_SECRET')]) {
+            deployApi()
+          }
         } else {
-          sh 'sh ./scripts/jenkins-deploy.sh deploy "$BUILD_TAG"'
+          deployApi()
         }
       }
       stage('Firebase Hosting') {

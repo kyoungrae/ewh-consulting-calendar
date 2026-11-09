@@ -41,7 +41,8 @@ case "$1" in
     esac ;;
   exec) exit 1 ;;
   logs) echo 'Error: Firebase authentication requires FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_BASE64 secret-value-should-not-appear' ;;
-  image|rm) exit 0 ;;
+  image) if [ "$2" = inspect ]; then echo v1; fi ;;
+  rm) exit 0 ;;
 esac
 `);
         await chmod(docker, 0o755);
@@ -99,6 +100,24 @@ test('Jenkins requires backup before API and Hosting deployment', async () => {
     assert.match(pipeline, /jenkins-deploy\.sh smoke /);
     assert.ok(pipeline.indexOf('jenkins-deploy.sh backup ') < pipeline.indexOf('jenkins-deploy.sh deploy '));
     assert.ok(pipeline.indexOf('jenkins-deploy.sh deploy ') < pipeline.indexOf('jenkins-deploy.sh firebase '));
+});
+
+test('initial local user-state cutover requires explicit opt-in and a prior backup', async () => {
+    const pipeline = await readFile(new URL('../Jenkinsfile', import.meta.url), 'utf8');
+    assert.match(pipeline, /booleanParam\(name:\s*'INITIAL_USER_STATE_CUTOVER',\s*defaultValue:\s*false/);
+    assert.match(pipeline, /if \(params\.INITIAL_USER_STATE_CUTOVER == true\)/);
+    assert.match(pipeline, /withEnv\(\['FIREBASE_USER_STATES_QUIESCED=1'\]\)/);
+    const backup = pipeline.indexOf('jenkins-deploy.sh backup ');
+    const cutover = pipeline.indexOf('jenkins-user-state-cutover.sh ');
+    const normalDeploy = pipeline.indexOf('jenkins-deploy.sh deploy ');
+    const hosting = pipeline.indexOf('jenkins-deploy.sh firebase ');
+    const smoke = pipeline.indexOf('jenkins-deploy.sh smoke ');
+    assert.ok(backup >= 0 && backup < cutover && cutover < hosting);
+    assert.ok(normalDeploy > cutover && normalDeploy < hosting);
+    assert.ok(smoke > hosting);
+    assert.match(pipeline, /file\(credentialsId: 'ewh-calendar-runtime-env'/);
+    assert.match(pipeline, /file\(credentialsId: 'ewh-calendar-firebase-admin'/);
+    assert.match(pipeline, /credentialsId: 'ewh-calendar-gateway-hmac'/);
 });
 
 test('API deployment refuses to run when a backup is missing or corrupted', async () => {
@@ -184,10 +203,18 @@ case "$1" in
       *Config.Labels*) echo false ;;
       *'.Image'*) echo old-image ;;
     esac ;;
+  image)
+    if [ "$2" = inspect ]; then
+      case "$*" in *old-image*) echo "\${TEST_OLD_CONTRACT:-v1}" ;; *) echo v1 ;; esac
+    fi ;;
 esac
 `);
         await chmod(docker, 0o755);
         const env = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, DOCKER_TEST_LOG: log, RUNTIME_ENV_FILE: join(dir, 'runtime.env'), FIREBASE_SERVICE_ACCOUNT_FILE: join(dir, 'firebase-key.json'), GATEWAY_HMAC_SECRET: 'stale-secret-from-shell', TEST_ENSURE_NO_GATEWAY_SECRET: '1' };
+        env.TEST_OLD_CONTRACT = 'legacy';
+        await assert.rejects(execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env }), error => error.code === 1 && /explicit offline user-state cutover/.test(error.stderr));
+        assert.doesNotMatch(await readFile(log, 'utf8'), /up -d --no-deps --no-build app/, 'legacy API must remain untouched');
+        delete env.TEST_OLD_CONTRACT;
         const result = await execFileAsync('sh', [join(dir, 'scripts', 'jenkins-deploy.sh'), 'deploy', 'test'], { cwd: dir, env });
         assert.match(result.stdout, /API healthy/);
         const calls = await readFile(log, 'utf8');

@@ -8,6 +8,7 @@ COPY src ./src
 RUN npm run build
 
 FROM node:24-alpine AS runtime
+LABEL com.ewh.user-state-contract="v1"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
