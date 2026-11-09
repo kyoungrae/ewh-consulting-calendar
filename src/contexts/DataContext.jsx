@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { api } from '../lib/api';
-import { runListMutation } from '../lib/list-mutation';
+import { api, getCredentialGeneration } from '../lib/api';
+import { createMutationGate, runListMutation } from '../lib/list-mutation';
 
 const DataContext = createContext();
 
@@ -9,32 +9,32 @@ export function useData() {
     return useContext(DataContext);
 }
 
-function useApiList(path, scope, enabled) {
-    const [snapshot, setSnapshot] = useState({ scope: null, items: [], error: null });
+function useApiList(path, session, isCurrent, enabled) {
+    const [snapshot, setSnapshot] = useState({ session: null, items: [], error: null });
     const inFlight = useRef(null);
 
     const reload = useCallback((force = false) => {
-        if (!enabled) return Promise.resolve([]);
-        if (!force && inFlight.current?.scope === scope) return inFlight.current.promise;
+        if (!enabled || !isCurrent()) return Promise.resolve([]);
+        if (!force && inFlight.current?.session === session) return inFlight.current.promise;
         const promise = api(path)
             .then((data) => {
-                if (inFlight.current?.promise === promise) {
-                    setSnapshot({ scope, items: data, error: null });
+                if (isCurrent() && inFlight.current?.promise === promise) {
+                    setSnapshot({ session, items: data, error: null });
                 }
-                return data;
+                return isCurrent() ? data : [];
             })
             .catch((err) => {
-                if (inFlight.current?.promise === promise) {
-                    setSnapshot((previous) => ({ scope, items: previous.scope === scope ? previous.items : [], error: err.message }));
+                if (isCurrent() && inFlight.current?.promise === promise) {
+                    setSnapshot((previous) => ({ session, items: previous.session === session ? previous.items : [], error: err.message }));
                 }
                 throw err;
             })
             .finally(() => {
                 if (inFlight.current?.promise === promise) inFlight.current = null;
             });
-        inFlight.current = { scope, promise };
+        inFlight.current = { session, promise };
         return promise;
-    }, [enabled, path, scope]);
+    }, [enabled, isCurrent, path, session]);
 
     useEffect(() => {
         if (enabled) reload().catch(() => {});
@@ -44,9 +44,9 @@ function useApiList(path, scope, enabled) {
     }, [enabled, reload]);
 
     const upsert = useCallback((item) => {
-        if (!enabled || snapshot.scope !== scope || !item || typeof item.id !== 'string') return false;
+        if (!enabled || !isCurrent() || snapshot.session !== session || !item || typeof item.id !== 'string') return false;
         setSnapshot(previous => {
-            if (previous.scope !== scope) return previous;
+            if (previous.session !== session) return previous;
             const index = previous.items.findIndex(existing => existing.id === item.id);
             const items = [...previous.items];
             if (index < 0) items.push(item);
@@ -54,20 +54,20 @@ function useApiList(path, scope, enabled) {
             return { ...previous, items };
         });
         return true;
-    }, [enabled, scope, snapshot.scope]);
+    }, [enabled, isCurrent, session, snapshot.session]);
 
     const remove = useCallback((id) => {
-        if (!enabled || snapshot.scope !== scope || typeof id !== 'string') return false;
-        setSnapshot(previous => previous.scope === scope
+        if (!enabled || !isCurrent() || snapshot.session !== session || typeof id !== 'string') return false;
+        setSnapshot(previous => previous.session === session
             ? { ...previous, items: previous.items.filter(item => item.id !== id) }
             : previous);
         return true;
-    }, [enabled, scope, snapshot.scope]);
+    }, [enabled, isCurrent, session, snapshot.session]);
 
     return {
-        items: enabled && snapshot.scope === scope ? snapshot.items : [],
-        loading: enabled && snapshot.scope !== scope,
-        error: enabled && snapshot.scope === scope ? snapshot.error : null,
+        items: enabled && snapshot.session === session ? snapshot.items : [],
+        loading: enabled && snapshot.session !== session,
+        error: enabled && snapshot.session === session ? snapshot.error : null,
         reload,
         upsert,
         remove
@@ -78,11 +78,19 @@ export function DataProvider({ children }) {
     const { currentUser, userProfile, isAdmin } = useAuth();
     const scope = `${currentUser?.uid || ''}:${userProfile?.role || ''}`;
     const enabled = Boolean(currentUser && userProfile?.status === 'approved');
-    const schedulesList = useApiList('/schedules', scope, enabled);
-    const usersList = useApiList('/users', scope, enabled);
-    const codesList = useApiList('/codes', scope, enabled);
-    const specialsList = useApiList('/special-schedules', scope, enabled);
-    const logsList = useApiList('/change-logs', scope, enabled && isAdmin);
+    const [mutationGate] = useState(createMutationGate);
+    const credentialGeneration = getCredentialGeneration();
+    const session = useMemo(() => ({ scope, enabled, credentialGeneration }), [scope, enabled, credentialGeneration]);
+    const isCurrent = useMemo(() => () => mutationGate.isCurrent(session)
+        && getCredentialGeneration() === session.credentialGeneration, [mutationGate, session]);
+    useLayoutEffect(() => {
+        if (enabled) return mutationGate.enter(session);
+    }, [enabled, mutationGate, session]);
+    const schedulesList = useApiList('/schedules', session, isCurrent, enabled);
+    const usersList = useApiList('/users', session, isCurrent, enabled);
+    const codesList = useApiList('/codes', session, isCurrent, enabled);
+    const specialsList = useApiList('/special-schedules', session, isCurrent, enabled);
+    const logsList = useApiList('/change-logs', session, isCurrent, enabled && isAdmin);
     const fetchSchedules = schedulesList.reload;
     const fetchUsers = usersList.reload;
     const fetchCodes = codesList.reload;
@@ -118,7 +126,8 @@ export function DataProvider({ children }) {
     // Individual writes return the saved item: show that immediately while the
     // server list refreshes. Bulk changes still wait for the full refreshed list.
     const mutate = (path, method, body, refresh, apply) => runListMutation({
-        request: () => api(path, { method, body }), refresh, apply
+        request: () => api(path, { method, body }), refresh, apply,
+        isCurrent
     });
 
     const addSchedule = (data) => mutate('/schedules', 'POST', data, refreshSchedules, schedulesList.upsert);

@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
                 if (active) applySession(session);
             })
             .catch((error) => {
-                if (active) setConnectionError(error.message);
+                if (active && error.name !== 'AbortError') setConnectionError(error.message);
             })
             .finally(() => {
                 if (active) setLoading(false);
@@ -95,7 +95,7 @@ export function AuthProvider({ children }) {
         try {
             applySession(await api('/auth/session'));
         } catch (error) {
-            setConnectionError(error.message);
+            if (error.name !== 'AbortError') setConnectionError(error.message);
         } finally {
             setLoading(false);
         }
@@ -133,7 +133,7 @@ export function AuthProvider({ children }) {
         try {
             applySession(await api('/auth/extend', { method: 'POST' }));
         } catch (error) {
-            alert(error.message || '로그인 시간을 연장하지 못했습니다.');
+            if (error.name !== 'AbortError') alert(error.message || '로그인 시간을 연장하지 못했습니다.');
         }
     }
 

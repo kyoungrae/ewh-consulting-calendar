@@ -151,10 +151,95 @@ test('an old session response cannot restore credentials after local logout', as
     const pending = client.api('/auth/session');
     client.clearCredentials();
     resolveSession(json({ csrfToken: 'old-csrf', sessionToken: 'old-token' }));
-    await pending;
+    await assert.rejects(pending, { name: 'AbortError' });
     await client.api('/codes');
     assert.equal(storage.values.size, 0);
     assert.equal(requests[1].headers.has('Authorization'), false);
+});
+
+test('a write awaiting CSRF cannot be sent with credentials from a later session', async () => {
+    let resolveOldSession;
+    const requests = [];
+    const client = createApiClient({
+        storage: memoryStorage(),
+        fetchImpl: (url, options) => {
+            requests.push({ url, options });
+            if (requests.length === 1) return new Promise(resolve => { resolveOldSession = resolve; });
+            return Promise.resolve(json({ csrfToken: 'new-csrf', sessionToken: 'new-token' }));
+        },
+    });
+    const originalGeneration = client.getCredentialGeneration();
+    const pendingWrite = client.api('/schedules', { method: 'POST', body: { title: 'old' } });
+    client.clearCredentials();
+    assert.notEqual(client.getCredentialGeneration(), originalGeneration);
+    await client.api('/auth/session');
+    resolveOldSession(json({ csrfToken: 'old-csrf', sessionToken: 'old-token' }));
+    await assert.rejects(pendingWrite, { name: 'AbortError' });
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(request => request.url.endsWith('/auth/session')));
+});
+
+test('a successful login advances the credential generation even for the same account', async () => {
+    const responses = [
+        json({ csrfToken: 'first-csrf', sessionToken: 'first-token' }),
+        json({ user: { uid: 'same-user' }, csrfToken: 'second-csrf', sessionToken: 'second-token' }),
+    ];
+    const client = createApiClient({ storage: memoryStorage(), fetchImpl: async () => responses.shift() });
+    await client.api('/auth/session');
+    const firstGeneration = client.getCredentialGeneration();
+    await client.api('/auth/login', { method: 'POST', body: { identifier: 'same-user', password: 'example' } });
+    assert.notEqual(client.getCredentialGeneration(), firstGeneration);
+});
+
+test('a delayed session lookup cannot return an old identity after a new login', async () => {
+    let resolveOldSession;
+    let sessionRequests = 0;
+    const client = createApiClient({
+        storage: memoryStorage(),
+        fetchImpl: url => {
+            if (!url.endsWith('/auth/session')) {
+                return Promise.resolve(json({ user: { uid: 'user-b' }, csrfToken: 'b-csrf', sessionToken: 'b-token' }));
+            }
+            sessionRequests += 1;
+            if (sessionRequests === 1) return Promise.resolve(json({ user: { uid: 'user-a' }, csrfToken: 'a-csrf', sessionToken: 'a-token' }));
+            return new Promise(resolve => { resolveOldSession = resolve; });
+        },
+    });
+    await client.api('/auth/session');
+    const oldSession = client.api('/auth/session');
+    const newLogin = await client.api('/auth/login', { method: 'POST', body: { identifier: 'user-b', password: 'example' } });
+    assert.equal(newLogin.user.uid, 'user-b');
+    resolveOldSession(json({ user: { uid: 'user-a' }, csrfToken: 'a-csrf', sessionToken: 'a-token' }));
+    await assert.rejects(oldSession, { name: 'AbortError' });
+});
+
+test('a stale session lookup network failure is treated as cancelled', async () => {
+    let rejectRequest;
+    const client = createApiClient({
+        storage: memoryStorage(),
+        fetchImpl: () => new Promise((_, reject) => { rejectRequest = reject; }),
+    });
+    const pending = client.api('/auth/session');
+    client.clearCredentials();
+    rejectRequest(new Error('network failed'));
+    await assert.rejects(pending, { name: 'AbortError' });
+});
+
+test('a login response cannot restore a session after credentials were cleared', async () => {
+    let resolveLogin;
+    const storage = memoryStorage();
+    const client = createApiClient({
+        storage,
+        fetchImpl: url => url.endsWith('/auth/session')
+            ? Promise.resolve(json({ csrfToken: 'anonymous', sessionToken: 'anonymous-token' }))
+            : new Promise(resolve => { resolveLogin = resolve; }),
+    });
+    await client.api('/auth/session');
+    const login = client.api('/auth/login', { method: 'POST', body: { identifier: 'user', password: 'example' } });
+    client.clearCredentials();
+    resolveLogin(json({ user: { uid: 'user' }, csrfToken: 'old', sessionToken: 'old-token' }));
+    await assert.rejects(login, { name: 'AbortError' });
+    assert.equal(storage.values.size, 0);
 });
 
 test('storage restrictions retain in-memory login and aborted requests remain abort errors', async () => {

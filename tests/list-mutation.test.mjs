@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runListMutation } from '../src/lib/list-mutation.js';
+import { createMutationGate, runListMutation } from '../src/lib/list-mutation.js';
 
 function deferred() {
     let resolve;
@@ -88,5 +88,51 @@ test('bulk saves still wait for the authoritative list without retrying a succes
     assert.equal(finished, false);
     refresh.resolve();
     assert.deepEqual(await saving, { imported: 2 });
+    assert.equal(requests, 1);
+});
+
+test('a pending write cannot apply or refresh after a different user signs in', async () => {
+    const gate = createMutationGate();
+    const sessionA = {};
+    const leaveA = gate.enter(sessionA);
+    const pending = deferred();
+    let touched = false;
+    const saving = runListMutation({
+        isCurrent: () => gate.isCurrent(sessionA),
+        request: () => pending.promise,
+        apply: () => { touched = true; return true; },
+        refresh: () => { touched = true; },
+    });
+    leaveA();
+    const leaveB = gate.enter({});
+    pending.resolve({ id: 'a-private-record' });
+    assert.equal(await saving, undefined);
+    assert.equal(touched, false);
+    leaveB();
+});
+
+test('logging back in as the same user creates a new mutation lifetime', async () => {
+    const gate = createMutationGate();
+    const firstSession = {};
+    const leaveFirstSession = gate.enter(firstSession);
+    const oldSession = () => gate.isCurrent(firstSession);
+    leaveFirstSession();
+    const secondSession = {};
+    gate.enter(secondSession);
+    let requests = 0;
+    const stale = await runListMutation({
+        isCurrent: oldSession,
+        request: async () => { requests += 1; },
+        refresh: () => {},
+    });
+    assert.equal(stale, undefined);
+    assert.equal(requests, 0);
+    const current = await runListMutation({
+        isCurrent: () => gate.isCurrent(secondSession),
+        request: async () => { requests += 1; return { id: 'saved' }; },
+        apply: () => true,
+        refresh: () => {},
+    });
+    assert.equal(current.id, 'saved');
     assert.equal(requests, 1);
 });

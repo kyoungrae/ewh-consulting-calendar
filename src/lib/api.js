@@ -59,6 +59,9 @@ export function createApiClient({
         const method = (options.method || 'GET').toUpperCase();
         if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
             if (!csrfToken) await api('/auth/session');
+            // A pending bootstrap must never send a previous user's write with
+            // credentials belonging to a newly signed-in session.
+            if (generation !== credentialGeneration) throw new DOMException('Session changed', 'AbortError');
             headers.set('X-CSRF-Token', csrfToken);
         }
         if (sessionToken) headers.set('Authorization', `Bearer ${sessionToken}`);
@@ -72,10 +75,14 @@ export function createApiClient({
                 credentials: crossOrigin ? 'omit' : 'same-origin',
             });
         } catch (cause) {
+            if (generation !== credentialGeneration) throw new DOMException('Session changed', 'AbortError');
             if (cause?.name === 'AbortError') throw cause;
             throw new Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', { cause });
         }
         const data = await response.json().catch(() => null);
+        // Old reads must not return identity or other data to callers after a
+        // new login or logout has changed the active credentials.
+        if (generation !== credentialGeneration) throw new DOMException('Session changed', 'AbortError');
         if (!response.ok) {
             const error = new Error(
                 (typeof data?.error === 'string' ? data.error : data?.message)
@@ -89,7 +96,11 @@ export function createApiClient({
             }
             throw error;
         }
-        if (generation === credentialGeneration && data) {
+        if (path === '/auth/login' && method === 'POST') {
+            // A successful login is a new session even for the same account.
+            credentialGeneration += 1;
+        }
+        if ((generation === credentialGeneration || (path === '/auth/login' && method === 'POST')) && data) {
             if (Object.hasOwn(data, 'csrfToken')) csrfToken = data.csrfToken;
             if (Object.hasOwn(data, 'sessionToken')) rememberSessionToken(data.sessionToken);
         }
@@ -111,7 +122,7 @@ export function createApiClient({
         }
         return request(path, options);
     }
-    return { api, clearCredentials };
+    return { api, clearCredentials, getCredentialGeneration: () => credentialGeneration };
 }
 
 const client = createApiClient({
@@ -120,6 +131,7 @@ const client = createApiClient({
 });
 
 export const api = client.api;
+export const getCredentialGeneration = client.getCredentialGeneration;
 // AuthContext calls this when logging out or expiring the local session. Clear
 // both credentials so a page reload cannot restore a session the user closed.
 export const clearCsrfToken = client.clearCredentials;
