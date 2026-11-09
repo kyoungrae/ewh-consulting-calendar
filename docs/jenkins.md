@@ -26,7 +26,9 @@ Jenkins 실행 노드에는 Docker CLI, Compose, Git, gzip, sha256sum, 호스트
 
 기존 `ewh-calendar-runtime-env`는 수정하지 않습니다. Firebase 서비스 계정 JSON을 별도 Secret file `ewh-calendar-firebase-admin`으로 등록합니다. Jenkins는 실행 중에만 키를 인코딩해 후보 서버에 전달하며 키 파일이나 값을 로그·Git에 넣지 않습니다. 웹 API 키는 Firebase 웹 앱의 공개 설정이며 API URL, Hosting 프로젝트와 백업 저장 경로와 함께 `infra/jenkins/deploy.env`에서 관리합니다. 서비스 계정 준비가 끝나기 전에는 배포를 시작하지 않습니다.
 
-API 중계를 사용할 때는 무작위로 생성한 32자 이상의 비밀키를 Jenkins의 Secret text `ewh-calendar-gateway-hmac`과 Worker의 Secret `GATEWAY_HMAC_SECRET`에 각각 안전하게 등록합니다. 두 값은 일치해야 합니다. 비밀키는 Git·로그·채팅이나 `deploy.env`에 넣지 않습니다. 등록과 Worker 검증 후 `infra/jenkins/deploy.env`에서 `GATEWAY_ENABLED=true`로 설정하면 Jenkins가 배포 단계에서만 Secret text를 후보 및 운영 API에 주입합니다. 기본값 `false`에서는 추가 자격 증명 없이 기존 배포가 작동하고 비밀키가 전달되지 않습니다. 기존 API 주소를 유지하며 서버부터 배포한 뒤 Worker 인증과 로그인 제한을 확인하고, 그 다음 Hosting API 주소를 변경합니다.
+API 중계를 사용할 때는 무작위로 생성한 32자 이상의 비밀키를 Jenkins의 Secret text `ewh-calendar-gateway-hmac`과 Worker의 Secret `GATEWAY_HMAC_SECRET`에 각각 안전하게 등록합니다. 두 값은 일치해야 합니다. 비밀키는 Git·로그·채팅이나 `deploy.env`에 넣지 않습니다. 등록과 Worker 검증 후 `infra/jenkins/deploy.env`에서 `GATEWAY_ENABLED=true`로 설정하면 Jenkins가 배포 단계에서만 Secret text를 후보 및 운영 API에 주입합니다. `GATEWAY_ENABLED=false`이면 추가 자격 증명 없이 기존 배포가 작동하고 비밀키가 전달되지 않습니다. 기존 API 주소를 유지하며 서버부터 배포한 뒤 Worker 인증과 로그인 제한을 확인하고, 그 다음 Hosting API 주소를 변경합니다.
+
+Hosting 빌드는 `infra/jenkins/deploy.env`의 `FUNNEL_API_BASE_URL`을 사용합니다. Worker 사용 시 주소는 `https://ewh-calendar-api.myljk1025.workers.dev/api`이며, 기존 Funnel은 Worker에서 서버로 연결하는 경로로 유지합니다. 전환 후 공개 API 상태, 로그인과 일정 조회를 확인하고 문제 유선 PC에서 새 주소가 허용되는지도 확인합니다. Firebase Hosting에서 문제가 발생하면 이전 Hosting 버전으로 롤백하거나 API 주소를 이전 Funnel 주소로 되돌려 빌드·배포할 수 있지만, 그 경우 `*.ts.net`을 차단하는 유선망 문제도 되돌아옵니다. 롤백 중에도 기존 MongoDB 볼륨과 다른 Funnel 경로를 삭제하지 않습니다.
 
 `infra/jenkins/ewh-calendar-deploy.xml`을 Pipeline 작업으로 등록합니다. 기존 작업이 있으면 registrar가 설정을 먼저 0600 파일로 백업하고, 저장 후 다시 읽어 동일한 로더인지 확인합니다.
 

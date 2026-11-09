@@ -9,6 +9,8 @@ React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨�
 ```text
 사용자 → https://ewha-consulting.web.app (Firebase Hosting 정적 화면)
                    ↓ HTTPS API 요청
+     https://ewh-calendar-api.myljk1025.workers.dev/api
+                   ↓ Cloudflare Worker 중계
      https://macbookpro.tailf007d9.ts.net/ewh-calendar/api
                    ↓ Tailscale Funnel
          MacBook Pro localhost:8180 (Node API)
@@ -18,7 +20,7 @@ React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨�
 
 MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 단일 노드 replica set `rs0`은 일정 업로드·되돌리기의 원자적 트랜잭션을 지원하기 위한 구성입니다. 이 구성에는 다른 장비로의 자동 복제가 없으므로 백업을 별도로 보관해야 합니다.
 
-운영 로그인은 Firebase Authentication에서 이메일과 비밀번호 및 ID 토큰을 검증합니다. 같은 UID의 Firestore 프로필이 있으면 권한과 승인 상태를 확인하고, 프로필이 없는 Firebase 계정은 기본 컨설턴트 권한으로 로그인합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. MongoDB 사용자 문서는 로그인이나 권한 확인에 사용하지 않습니다.
+운영 로그인은 Firebase Authentication에서 이메일과 비밀번호 및 ID 토큰을 검증합니다. 같은 UID의 Firestore 프로필이 있으면 권한과 승인 상태를 확인하고, 프로필이 없는 Firebase 계정은 기본 컨설턴트 권한으로 로그인합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Worker API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. MongoDB 사용자 문서는 로그인이나 권한 확인에 사용하지 않습니다.
 
 ## Firebase 로그인 서버 전환 설정
 
@@ -173,9 +175,11 @@ unset ADMIN_PASSWORD
 
 Firebase 모드에서는 관리자 로그인 후 회원 관리 화면에서 비밀번호를 변경하면 Firebase Authentication의 비밀번호가 변경됩니다. 기존 세션은 유지되지 않으며 다시 로그인해야 합니다.
 
-## 기존 Hosting 주소와 Funnel API 연결
+## 기존 Hosting 주소와 API 연결
 
 `https://ewha-consulting.web.app`은 그대로 사용합니다. `.firebaserc`는 기존 `ewha-consulting` 프로젝트를 가리키며, `firebase.json`은 `dist`의 정적 화면과 React Router fallback만 배포합니다. 앱 서버는 별도 Firebase 서비스 계정으로 Authentication과 Firestore 사용자 프로필에 연결합니다.
+
+브라우저는 `https://ewh-calendar-api.myljk1025.workers.dev/api`에 요청하며, Worker가 기존 Funnel API로 전달합니다. Worker와 서버의 로그인 제한 서명 비밀키 관리와 배포 순서는 [Jenkins 수동 배포](docs/jenkins.md)와 [중계 운영 안내](infra/cloudflare-api-gateway/README.md)를 참고하세요. 서버 Mac의 Docker, Tailscale과 Funnel은 계속 실행되어야 합니다. 공개 Worker 주소가 해당 유선망에서 허용되는지와 실제 로그인·일정 조회는 현장 PC에서 확인해야 합니다. Workers 무료 플랜에는 일일 요청 제한이 있으며, 한도 초과 시 서비스가 중단될 수 있습니다. 자세한 내용은 [Cloudflare Workers 한도](https://developers.cloudflare.com/workers/platform/limits/)를 참고하세요.
 
 맥북 프로의 서버용 `.env`를 다음과 같이 설정합니다. `APP_ORIGIN`은 API 주소가 아니라 사용자가 여는 화면의 출처이며, CORS와 변경 요청 검증에 사용합니다.
 
@@ -201,7 +205,7 @@ curl --fail http://localhost:8180/api/health
 | `https://macbookpro.tailf007d9.ts.net/consulting-manager` | `http://127.0.0.1:3080` — 기존 별도 서비스 |
 | `https://macbookpro.tailf007d9.ts.net:8443/` | `http://127.0.0.1:4301` — tailnet 전용 |
 
-`/ewh-calendar` 경로와 포트 8180은 이 확인 시점에 사용하지 않았습니다. 설치된 Tailscale 1.102.3의 `funnel --help`에서 `--set-path` 지원을 확인했습니다. 실제 배포 직전에도 상태를 다시 읽고 경로가 비어 있는지 확인합니다. 이 문서 작성 중에는 Funnel 설정을 변경하지 않았습니다.
+`/ewh-calendar` 경로는 달력 전용이며, 재설정 전에는 다른 서비스의 기존 Funnel 경로와 포트 충돌 여부를 확인합니다.
 
 ```bash
 tailscale funnel status
@@ -233,13 +237,13 @@ npm run build:hosting
 `.env.hosting`의 기본값은 다음과 같습니다.
 
 ```dotenv
-FUNNEL_API_BASE_URL=https://macbookpro.tailf007d9.ts.net/ewh-calendar/api
+FUNNEL_API_BASE_URL=https://ewh-calendar-api.myljk1025.workers.dev/api
 ```
 
 `build:hosting`은 HTTPS와 전체 `/api` 경로를 검증한 뒤 `VITE_API_BASE_URL`을 빌드 프로세스에 전달합니다. API 주소가 없거나 HTTP이면 중단합니다. 다른 주소로 배포할 때는 환경 변수로 명시할 수도 있습니다.
 
 ```bash
-FUNNEL_API_BASE_URL=https://macbookpro.tailf007d9.ts.net/ewh-calendar/api npm run build:hosting
+FUNNEL_API_BASE_URL=https://ewh-calendar-api.myljk1025.workers.dev/api npm run build:hosting
 ```
 
 기존 Firebase CLI 인증 계정에서 대상 프로젝트와 API health를 확인한 뒤 정적 화면만 배포합니다.

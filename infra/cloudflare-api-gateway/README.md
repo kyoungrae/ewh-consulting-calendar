@@ -1,8 +1,9 @@
 # API gateway preparation
 
-This is an un-deployed Cloudflare Worker prototype. It provides `/api` over a
-`workers.dev` HTTPS address and relays to the existing calendar server. The
-Firebase Hosting site and the server-side database remain unchanged.
+The Cloudflare Worker provides `/api` at
+`https://ewh-calendar-api.myljk1025.workers.dev/api` and relays to the existing
+calendar server through Tailscale Funnel. Firebase Hosting continues to serve
+the frontend and the server-side MongoDB remains unchanged.
 
 Run its local unit tests with:
 
@@ -10,11 +11,9 @@ Run its local unit tests with:
 node --test infra/cloudflare-api-gateway/worker.test.mjs
 ```
 
-Before any production use, provide a Cloudflare account and an available
-`workers.dev` subdomain; deploy and test a separate gateway; verify the
-firewalled PC can reach its address; and test authentication, schedules,
-updates, CORS, 12 MiB requests and error responses end to end. The current
-Hosting configuration still points to the existing Tailscale URL.
+Before switching Hosting to the Worker, verify that the firewalled PC can reach
+its address and test authentication, schedules, updates, CORS, 12 MiB requests
+and error responses end to end. Keep the existing Funnel as the upstream.
 
 The gateway signs Cloudflare's client IP for login requests using
 `GATEWAY_HMAC_SECRET`. The backend verifies the signature and timestamp before
@@ -35,4 +34,4 @@ until these checks and login and schedule tests succeed.
 
 Workers Free has usage limits, including a daily request limit. Exceeding them
 can interrupt service; consult Cloudflare's current limits and test the upload
-workload before choosing this architecture.
+workload. See https://developers.cloudflare.com/workers/platform/limits/.
