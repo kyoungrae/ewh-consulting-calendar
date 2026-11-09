@@ -97,6 +97,12 @@ export default function ConsultantSelectionPage() {
                     )}
                 </div>
 
+                {mode !== 'admin' && (
+                    <button className="btn btn-secondary mt-6" onClick={() => navigate('/login?role=consultant')}>
+                        이메일로 로그인
+                    </button>
+                )}
+
                 {/* Home Button - Pushed further down for better balance */}
                 <div className="mt-12 animate-fade-in flex justify-center w-full" style={{ marginTop: '140px' }}>
                     <button

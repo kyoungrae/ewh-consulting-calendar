@@ -3,7 +3,7 @@ import { httpError, SESSION_MS } from './security.mjs';
 
 const issueToken = () => randomBytes(32).toString('hex');
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
-const fields = ['uid', 'authVersion', 'csrfToken', 'expiresAt'];
+const fields = ['uid', 'authVersion', 'firebaseTokensValidAfterTime', 'csrfToken', 'expiresAt'];
 
 // Match the small express-session interface used by the authentication routes.
 // The browser receives the random token; MongoDB stores only its SHA-256 hash.

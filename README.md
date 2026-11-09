@@ -2,7 +2,7 @@
 
 커밋·push 이후에는 Jenkins에서 수동으로 최신 `main`을 배포합니다. 설정과 실행 순서는 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요.
 
-React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. Firebase Hosting은 화면을, Firebase Authentication은 계정 인증을 담당하며, 사용자 프로필과 일정은 맥북 프로의 MongoDB에 보관합니다. Firestore는 운영 데이터 저장에 사용하지 않습니다.
+React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨설팅 일정 관리 시스템입니다. Firebase Hosting은 화면을, Firebase Authentication은 계정 인증을 담당하며, 사용자 프로필과 권한은 기존 Firestore에 보관하고, 일정과 서버 세션은 맥북 프로의 MongoDB에 보관합니다.
 
 ## 구성
 
@@ -18,13 +18,13 @@ React 일정 관리 화면과 Node API, Docker MongoDB로 구성한 내부 컨�
 
 MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 단일 노드 replica set `rs0`은 일정 업로드·되돌리기의 원자적 트랜잭션을 지원하기 위한 구성입니다. 이 구성에는 다른 장비로의 자동 복제가 없으므로 백업을 별도로 보관해야 합니다.
 
-운영 로그인은 Firebase Authentication에서 이메일과 비밀번호를 검증하고 반환된 UID를 MongoDB의 승인된 사용자 UID와 비교합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. 권한과 승인 상태는 MongoDB에서 검사합니다.
+운영 로그인은 Firebase Authentication에서 이메일과 비밀번호 및 ID 토큰을 검증합니다. 같은 UID의 Firestore 프로필이 있으면 권한과 승인 상태를 확인하고, 프로필이 없는 Firebase 계정은 기본 컨설턴트 권한으로 로그인합니다. 서버가 발급하는 세션은 30분 후 만료됩니다. Hosting과 Funnel API처럼 출처가 다르면 Bearer 전송을 사용하고, 같은 출처의 로컬 환경은 HttpOnly 쿠키 세션을 사용합니다. MongoDB 사용자 문서는 로그인이나 권한 확인에 사용하지 않습니다.
 
 ## Firebase 로그인 전환과 Jenkins 설정
 
 전환은 기존 계정을 먼저 대조한 뒤 진행합니다. 이전 앱은 Firestore 비밀번호와 Firebase 비밀번호가 서로 다른 경우에도 어느 쪽이든 허용했으므로, Firebase 비밀번호가 없는 계정이나 이전에 Firestore 비밀번호를 쓰던 계정은 개별 복구가 필요합니다. `805246`에 MongoDB로 설정한 임시 비밀번호는 Firebase 비밀번호를 바꾸지 않았습니다. 기존 UID와 이메일을 자동으로 결합하거나 기존 계정의 비밀번호를 일괄 변경하지 않습니다.
 
-운영 Jenkins의 `ewh-calendar-runtime-env` Secret file에 다음을 기존 MongoDB·세션 설정과 함께 추가합니다. 서비스 계정은 대상 Firebase 프로젝트의 Authentication 사용자 조회·생성·수정·삭제에 필요한 권한만 부여하고 키와 런타임 파일은 비공개로 보관합니다. Web API 키는 Firebase 프로젝트 설정의 웹 앱 설정에서 가져오고 Identity Toolkit API 및 이메일/비밀번호 로그인 사용 여부를 확인합니다.
+운영 Jenkins의 `ewh-calendar-runtime-env` Secret file에 다음을 기존 MongoDB·세션 설정과 함께 추가합니다. 서비스 계정은 대상 Firebase 프로젝트의 Authentication 사용자 조회·생성·수정·삭제와 Firestore 사용자 프로필 읽기·쓰기에 필요한 권한만 부여하고 키와 런타임 파일은 비공개로 보관합니다. Web API 키는 Firebase 프로젝트 설정의 웹 앱 설정에서 가져오고 Identity Toolkit API 및 이메일/비밀번호 로그인 사용 여부를 확인합니다.
 
 ```dotenv
 AUTH_PROVIDER=firebase
@@ -33,15 +33,17 @@ FIREBASE_WEB_API_KEY=<Firebase web API key>
 FIREBASE_SERVICE_ACCOUNT_BASE64=<service account JSON encoded as one-line base64>
 ```
 
-서비스 계정 JSON의 개행 없는 base64 값을 생성해 비공개 환경 파일에 넣고, 원본 키나 값을 로그·Git에 넣지 않습니다. Jenkins는 후보 API의 health 확인 후 Firebase와 MongoDB 계정을 읽기 전용으로 대조하며, UID·이메일·비활성 상태 불일치나 중단된 동기화가 있으면 기존 API를 유지하고 배포를 중단합니다. 사용자 목록 대조에는 Firebase Authentication 사용자 목록 조회 권한이 필요합니다. 감사는 암호나 암호 해시를 확인하지 않으므로 **Firebase 비밀번호가 실제 사용자에게 알려져 있는지까지 보장하지 않습니다.** 사용자별 실제 로그인 확인이 필요합니다.
+Firestore 사용자 프로필에는 권한과 승인 상태가 있으므로 클라이언트가 해당 문서를 수정하지 못하도록 규칙을 유지해야 합니다. 서버 Admin SDK는 규칙을 우회하므로 서비스 계정의 IAM 접근도 제한합니다. Firebase Authentication에 계정만 있고 프로필이 없으면 누구나 기본 컨설턴트로 접속할 수 있습니다. 이 Firebase 프로젝트의 계정이 모두 이 앱에 접속할 수 있어도 되는지 확인하세요.
 
-서버의 비공개 운영 환경을 사용하는 새 이미지에서 `node scripts/audit-firebase-users.mjs`를 실행하면 불일치한 아이디·UID와 사유를 확인할 수 있습니다. Firebase에만 있는 계정은 개수만 보고하며 자동 삭제하거나 연결하지 않습니다. 정상 로그인 사례와 이름 로그인, 일정·권한을 검증한 뒤 운영에 반영하세요. `AUTH_PROVIDER=mongo`는 Firebase에 접속하지 않는 격리된 로컬 개발 환경을 위한 것입니다.
+서비스 계정 JSON의 개행 없는 base64 값을 생성해 비공개 환경 파일에 넣고, 원본 키나 값을 로그·Git에 넣지 않습니다. Jenkins는 후보 API의 health 확인 후 Firebase Authentication 계정과 Firestore 프로필을 읽기 전용으로 대조하며, 일치하지 않는 UID·중복 아이디·중단된 동기화가 있으면 기존 API를 유지하고 배포를 중단합니다. 사용자 목록 대조에는 Firebase Authentication 사용자 목록 조회 권한이 필요합니다. 감사는 암호나 암호 해시를 확인하지 않으므로 **Firebase 비밀번호가 실제 사용자에게 알려져 있는지까지 보장하지 않습니다.** 사용자별 실제 로그인 확인이 필요합니다.
 
-관리자가 앱에서 새 사용자를 만들면 Firebase 계정을 만든 다음 동일 UID로 MongoDB 프로필을 생성합니다. 프로필 저장 실패 시 생성한 Firebase 계정 삭제를 시도하고, 정리가 실패하면 서버 로그에 해당 UID를 남깁니다. Firebase 계정 생성 요청의 응답이 유실된 경우에도 로그의 UID를 확인해 고아 계정 여부를 수동으로 조사해야 합니다. 이메일·이름·비밀번호·승인 상태 변경이나 삭제는 두 시스템에 반영됩니다. 중간에 실패하면 `authSyncPending`으로 계정을 잠그고 기존 세션을 무효화합니다. Firebase 또는 MongoDB를 수동으로 편집해 잠금을 해제하지 마세요. 먼저 해당 UID와 실제 Firebase 상태를 확인하고 비공개 서버에서 아래 도구를 실행합니다.
+서버의 비공개 운영 환경을 사용하는 새 이미지에서 `node scripts/audit-firebase-users.mjs`를 실행하면 불일치한 아이디·UID와 사유를 확인할 수 있습니다. 프로필 없이 Firebase Authentication에만 있는 계정은 개수만 보고하며 컨설턴트로 로그인할 수 있습니다. 이름 선택이나 아이디 로그인에 필요한 프로필이 없으므로 이메일로 로그인해야 합니다. 정상 로그인 사례와 이름 로그인, 일정·권한을 검증한 뒤 운영에 반영하세요. `AUTH_PROVIDER=mongo`는 Firebase에 접속하지 않는 격리된 로컬 개발 환경을 위한 것입니다.
+
+관리자가 앱에서 새 사용자를 만들면 Firebase 계정을 만든 다음 동일 UID로 Firestore 프로필을 생성합니다. 프로필 저장 실패 시 생성한 Firebase 계정 삭제를 시도하고, 정리가 실패하면 서버 로그에 해당 UID를 남깁니다. Firebase 계정 생성 요청의 응답이 유실된 경우에도 로그의 UID를 확인해 고아 계정 여부를 수동으로 조사해야 합니다. 이메일·이름·비밀번호·승인 상태 변경이나 삭제는 두 시스템에 반영됩니다. 중간에 실패하면 `authSyncPending`으로 계정을 잠그고 기존 세션을 무효화합니다. Firebase Authentication 또는 Firestore를 수동으로 편집해 잠금을 해제하지 마세요. 먼저 해당 UID와 실제 Firebase 상태를 확인하고 비공개 서버에서 아래 도구를 실행합니다.
 
 ```bash
 docker exec -i <app-container> node scripts/recover-firebase-sync.mjs --user-id <아이디>
-# dry-run 검토 후에만 적용: Firebase 이메일·이름·비활성 상태를 MongoDB 프로필 기준으로 되돌립니다.
+# dry-run 검토 후에만 적용: Firebase 이메일·이름·비활성 상태를 Firestore 프로필 기준으로 되돌립니다.
 docker exec -i <app-container> node scripts/recover-firebase-sync.mjs --user-id <아이디> --apply
 ```
 
@@ -92,7 +94,7 @@ curl --fail http://localhost:8180/api/health
 3. 새 MongoDB에서 dry run을 실행해 식별자와 고유 값 충돌을 확인합니다.
 4. 백업을 확보한 뒤 `--apply`로 새 문서만 가져옵니다.
 5. 관리자와 컨설턴트 계정으로 일정, 코드, 특별 일정, 강사료, 엑셀 업로드와 되돌리기를 확인합니다.
-6. 달력 전용 Funnel 경로를 검증하고 새 화면을 기존 Hosting에 배포한 뒤 Firebase Authentication·Firestore 사용을 종료합니다. Hosting과 기존 주소는 유지합니다.
+6. 달력 전용 Funnel 경로를 검증하고 새 화면을 기존 Hosting에 배포합니다. 계정용 Firebase Authentication과 Firestore 사용자 프로필은 유지합니다. Hosting과 기존 주소는 유지합니다.
 
 ### Firestore 내보내기
 
@@ -165,7 +167,7 @@ docker compose exec -T app rm /tmp/firestore-export.json
 
 ## 관리자 계정
 
-다음 도구는 MongoDB 전용 로컬 개발 모드에서만 사용합니다. Firebase 모드에서는 거부되며, 운영 계정은 Firebase Authentication과 MongoDB 프로필의 UID를 대조해 관리합니다.
+다음 도구는 MongoDB 전용 로컬 개발 모드에서만 사용합니다. Firebase 모드에서는 거부되며, 운영 계정은 Firebase Authentication과 Firestore 프로필을 사용해 관리합니다.
 
 ```bash
 read -s ADMIN_PASSWORD
@@ -178,7 +180,7 @@ Firebase 모드에서는 관리자 로그인 후 회원 관리 화면에서 비�
 
 ## 기존 Hosting 주소와 Funnel API 연결
 
-`https://ewha-consulting.web.app`은 그대로 사용합니다. `.firebaserc`는 기존 `ewha-consulting` 프로젝트를 가리키며, `firebase.json`은 `dist`의 정적 화면과 React Router fallback만 배포합니다. Firebase Authentication이나 Firestore에 연결하는 설정은 아닙니다.
+`https://ewha-consulting.web.app`은 그대로 사용합니다. `.firebaserc`는 기존 `ewha-consulting` 프로젝트를 가리키며, `firebase.json`은 `dist`의 정적 화면과 React Router fallback만 배포합니다. 앱 서버는 별도 Firebase 서비스 계정으로 Authentication과 Firestore 사용자 프로필에 연결합니다.
 
 맥북 프로의 서버용 `.env`를 다음과 같이 설정합니다. `APP_ORIGIN`은 API 주소가 아니라 사용자가 여는 화면의 출처이며, CORS와 변경 요청 검증에 사용합니다.
 

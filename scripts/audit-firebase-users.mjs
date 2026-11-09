@@ -1,38 +1,38 @@
-// Read-only inventory; never prints passwords, hashes, tokens or email addresses.
-import { MongoClient } from 'mongodb';
+// Read-only Firebase inventory; never prints emails, passwords, hashes or tokens.
 import { cert, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
-const { MONGODB_URI, MONGODB_DB = 'ewh_consulting', FIREBASE_PROJECT_ID, FIREBASE_SERVICE_ACCOUNT_BASE64 } = process.env;
-if (!MONGODB_URI || !FIREBASE_PROJECT_ID || !FIREBASE_SERVICE_ACCOUNT_BASE64) throw new Error('MongoDB URI, Firebase project ID and Firebase service account are required.');
+const { FIREBASE_PROJECT_ID, FIREBASE_SERVICE_ACCOUNT_BASE64 } = process.env;
+if (!FIREBASE_PROJECT_ID || !FIREBASE_SERVICE_ACCOUNT_BASE64) throw new Error('Firebase project ID and service account are required.');
 const serviceAccount = JSON.parse(Buffer.from(FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));
 if (serviceAccount.project_id !== FIREBASE_PROJECT_ID) throw new Error('Firebase service account project mismatch.');
-const auth = getAuth(initializeApp({ credential: cert(serviceAccount), projectId: FIREBASE_PROJECT_ID }));
-const client = new MongoClient(MONGODB_URI);
-try {
-    await client.connect();
-    const users = await client.db(MONGODB_DB).collection('users').find({}, { projection: { uid: 1, userId: 1, email: 1, status: 1, authSyncPending: 1 } }).toArray();
-    const firebase = new Map();
-    let pageToken;
-    do {
-        const page = await auth.listUsers(1000, pageToken);
-        for (const user of page.users) firebase.set(user.uid, user);
-        pageToken = page.pageToken;
-    } while (pageToken);
+const app = initializeApp({ credential: cert(serviceAccount), projectId: FIREBASE_PROJECT_ID });
+const auth = getAuth(app);
+const snapshot = await getFirestore(app).collection('users').get();
+const authUsers = new Map();
+let pageToken;
+do {
+    const page = await auth.listUsers(1000, pageToken);
+    for (const user of page.users) authUsers.set(user.uid, user);
+    pageToken = page.pageToken;
+} while (pageToken);
+const issues = [];
+const identifiers = new Map();
+for (const doc of snapshot.docs) {
+    const profile = doc.data();
     const problems = [];
-    const mongoIds = new Set();
-    for (const user of users) {
-        mongoIds.add(user.uid);
-        const match = firebase.get(user.uid);
-        const issues = [];
-        if (!match) issues.push('firebase_uid_missing');
-        else {
-            if (!user.email || (match.email || '').toLowerCase() !== user.email.toLowerCase()) issues.push('email_mismatch');
-            if (match.disabled !== (user.status !== 'approved')) issues.push('disabled_status_mismatch');
-        }
-        if (user.authSyncPending) issues.push('sync_pending');
-        if (issues.length) problems.push({ userId: user.userId || '(missing)', uid: user.uid, issues });
+    if (!authUsers.has(doc.id)) problems.push('firebase_auth_uid_missing');
+    if (profile.uid && profile.uid !== doc.id) problems.push('profile_uid_mismatch');
+    if (profile.authSyncPending) problems.push('sync_pending');
+    if (profile.role && !['admin', 'consultant', 'tester'].includes(profile.role)) problems.push('invalid_role');
+    if (profile.userId) {
+        const id = String(profile.userId);
+        if (identifiers.has(id)) problems.push('duplicate_user_id');
+        else identifiers.set(id, doc.id);
     }
-    console.log(JSON.stringify({ mongoUsers: users.length, firebaseUsers: firebase.size, firebaseOnly: [...firebase.keys()].filter(uid => !mongoIds.has(uid)).length, problems }, null, 2));
-    if (problems.length) process.exitCode = 2;
-} finally { await client.close(); }
+    if (problems.length) issues.push({ uid: doc.id, userId: profile.userId || '(missing)', problems });
+}
+const profileIds = new Set(snapshot.docs.map(doc => doc.id));
+console.log(JSON.stringify({ firebaseAccounts: authUsers.size, profiles: snapshot.size, firebaseOnly: [...authUsers.keys()].filter(uid => !profileIds.has(uid)).length, issues }, null, 2));
+if (issues.length) process.exitCode = 2;

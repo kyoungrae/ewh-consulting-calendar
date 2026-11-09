@@ -39,7 +39,7 @@ export default function LoginPage() {
         e.preventDefault();
 
         if (!userId || !password) {
-            setError(isConsultantLogin ? '성명과 비밀번호를 입력해주세요.' : '아이디와 비밀번호를 입력해주세요.');
+            setError(isConsultantLogin ? '성명 또는 이메일과 비밀번호를 입력해주세요.' : '아이디 또는 이메일과 비밀번호를 입력해주세요.');
             return;
         }
 
@@ -56,7 +56,7 @@ export default function LoginPage() {
                 }
             }
 
-            await login(userId.trim(), password, isConsultantLogin);
+            await login(userId.trim(), password, isConsultantLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userId.trim()));
             navigate('/calendar');
         } catch (err) {
             console.error('로그인 오류:', err);
@@ -106,7 +106,7 @@ export default function LoginPage() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="form-group mb-0">
                         <label className="form-label mb-1.5 ml-1">
-                            {isConsultantLogin ? '성명 (한글)' : '아이디 또는 이메일'}
+                            {isConsultantLogin ? '성명 또는 이메일' : '아이디 또는 이메일'}
                         </label>
                         <div className="relative group">
                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00462A] transition-colors">
@@ -116,7 +116,7 @@ export default function LoginPage() {
                                 type="text"
                                 autoComplete="username"
                                 className="form-input !pl-12 h-12"
-                                placeholder={isConsultantLogin ? '성명을 입력하세요 (예: 홍길동)' : '아이디 또는 이메일을 입력하세요'}
+                                placeholder={isConsultantLogin ? '성명 또는 이메일을 입력하세요' : '아이디 또는 이메일을 입력하세요'}
                                 value={userId}
                                 onChange={(e) => setUserId(e.target.value)}
                                 disabled={loading}

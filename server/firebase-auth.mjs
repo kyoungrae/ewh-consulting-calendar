@@ -6,6 +6,7 @@ import { httpError } from './security.mjs';
 export function createFirebaseAuth({ apiKey, projectId, serviceAccount }, { fetchImpl = fetch, adminAuth } = {}) {
     const auth = adminAuth || getAuth(initializeApp({ credential: cert(serviceAccount), projectId }));
     return {
+        adminAuth: auth,
         async signIn(email, password) {
             if (typeof password !== 'string' || !password || password.length > 256 || !email) return null;
             let response;

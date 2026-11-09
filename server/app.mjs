@@ -43,11 +43,11 @@ function userFields(input) {
     return out;
 }
 
-export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
+export function createApp({ db, client, config, sessionStore, firebaseAuth, firebaseDirectory }) {
     const app = express();
     const useBearer = config.sessionTransport === 'bearer';
     const useFirebase = config.authProvider === 'firebase';
-    if (useFirebase && !firebaseAuth) throw new Error('Firebase auth adapter is required.');
+    if (useFirebase && (!firebaseAuth || !firebaseDirectory)) throw new Error('Firebase auth and directory adapters are required.');
     app.disable('x-powered-by');
     if (config.production) app.set('trust proxy', 1);
     app.use(helmet({ crossOriginResourcePolicy: { policy: useBearer ? 'cross-origin' : 'same-origin' }, contentSecurityPolicy: { directives: {
@@ -99,8 +99,8 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
     });
     const findSessionUser = async req => {
         if (!req.session.uid || req.session.expiresAt <= Date.now()) return null;
-        const user = await db.collection('users').findOne({ uid: req.session.uid, status: 'approved' });
-        return user && !user.authSyncPending && (user.authVersion || 0) === req.session.authVersion ? user : null;
+        const user = useFirebase ? await firebaseDirectory.get(req.session.uid) : await db.collection('users').findOne({ uid: req.session.uid, status: 'approved' });
+        return user && !user.disabled && user.status === 'approved' && !user.authSyncPending && (user.authVersion || 0) === req.session.authVersion && (!useFirebase || user.tokensValidAfterTime === req.session.firebaseTokensValidAfterTime) ? user : null;
     };
     app.get('/api/auth/session', async (req, res) => {
         const user = await findSessionUser(req);
@@ -110,27 +110,33 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
         res.json(snapshot(req, user));
     });
     app.get('/api/auth/consultants', async (_req, res) => {
-        const consultants = await db.collection('users').find({ role: 'consultant', status: 'approved' }, { projection: { _id: 1, uid: 1, name: 1, role: 1 } }).sort({ name: 1 }).toArray();
+        const consultants = useFirebase
+            ? (await firebaseDirectory.list()).filter(user => user.hasProfile && user.name !== user.email && user.role === 'consultant' && user.status === 'approved' && !user.disabled && !user.authSyncPending)
+            : await db.collection('users').find({ role: 'consultant', status: 'approved' }, { projection: { _id: 1, uid: 1, name: 1, role: 1 } }).sort({ name: 1 }).toArray();
         res.json(consultants.map(user => safeUser(user, false)));
     });
     const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: '로그인 시도가 많습니다. 15분 후 다시 시도해 주세요.' } });
     app.post('/api/auth/login', loginLimit, async (req, res) => {
         const identifier = text(req.body.identifier, '아이디', true);
-        const filter = req.body.loginByName === true
-            ? { name: identifier, role: 'consultant' }
-            : { $or: [{ userId: identifier }, { email: identifier.toLowerCase() }] };
-        const matches = await db.collection('users').find(filter).limit(2).toArray();
-        const user = matches.length === 1 ? matches[0] : null;
-        if (!user || user.status !== 'approved' || user.authSyncPending) throw httpError(401, '계정 정보 또는 비밀번호가 올바르지 않거나 승인되지 않은 계정입니다.');
-        const authenticated = useFirebase
-            ? (await firebaseAuth.signIn(user.email, req.body.password)) === user.uid
-            : await verifyPassword(req.body.password, user.passwordHash);
-        if (!authenticated) throw httpError(401, '계정 정보 또는 비밀번호가 올바르지 않거나 승인되지 않은 계정입니다.');
-        const fresh = await db.collection('users').findOne({ uid: user.uid, status: 'approved' });
-        if (!fresh || fresh.authSyncPending || (fresh.authVersion || 0) !== (user.authVersion || 0)) throw httpError(401, '계정 상태가 변경되었습니다. 다시 로그인해 주세요.');
+        let fresh;
+        if (useFirebase) {
+            const found = await firebaseDirectory.lookup(identifier, req.body.loginByName === true);
+            const uid = found ? await firebaseAuth.signIn(found.email, req.body.password) : null;
+            fresh = uid && (!found.uid || found.uid === uid) ? await firebaseDirectory.get(uid) : null;
+        } else {
+            const filter = req.body.loginByName === true ? { name: identifier, role: 'consultant' } : { $or: [{ userId: identifier }, { email: identifier.toLowerCase() }] };
+            const matches = await db.collection('users').find(filter).limit(2).toArray();
+            const user = matches.length === 1 ? matches[0] : null;
+            if (user && await verifyPassword(req.body.password, user.passwordHash)) {
+                fresh = await db.collection('users').findOne({ uid: user.uid, status: 'approved' });
+                if ((fresh?.authVersion || 0) !== (user.authVersion || 0)) fresh = null;
+            }
+        }
+        if (!fresh || fresh.disabled || fresh.status !== 'approved' || fresh.authSyncPending) throw httpError(401, '계정 정보 또는 비밀번호가 올바르지 않거나 승인되지 않은 계정입니다.');
         await regenerate(req);
         req.session.uid = fresh.uid;
         req.session.authVersion = fresh.authVersion || 0;
+        if (useFirebase) req.session.firebaseTokensValidAfterTime = fresh.tokensValidAfterTime;
         req.session.csrfToken = newToken();
         req.session.expiresAt = Date.now() + SESSION_MS;
         await saveSession(req);
@@ -154,10 +160,11 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
     });
 
     app.get('/api/users/check-id', admin, async (req, res) => {
-        res.json({ exists: Boolean(await db.collection('users').findOne({ userId: text(req.query.userId, '아이디', true) }, { projection: { _id: 1 } })) });
+        const userId = text(req.query.userId, '아이디', true);
+        res.json({ exists: useFirebase ? await firebaseDirectory.idExists(userId) : Boolean(await db.collection('users').findOne({ userId }, { projection: { _id: 1 } })) });
     });
     app.get('/api/users', async (req, res) => {
-        const users = await db.collection('users').find(req.user.role === 'consultant' ? { uid: req.user.uid } : {}).toArray();
+        const users = useFirebase ? (req.user.role === 'consultant' ? [req.user] : await firebaseDirectory.list()) : await db.collection('users').find(req.user.role === 'consultant' ? { uid: req.user.uid } : {}).toArray();
         res.json(users.map(user => safeUser(user, req.user.role === 'admin' || req.user.uid === user.uid)));
     });
     app.post('/api/users', admin, async (req, res) => {
@@ -166,6 +173,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
         const uid = randomUUID();
         const now = new Date().toISOString();
         if (useFirebase && !fields.email) throw httpError(400, 'Firebase 로그인에 사용할 이메일을 입력해 주세요.');
+        if (useFirebase && await firebaseDirectory.idExists(fields.userId)) throw httpError(409, '이미 사용 중인 아이디입니다.');
         if (typeof req.body.password !== 'string' || req.body.password.length < 8 || req.body.password.length > 256) throw httpError(400, '비밀번호는 8자 이상 256자 이하로 입력해 주세요.');
         const user = { _id: uid, uid, role: 'consultant', status: 'approved', ...fields, authVersion: 0, createdAt: now, updatedAt: now };
         if (useFirebase) {
@@ -175,7 +183,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
                 console.error('Firebase account creation failed; inspect UID if outcome is uncertain:', uid);
                 throw error;
             }
-            try { await db.collection('users').insertOne(user); }
+            try { const { _id, ...profile } = user; await firebaseDirectory.create(uid, profile); }
             catch (error) {
                 try { await firebaseAuth.deleteUser(uid); }
                 catch { console.error('Firebase account cleanup required for UID:', uid); }
@@ -188,13 +196,14 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
         res.status(201).json(safeUser(user));
     });
     app.patch('/api/users/:id', async (req, res) => {
-        const existing = await db.collection('users').findOne({ _id: req.params.id });
+        const existing = useFirebase ? await firebaseDirectory.get(req.params.id) : await db.collection('users').findOne({ _id: req.params.id });
         if (!existing) throw httpError(404, '회원을 찾을 수 없습니다.');
         const isAdmin = req.user.role === 'admin';
         if (!isAdmin && (req.user.role !== 'consultant' || existing.uid !== req.user.uid || Object.keys(req.body).some(key => key !== 'consultingFeesByType'))) throw httpError(403, '본인의 유형별 강사료만 수정할 수 있습니다.');
         const patch = isAdmin ? userFields(req.body) : { consultingFeesByType: fees(req.body.consultingFeesByType) };
         if (existing.uid === req.user.uid && ((patch.role && patch.role !== existing.role) || (patch.status && patch.status !== 'approved'))) throw httpError(400, '본인 계정의 권한이나 승인은 해제할 수 없습니다.');
         if (existing.authSyncPending) throw httpError(409, '계정 동기화가 중단되어 관리자 확인이 필요합니다.');
+        if (useFirebase && patch.userId && patch.userId !== existing.userId && await firebaseDirectory.idExists(patch.userId)) throw httpError(409, '이미 사용 중인 아이디입니다.');
         const changingPassword = isAdmin && req.body.password !== undefined;
         if (changingPassword && (typeof req.body.password !== 'string' || req.body.password.length < 8 || req.body.password.length > 256)) throw httpError(400, '비밀번호는 8자 이상 256자 이하로 입력해 주세요.');
         const firebaseChanges = {};
@@ -211,27 +220,31 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth }) {
         if (changingPassword) patch.mustResetPassword = false;
         const needsSync = Object.keys(firebaseChanges).length > 0;
         const invalidate = changingPassword || (patch.status && patch.status !== existing.status) || (patch.role && patch.role !== existing.role) || needsSync;
-        if (needsSync) {
-            const locked = await db.collection('users').findOneAndUpdate({ _id: existing._id, authSyncPending: { $ne: true } }, { $set: { authSyncPending: true }, $inc: { authVersion: 1 } }, { returnDocument: 'after' });
-            if (!locked) throw httpError(409, '계정 동기화가 진행 중이거나 관리자 확인이 필요합니다.');
-            await firebaseAuth.updateUser(existing.uid, firebaseChanges);
+        if (useFirebase) {
+            if (needsSync || (patch.role && patch.role !== existing.role)) {
+                await firebaseDirectory.lock(existing);
+                if (needsSync) await firebaseAuth.updateUser(existing.uid, firebaseChanges);
+                await firebaseDirectory.finish(existing.uid, { ...patch, updatedAt: new Date().toISOString() });
+            } else {
+                await firebaseDirectory.update(existing, { ...patch, updatedAt: new Date().toISOString() });
+            }
+            return res.json(safeUser(await firebaseDirectory.get(existing.uid)));
         }
         const update = { $set: { ...patch, updatedAt: new Date().toISOString() } };
-        if (needsSync) {
-            update.$unset = { authSyncPending: '', ...(changingPassword ? { passwordHash: '' } : {}) };
-        } else if (invalidate) update.$inc = { authVersion: 1 };
+        if (invalidate) update.$inc = { authVersion: 1 };
         const user = await db.collection('users').findOneAndUpdate({ _id: existing._id }, update, { returnDocument: 'after' });
         res.json(safeUser(user));
     });
     app.delete('/api/users/:id', admin, async (req, res) => {
-        const target = await db.collection('users').findOne({ _id: req.params.id });
+        const target = useFirebase ? await firebaseDirectory.get(req.params.id) : await db.collection('users').findOne({ _id: req.params.id });
         if (!target) throw httpError(404, '회원을 찾을 수 없습니다.');
         if (target.uid === req.user.uid) throw httpError(400, '본인 계정은 삭제할 수 없습니다.');
         if (useFirebase) {
             if (target.authSyncPending) throw httpError(409, '계정 동기화가 중단되어 관리자 확인이 필요합니다.');
-            const locked = await db.collection('users').findOneAndUpdate({ _id: target._id, authSyncPending: { $ne: true } }, { $set: { authSyncPending: true }, $inc: { authVersion: 1 } }, { returnDocument: 'after' });
-            if (!locked) throw httpError(409, '계정 동기화가 진행 중이거나 관리자 확인이 필요합니다.');
+            await firebaseDirectory.lock(target);
             await firebaseAuth.deleteUser(target.uid);
+            await firebaseDirectory.remove(target.uid);
+            return res.json({ ok: true });
         }
         await db.collection('users').deleteOne({ _id: target._id });
         res.json({ ok: true });
