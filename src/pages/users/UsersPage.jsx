@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Modal from '../../components/common/Modal';
@@ -42,6 +42,8 @@ export default function UsersPage() {
     const [feeSettingsUser, setFeeSettingsUser] = useState(null);
     const [feeSettingsRows, setFeeSettingsRows] = useState([]);
     const [editingUser, setEditingUser] = useState(null);
+    const [isSavingUser, setIsSavingUser] = useState(false);
+    const savingUserRef = useRef(false);
     const { openSidebar } = useOutletContext();
 
     const { users, loading, updateUser, deleteUser } = useUsers();
@@ -137,6 +139,7 @@ export default function UsersPage() {
     // 사용자 정보 수정
     const handleEditUser = async (e) => {
         e.preventDefault();
+        if (savingUserRef.current) return;
 
         try {
             // 비밀번호 검증과 해시 저장은 관리자 API에서 처리한다.
@@ -158,6 +161,8 @@ export default function UsersPage() {
                 delete updateData.consultingFeesByType;
             }
 
+            savingUserRef.current = true;
+            setIsSavingUser(true);
             await updateUser(editingUser.id, updateData);
 
             if (updateData.password) {
@@ -172,6 +177,9 @@ export default function UsersPage() {
         } catch (error) {
             console.error('사용자 수정 실패:', error);
             alert('사용자 정보 수정에 실패했습니다.');
+        } finally {
+            savingUserRef.current = false;
+            setIsSavingUser(false);
         }
     };
 
@@ -506,6 +514,7 @@ export default function UsersPage() {
                 <Modal
                     isOpen={isModalOpen}
                     onClose={() => {
+                        if (savingUserRef.current) return;
                         setIsModalOpen(false);
                         setEditingUser(null);
                         setEditConsultingFeeRows([]);
@@ -513,7 +522,8 @@ export default function UsersPage() {
                     title="사용자 정보 수정"
                     size="2xl"
                 >
-                    <form onSubmit={handleEditUser}>
+                    <form onSubmit={handleEditUser} aria-busy={isSavingUser}>
+                        <fieldset disabled={isSavingUser}>
                         <div className="space-y-4">
                             <div className="p-3 bg-gray-50 rounded-lg flex items-center gap-3">
                                 <Mail size={18} className="text-gray-400" />
@@ -653,8 +663,17 @@ export default function UsersPage() {
                                 수정 완료
                             </button>
                         </div>
+                        </fieldset>
                     </form>
                 </Modal>
+
+                {isSavingUser && (
+                    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50" role="status" aria-live="polite">
+                        <div className="rounded-xl bg-white shadow-xl">
+                            <LoadingSpinner message="회원 정보를 저장하는 중..." />
+                        </div>
+                    </div>
+                )}
 
                 {/* 컨설턴트 강사비 일괄 설정 모달 */}
                 <Modal
