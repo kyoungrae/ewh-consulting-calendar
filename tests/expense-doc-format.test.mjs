@@ -59,6 +59,22 @@ test('employment expense document mirrors sample section structure', async () =>
     void text;
 });
 
+test('서면첨삭 receipt uses compact payment and month-range schedule', () => {
+    const masters = [toConsultantMaster({ name: '최윤호', role: 'consultant' })];
+    const mastersByName = indexConsultantMasters(masters);
+    const model = parseEmploymentBudgetWorkbook(readFileSync(employmentFile), masters);
+    const items = blocksToItems(model, mastersByName);
+    const correction = items.find((item) => item.content.includes('서면첨삭'));
+    assert.ok(correction);
+    assert.match(correction.paymentLine, /^총\d+세션\*세션당[\d,]+원= [\d,]+원$/);
+    assert.equal(correction.scheduleLines[0], '26년 10/1~10/31');
+    assert.equal(correction.placeKey, 'correction');
+    const interview = items.find((item) => item.content.includes('서류면접'));
+    assert.ok(interview);
+    assert.match(interview.paymentLine, /^총 \d+세션\*세션당 [\d,]+원= [\d,]+원$/);
+    assert.ok(interview.scheduleLines[0].includes('–'));
+});
+
 test('employment receipts are ordered by instructor name (가나다)', () => {
     const masters = [
         toConsultantMaster({ name: '한 나', role: 'consultant', uniqueNumber: 'A1' }),

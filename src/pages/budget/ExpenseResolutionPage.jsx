@@ -16,8 +16,11 @@ import {
 import { downloadCareerExpenseDoc } from '../../utils/expense/careerExpenseDoc.js';
 import { downloadEmploymentExpenseDoc } from '../../utils/expense/employmentExpenseDoc.js';
 import { downloadCareerReceiptDoc } from '../../utils/expense/careerReceiptDoc.js';
-import { downloadEmploymentReceiptDoc } from '../../utils/expense/employmentReceiptDoc.js';
-import { dayLines, periodRangeLabel, moneyLine, formatBirthDate } from '../../utils/expense/docCommon.js';
+import {
+    downloadEmploymentReceiptDoc,
+    blocksToItems as employmentReceiptBlocksToItems
+} from '../../utils/expense/employmentReceiptDoc.js';
+import { dayLines, moneyLine, formatBirthDate } from '../../utils/expense/docCommon.js';
 import { formatCurrency } from '../../utils/expenseFormat.js';
 import ewhaLogo from '../../assets/ewha-career-logo.png';
 
@@ -302,41 +305,26 @@ export default function ExpenseResolutionPage() {
         };
     }), [careerBlocks, mastersByName]);
 
-    const employmentReceiptItems = useMemo(() => {
-        const periodSchedule = periodRangeLabel(employmentModel.periodLabel);
-        const contentOrder = {
-            '취업컨설팅(서류면접)': 0,
-            '취업컨설팅(서면첨삭(국문))': 1,
-            '취업컨설팅(서면첨삭(영문))': 2
-        };
-        const rows = [
-            ...employmentInterview.map((block) => ({ block, content: '취업컨설팅(서류면접)', scheduleLines: dayLines(block.days), placeKey: 'interview' })),
-            ...employmentKorean.map((block) => ({ block, content: '취업컨설팅(서면첨삭(국문))', scheduleLines: [periodSchedule], placeKey: 'correction' })),
-            ...employmentEnglish.map((block) => ({ block, content: '취업컨설팅(서면첨삭(영문))', scheduleLines: [periodSchedule], placeKey: 'correction' }))
-        ].map(({ block, content, scheduleLines, placeKey }) => {
-            const profile = findConsultantProfile(mastersByName, block.displayName)
-                || findConsultantProfile(mastersByName, block.consultant);
+    const employmentReceiptItems = useMemo(() => (
+        employmentReceiptBlocksToItems(employmentModel, mastersByName).map((item) => {
+            const profile = findConsultantProfile(mastersByName, item.displayName)
+                || findConsultantProfile(mastersByName, item.consultantKey);
             return {
-                content,
-                paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
-                scheduleLines,
-                consultantKey: block.consultant,
-                name: profile?.name || block.displayName,
+                content: item.content,
+                paymentLine: item.paymentLine,
+                scheduleLines: item.scheduleLines,
+                consultantKey: item.consultantKey,
+                name: profile?.name || item.displayName,
                 profile,
-                place: placeKey === 'correction'
+                place: item.placeKey === 'correction'
                     ? (profile?.placeCorrection || profile?.place || '온라인 접수')
                     : (profile?.placeInterview || profile?.place || '온라인 ZOOM'),
                 birthDate: formatBirthDate(profile?.birthDate),
                 tel: profile?.tel || '-',
                 affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-'
             };
-        });
-        return rows.sort((a, b) => {
-            const byName = compareInstructorNames(a.name, b.name);
-            if (byName) return byName;
-            return (contentOrder[a.content] ?? 9) - (contentOrder[b.content] ?? 9);
-        });
-    }, [employmentInterview, employmentKorean, employmentEnglish, employmentModel.periodLabel, mastersByName]);
+        })
+    ), [employmentModel, mastersByName]);
 
     const handleParse = useCallback(async () => {
         if (!careerFile && !employmentFile) {

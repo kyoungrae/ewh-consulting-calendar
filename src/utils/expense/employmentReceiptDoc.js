@@ -44,10 +44,11 @@ export function blocksToItems(model, mastersByName) {
             placeKey: 'interview'
         });
     }
+    // 서면첨삭: 지급액은 압축 표기, 강의일시는 월 기간(예: 26년 10/1~10/31)
     for (const block of model.correctionBlocks?.korean || []) {
         items.push({
             content: '취업컨설팅(서면첨삭(국문))',
-            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount),
             scheduleLines: [periodSchedule],
             displayName: block.displayName,
             consultantKey: block.consultant,
@@ -58,7 +59,7 @@ export function blocksToItems(model, mastersByName) {
     for (const block of model.correctionBlocks?.english || []) {
         items.push({
             content: '취업컨설팅(서면첨삭(영문))',
-            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount),
             scheduleLines: [periodSchedule],
             displayName: block.displayName,
             consultantKey: block.consultant,
