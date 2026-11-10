@@ -152,7 +152,7 @@ export async function loadLogoImage() {
 export function logoParagraph(image) {
     return new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 200 },
+        spacing: { before: 280, after: 80 },
         children: [image]
     });
 }

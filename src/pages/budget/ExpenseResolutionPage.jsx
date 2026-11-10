@@ -195,11 +195,25 @@ function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
                     ))}
                 </tbody>
             </table>
-            <div style={{ marginTop: 'auto', paddingTop: 28, textAlign: 'center' }}>
+            <div style={{
+                marginTop: 'auto',
+                paddingTop: 28,
+                width: '100%',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center'
+            }}
+            >
                 <img
                     src={ewhaLogo}
                     alt="이화여자대학교 인재개발원"
-                    style={{ width: 280, maxWidth: '80%', height: 'auto' }}
+                    style={{
+                        width: 280,
+                        maxWidth: '80%',
+                        height: 'auto',
+                        display: 'block',
+                        margin: '0 auto'
+                    }}
                 />
             </div>
         </article>
