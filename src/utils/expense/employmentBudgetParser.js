@@ -118,6 +118,34 @@ export function parseEmploymentBudgetWorkbook(buffer, masters = []) {
         { kind: 'correctionEnglish', remark: '서면첨삭·영문' }
     );
 
+    const rateCriteria = [];
+    const pushCriteria = (payments, defaultRemark) => {
+        for (const payment of payments.values()) {
+            const master = mastersByName.get(normalizeName(payment.displayName));
+            rateCriteria.push({
+                name: master?.name || payment.displayName,
+                rate: payment.rate,
+                remark: master?.remark || defaultRemark
+            });
+        }
+    };
+    pushCriteria(buckets.interview.payments, '서류면접(일반)');
+    // 첨삭 지급표는 국문/영문 공용 → 세션 언어로 비고를 보강
+    const correctionLangByName = new Map();
+    for (const block of correctionKorean) correctionLangByName.set(block.consultant, '서면첨삭(국문)');
+    for (const block of correctionEnglish) correctionLangByName.set(block.consultant, '서면첨삭(영문)');
+    for (const payment of buckets.correctionKorean.payments.values()) {
+        const key = normalizeName(payment.displayName);
+        const master = mastersByName.get(key);
+        const remark = correctionLangByName.get(key)
+            || (payment.rate >= 25000 ? '서면첨삭(영문)' : '서면첨삭(국문)');
+        rateCriteria.push({
+            name: master?.name || payment.displayName,
+            rate: payment.rate,
+            remark: master?.remark || remark
+        });
+    }
+
     const all = [...interviewBlocks, ...correctionKorean, ...correctionEnglish];
     return {
         kind: 'employment',
@@ -128,6 +156,7 @@ export function parseEmploymentBudgetWorkbook(buffer, masters = []) {
             korean: correctionKorean,
             english: correctionEnglish
         },
+        rateCriteria,
         sessionCount: all.reduce((sum, block) => sum + block.sessionCount, 0),
         totalAmount: all.reduce((sum, block) => sum + block.amount, 0)
     };
@@ -140,6 +169,7 @@ export function emptyEmploymentModel(periodLabel = '') {
         periodLabel,
         interviewBlocks: [],
         correctionBlocks: { korean: [], english: [] },
+        rateCriteria: [],
         sessionCount: 0,
         totalAmount: 0
     };

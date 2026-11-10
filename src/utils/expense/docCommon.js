@@ -34,8 +34,13 @@ export function p(text, opts = {}) {
     });
 }
 
-export function moneyLine(sessionCount, rate, amount) {
-    return `총 ${sessionCount}세션*세션당 ${formatCurrency(rate)}원 = ${formatCurrency(amount)}원`;
+/** detail: 총7세션*세션당80,000원= 560,000원 / receipt: 총 7세션*세션당 80,000원= 560,000원 */
+export function moneyLine(sessionCount, rate, amount, { spaced = false } = {}) {
+    const count = Number(sessionCount) || 0;
+    const rateText = formatCurrency(rate);
+    const amountText = formatCurrency(amount);
+    if (spaced) return `총 ${count}세션*세션당 ${rateText}원= ${amountText}원`;
+    return `총${count}세션*세션당${rateText}원= ${amountText}원`;
 }
 
 export function dayLines(days = []) {
@@ -46,12 +51,55 @@ export function dayLines(days = []) {
     });
 }
 
+/** 26.10 -> 26년 10월 */
+export function periodMonthLabel(periodLabel = '') {
+    const match = String(periodLabel).match(/(\d{2})\.(\d{1,2})/);
+    if (!match) return periodLabel || '-';
+    return `${match[1]}년 ${Number(match[2])}월`;
+}
+
+/** 26.10 -> 26년 10/1~10/31 */
+export function periodRangeLabel(periodLabel = '') {
+    const match = String(periodLabel).match(/(\d{2})\.(\d{1,2})/);
+    if (!match) return periodLabel || '-';
+    const month = Number(match[2]);
+    const year = 2000 + Number(match[1]);
+    const last = new Date(year, month, 0).getDate();
+    return `${match[1]}년 ${month}/1~${month}/${last}`;
+}
+
+/** YYYY-MM-DD or Date-like -> 75.09.13 */
+export function formatBirthDate(value) {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1].slice(2)}.${iso[2]}.${iso[3]}`;
+    const dotted = text.match(/^(\d{2,4})[./](\d{1,2})[./](\d{1,2})/);
+    if (dotted) {
+        const yy = dotted[1].length === 4 ? dotted[1].slice(2) : dotted[1].padStart(2, '0');
+        return `${yy}.${String(dotted[2]).padStart(2, '0')}.${String(dotted[3]).padStart(2, '0')}`;
+    }
+    return text;
+}
+
+export function bankAccountLines(bank) {
+    return [
+        `은 행 명: ${bank?.bank || '-'}`,
+        `계좌번호: ${bank?.account || '-'}`,
+        `예 금 주: ${bank?.holder || '-'}`
+    ];
+}
+
 export function labelValueRow(label, value, { labelWidth = 2400, valueWidth = 6800, minHeight = 320 } = {}) {
     const lines = Array.isArray(value)
         ? value
         : String(value ?? '-').split('\n').filter((line, index, arr) => line || arr.length === 1);
     const valueParagraphs = (lines.length ? lines : ['-']).map((line) => new Paragraph({
         children: [run(line || '-', { size: 24 })]
+    }));
+    const labelParagraphs = String(label ?? '').split('\n').map((line) => new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [run(line, { bold: true, size: 24 })]
     }));
     return new TableRow({
         height: { value: minHeight, rule: 'atLeast' },
@@ -61,10 +109,7 @@ export function labelValueRow(label, value, { labelWidth = 2400, valueWidth = 68
                 width: { size: labelWidth, type: WidthType.DXA },
                 verticalAlign: VerticalAlign.CENTER,
                 shading: { fill: 'F3F4F6' },
-                children: [new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    children: [run(label, { bold: true, size: 24 })]
-                })]
+                children: labelParagraphs
             }),
             new TableCell({
                 borders: BORDERS,

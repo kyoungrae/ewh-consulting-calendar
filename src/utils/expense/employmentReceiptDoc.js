@@ -5,6 +5,9 @@ import {
     run,
     moneyLine,
     dayLines,
+    periodRangeLabel,
+    formatBirthDate,
+    bankAccountLines,
     labelValueRow,
     loadLogoImage,
     logoParagraph,
@@ -14,11 +17,12 @@ import {
 import { findConsultantProfile, formatBankAccount, indexConsultantMasters } from './consultantMaster.js';
 
 function blocksToItems(model) {
+    const periodSchedule = periodRangeLabel(model.periodLabel);
     const items = [];
     for (const block of model.interviewBlocks || []) {
         items.push({
             content: '취업컨설팅(서류면접)',
-            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount),
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
             scheduleLines: dayLines(block.days),
             displayName: block.displayName,
             consultantKey: block.consultant,
@@ -28,9 +32,9 @@ function blocksToItems(model) {
     }
     for (const block of model.correctionBlocks?.korean || []) {
         items.push({
-            content: '취업컨설팅(서면첨삭·국문)',
-            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount),
-            scheduleLines: dayLines(block.days),
+            content: '취업컨설팅(서면첨삭(국문))',
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
+            scheduleLines: [periodSchedule],
             displayName: block.displayName,
             consultantKey: block.consultant,
             missingProfile: block.missingProfile,
@@ -39,9 +43,9 @@ function blocksToItems(model) {
     }
     for (const block of model.correctionBlocks?.english || []) {
         items.push({
-            content: '취업컨설팅(서면첨삭·영문)',
-            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount),
-            scheduleLines: dayLines(block.days),
+            content: '취업컨설팅(서면첨삭(영문))',
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
+            scheduleLines: [periodSchedule],
             displayName: block.displayName,
             consultantKey: block.consultant,
             missingProfile: block.missingProfile,
@@ -54,11 +58,12 @@ function blocksToItems(model) {
 function buildReceiptSection(item, profile, logo) {
     const bank = formatBankAccount(profile?.bankAccount);
     const place = item.placeKey === 'correction'
-        ? (profile?.placeCorrection || '온라인 ZOOM/접수')
-        : (profile?.placeInterview || '온라인 ZOOM/접수');
-    const nameLine = profile
-        ? `${profile.name}${profile.uniqueNumber ? ` (${profile.uniqueNumber})` : ''}`
-        : `${item.displayName} (마스터 없음)`;
+        ? (profile?.placeCorrection || '온라인 접수')
+        : (profile?.placeInterview || '온라인 ZOOM');
+    const name = profile?.name || item.displayName;
+    const unique = profile?.uniqueNumber ? ` (${profile.uniqueNumber})` : '';
+    const nameLine = `${name}${unique}`;
+    const affiliationAddress = [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-';
     const warning = (!profile || item.missingProfile)
         ? [new Paragraph({
             spacing: { after: 80 },
@@ -70,20 +75,22 @@ function buildReceiptSection(item, profile, logo) {
         })]
         : [];
 
+    // 샘플 영수증 행 순서: 내용 → 지급액 → 강의일시 → 장소 → 성명 → 생년월일 → 핸드폰 → 소속/주소 → 통장
     const rows = [
-        labelValueRow('성명(고유번호)', nameLine),
-        labelValueRow('생년월일', profile?.birthDate || '-'),
-        labelValueRow('핸드폰', profile?.tel || '-'),
-        labelValueRow('소속/주소', [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-'),
-        labelValueRow('내용', item.content),
-        labelValueRow('지급액', item.paymentLine),
-        labelValueRow('강의일시', item.scheduleLines.length ? item.scheduleLines : ['-']),
-        labelValueRow('장소', place),
-        labelValueRow('입금계좌', `${bank.bank} / ${bank.account} / ${bank.holder}`)
+        labelValueRow('내       용', item.content),
+        labelValueRow('지  급  액', item.paymentLine),
+        labelValueRow('강 의 일 시', item.scheduleLines.length ? item.scheduleLines : ['-']),
+        labelValueRow('장       소', place),
+        labelValueRow('성       명\n(고유번호)', nameLine),
+        labelValueRow('생년월일', formatBirthDate(profile?.birthDate)),
+        labelValueRow('핸드폰번호', profile?.tel || '-'),
+        labelValueRow('소속 및 주소', affiliationAddress),
+        labelValueRow('통 장 번 호', bankAccountLines(bank))
     ];
 
     return [
-        p('강사비 영수증', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 160 } }),
+        p('[취업컨설팅]', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 40 } }),
+        p('강사비 지급내역', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 160 } }),
         ...warning,
         new Table({ width: { size: 9200, type: WidthType.DXA }, rows }),
         logoParagraph(logo)
