@@ -9,6 +9,23 @@ export function httpError(status, message) {
     return Object.assign(new Error(message), { status });
 }
 
+/** localhost ↔ 127.0.0.1 같은 루프백·포트면 동일 출처로 본다 (로컬 CSRF/CORS). */
+export function originsMatch(requestOrigin, configuredOrigin) {
+    if (!requestOrigin || !configuredOrigin) return false;
+    if (requestOrigin === configuredOrigin) return true;
+    try {
+        const request = new URL(requestOrigin);
+        const configured = new URL(configuredOrigin);
+        const loopback = new Set(['localhost', '127.0.0.1']);
+        return request.protocol === configured.protocol
+            && request.port === configured.port
+            && loopback.has(request.hostname)
+            && loopback.has(configured.hostname);
+    } catch {
+        return false;
+    }
+}
+
 export async function hashPassword(password, { minimumLength = 8 } = {}) {
     if (typeof password !== 'string' || password.length < minimumLength || password.length > 256) {
         throw httpError(400, '비밀번호는 8자 이상 256자 이하로 입력해 주세요.');
