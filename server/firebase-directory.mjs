@@ -1,7 +1,12 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { httpError } from './security.mjs';
 
-const PROFILE_FIELDS = ['userId', 'name', 'tel', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'authVersion', 'authSyncPending'];
+const PROFILE_FIELDS = [
+    'userId', 'name', 'tel',
+    'uniqueNumber', 'place', 'birthDate', 'affiliation', 'address', 'bankAccount',
+    'consultingFeePerSession', 'consultingFeesByType',
+    'createdAt', 'updatedAt', 'authVersion', 'authSyncPending'
+];
 const DIRECTORY_FIELDS = [...PROFILE_FIELDS, 'role', 'status'];
 const PROFILE_BATCH_SIZE = 100;
 

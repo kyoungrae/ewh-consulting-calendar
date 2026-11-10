@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { createApp } from '../server/app.mjs';
 import { ensureIndexes } from '../server/db.mjs';
-import { hashPassword } from '../server/security.mjs';
+import { hashPassword, derivePiiKey } from '../server/security.mjs';
 
 const uri = process.env.MONGODB_TEST_URI;
 const origin = 'https://ewha-consulting.web.app';
@@ -18,7 +18,7 @@ test('Firebase Hosting can authenticate to a separate API without third-party co
     try {
         await ensureIndexes(db);
         await db.collection('users').insertOne({ _id: 'admin', uid: 'admin', userId: 'admin', name: '관리자', role: 'admin', status: 'approved', passwordHash: await hashPassword('test-password'), authVersion: 0 });
-        server = createApp({ db, client, config: { origin, production: false, secure: true, database: db.databaseName, sessionTransport: 'bearer' } }).listen(0, '127.0.0.1');
+        server = createApp({ db, client, config: { origin, production: false, secure: true, database: db.databaseName, sessionTransport: 'bearer', piiEncryptionKey: derivePiiKey('test-pii-encryption-key-32chars!!') } }).listen(0, '127.0.0.1');
         await once(server, 'listening');
         const base = `http://127.0.0.1:${server.address().port}/api`;
         let sessionToken, csrfToken;

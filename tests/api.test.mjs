@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../server/app.mjs';
 import { ensureIndexes } from '../server/db.mjs';
-import { hashPassword, SESSION_MS } from '../server/security.mjs';
+import { hashPassword, SESSION_MS, derivePiiKey } from '../server/security.mjs';
 
 const uri = process.env.MONGODB_TEST_URI;
 let client, db, server, base;
@@ -20,7 +20,7 @@ before(async () => {
         _id: role, uid: role, userId: role, name: role, email: `${role}@test.local`, role: role === 'other' ? 'consultant' : role,
         status: 'approved', passwordHash, authVersion: 0, consultingFeesByType: [{ typeCode: 'TEST', amount: 50000 }],
     })));
-    server = createApp({ db, client, config: { origin, sessionSecret: 'test-secret'.repeat(6), database: db.databaseName, secure: false, production: false } }).listen(0, '127.0.0.1');
+    server = createApp({ db, client, config: { origin, sessionSecret: 'test-secret'.repeat(6), piiEncryptionKey: derivePiiKey('test-pii-encryption-key-32chars!!'), database: db.databaseName, secure: false, production: false } }).listen(0, '127.0.0.1');
     await once(server, 'listening');
     base = `http://127.0.0.1:${server.address().port}/api`;
 });
