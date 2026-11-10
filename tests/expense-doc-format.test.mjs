@@ -62,14 +62,19 @@ test('employment expense document mirrors sample section structure', async () =>
     void text;
 });
 
-test('employment receipt Word pages are vertically centered', async () => {
+test('employment receipt Word is A4 with narrow margins, 12pt rows, min height', async () => {
     const model = parseEmploymentBudgetWorkbook(readFileSync(employmentFile));
     const doc = await buildEmploymentReceiptDocument(model, []);
     const { Packer } = await import('docx');
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
     const xml = await zip.file('word/document.xml').async('string');
+    assert.match(xml, /<w:pgSz\b[^>]*w:w="11906"[^>]*w:h="16838"/);
+    assert.match(xml, /<w:pgMar\b[^>]*w:top="567"/);
     assert.match(xml, /<w:vAlign\b[^>]*w:val="center"/);
+    assert.match(xml, /<w:sz\s+w:val="24"\s*\/>/);
+    assert.match(xml, /<w:trHeight\b[^>]*w:val="420"/);
+    assert.match(xml, /<w:trHeight\b[^>]*w:hRule="atLeast"/);
 });
 
 test('서면첨삭 receipt uses compact payment and month-range schedule', () => {

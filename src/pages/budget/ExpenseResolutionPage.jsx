@@ -178,12 +178,13 @@ function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
                                     background: '#F3F4F6',
                                     padding: '10px 8px',
                                     fontWeight: 800,
-                                    fontSize: 14,
+                                    fontSize: 12,
                                     color: '#111827',
                                     textAlign: 'center',
                                     verticalAlign: 'middle',
                                     whiteSpace: 'pre-line',
-                                    lineHeight: 1.35
+                                    lineHeight: 1.35,
+                                    minHeight: 36
                                 }}
                             >
                                 {receiptLabel(row.label)}
@@ -192,11 +193,12 @@ function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
                                 style={{
                                     border: '1px solid #111827',
                                     padding: '10px 12px',
-                                    fontSize: 14,
+                                    fontSize: 12,
                                     color: '#111827',
                                     verticalAlign: 'middle',
                                     lineHeight: 1.55,
-                                    wordBreak: 'keep-all'
+                                    wordBreak: 'keep-all',
+                                    minHeight: 36
                                 }}
                             >
                                 {Array.isArray(row.value)
@@ -461,7 +463,7 @@ export default function ExpenseResolutionPage() {
                 }}
                 >
                     {uploadCard('진로출석부', '진로 전용 엑셀 (.xlsx) — 서버 미업로드', careerFile, setCareerFile)}
-                    {uploadCard('취업출석부', '취업 전용 엑셀 (.xlsx) — 서류면접/서면첨삭 시트', employmentFile, setEmploymentFile)}
+                    {uploadCard('취업출석부', '취업 전용 엑셀 (.xlsx) — 서버 미업로드', employmentFile, setEmploymentFile)}
                 </section>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>

@@ -1,4 +1,4 @@
-import { Document, Paragraph, AlignmentType, Table, WidthType } from 'docx';
+import { Document, Paragraph, AlignmentType } from 'docx';
 import {
     RECEIPT_SECTION,
     p,
@@ -8,6 +8,7 @@ import {
     formatBirthDate,
     bankAccountLines,
     labelValueRow,
+    receiptTable,
     loadLogoImage,
     logoParagraph,
     blobDownload,
@@ -66,7 +67,7 @@ function buildReceiptSection(item, profile, logo) {
         p('[진로컨설팅]', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 40 } }),
         p('강사비 지급내역', { bold: true, size: 32, align: AlignmentType.CENTER, spacing: { after: 240 } }),
         ...warning,
-        new Table({ width: { size: 9200, type: WidthType.DXA }, rows }),
+        receiptTable(rows),
         logoParagraph(logo)
     ];
 }

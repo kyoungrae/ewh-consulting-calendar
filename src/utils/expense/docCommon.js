@@ -15,11 +15,24 @@ import { Packer } from 'docx';
 import { formatCurrency } from '../expenseFormat.js';
 
 export const PAGE_MARGIN = { top: 480, right: 480, bottom: 480, left: 480 };
-/** 영수증: 페이지 세로 가운데 배치 (샘플처럼 상·하 여백 균형) */
+/** A4 (210×297mm) in twips */
+export const A4_PAGE_SIZE = { width: 11906, height: 16838 };
+/** 좁은 여백 ≈ 1cm / 0.5in */
+export const RECEIPT_MARGIN = { top: 567, right: 720, bottom: 567, left: 720 };
+export const RECEIPT_TABLE_WIDTH = 10000;
+export const RECEIPT_LABEL_WIDTH = 2600;
+export const RECEIPT_VALUE_WIDTH = 7400;
+/** 표 본문 12pt (docx half-points) */
+export const RECEIPT_FONT_SIZE = 24;
+/** 행 최소 높이 (twips). 다줄 셀은 줄 수에 맞게 더 키움 */
+export const RECEIPT_ROW_MIN_HEIGHT = 420;
+
+/** 영수증: A4 · 좁은 여백 · 세로 가운데 (1인 1페이지) */
 export const RECEIPT_SECTION = {
     properties: {
         page: {
-            margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 }
+            size: A4_PAGE_SIZE,
+            margin: RECEIPT_MARGIN
         },
         verticalAlign: VerticalAlignSection.CENTER
     }
@@ -100,19 +113,33 @@ export function bankAccountLines(bank) {
     ];
 }
 
-export function labelValueRow(label, value, { labelWidth = 2400, valueWidth = 6800, minHeight = 320 } = {}) {
+export function labelValueRow(label, value, {
+    labelWidth = RECEIPT_LABEL_WIDTH,
+    valueWidth = RECEIPT_VALUE_WIDTH,
+    minHeight = RECEIPT_ROW_MIN_HEIGHT,
+    fontSize = RECEIPT_FONT_SIZE
+} = {}) {
     const lines = Array.isArray(value)
         ? value
         : String(value ?? '-').split('\n').filter((line, index, arr) => line || arr.length === 1);
-    const valueParagraphs = (lines.length ? lines : ['-']).map((line) => new Paragraph({
-        children: [run(line || '-', { size: 24 })]
+    const valueLines = lines.length ? lines : ['-'];
+    const labelLines = String(label ?? '').split('\n');
+    const rowHeight = Math.max(
+        minHeight,
+        valueLines.length * 260 + 100,
+        labelLines.length * 260 + 100
+    );
+    const valueParagraphs = valueLines.map((line) => new Paragraph({
+        spacing: { after: 0, before: 0, line: 276 },
+        children: [run(line || '-', { size: fontSize })]
     }));
-    const labelParagraphs = String(label ?? '').split('\n').map((line) => new Paragraph({
+    const labelParagraphs = labelLines.map((line) => new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [run(line, { bold: true, size: 24 })]
+        spacing: { after: 0, before: 0, line: 276 },
+        children: [run(line, { bold: true, size: fontSize })]
     }));
     return new TableRow({
-        height: { value: minHeight, rule: 'atLeast' },
+        height: { value: rowHeight, rule: 'atLeast' },
         children: [
             new TableCell({
                 borders: BORDERS,
@@ -134,6 +161,15 @@ export function labelValueRow(label, value, { labelWidth = 2400, valueWidth = 68
 export function simpleTable(rows) {
     return new Table({
         width: { size: 9200, type: WidthType.DXA },
+        rows
+    });
+}
+
+/** 영수증 9행 라벨|값 표 */
+export function receiptTable(rows) {
+    return new Table({
+        width: { size: RECEIPT_TABLE_WIDTH, type: WidthType.DXA },
+        columnWidths: [RECEIPT_LABEL_WIDTH, RECEIPT_VALUE_WIDTH],
         rows
     });
 }
