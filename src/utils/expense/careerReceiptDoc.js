@@ -13,11 +13,18 @@ import {
     blobDownload,
     fileStamp
 } from './docCommon.js';
-import { findConsultantProfile, formatBankAccount, indexConsultantMasters } from './consultantMaster.js';
+import {
+    findConsultantProfile,
+    formatBankAccount,
+    indexConsultantMasters,
+    instructorSortName,
+    compareInstructorNames
+} from './consultantMaster.js';
 
 function receiptItemFromBlock(block) {
     return {
         content: '진로컨설팅(진로개발)',
+        // 지급액·강의일시: 출석부
         paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
         scheduleLines: dayLines(block.days),
         displayName: block.displayName,
@@ -27,14 +34,15 @@ function receiptItemFromBlock(block) {
 }
 
 function buildReceiptSection(item, profile, logo) {
+    // 장소·성명·생년월일·핸드폰·소속·주소·통장: 회원관리
     const bank = formatBankAccount(profile?.bankAccount);
-    const place = profile?.placeInterview || '온라인 ZOOM';
+    const place = profile?.placeInterview || profile?.place || '온라인 ZOOM';
     const name = profile?.name || item.displayName;
     const unique = profile?.uniqueNumber ? ` (${profile.uniqueNumber})` : '';
-    const warning = (!profile || item.missingProfile)
+    const warning = !profile
         ? [new Paragraph({
             spacing: { after: 80 },
-            children: [run('⚠ 상담사 마스터에 인적/계좌 정보가 없습니다. 회원관리에서 보완해 주세요.', {
+            children: [run('⚠ 회원관리에 해당 강사 정보가 없습니다. 성명·계좌 등을 등록해 주세요.', {
                 bold: true,
                 size: 18,
                 color: 'B45309'
@@ -66,7 +74,12 @@ function buildReceiptSection(item, profile, logo) {
 export async function buildCareerReceiptDocument(model, masters = []) {
     const logo = await loadLogoImage();
     const mastersByName = indexConsultantMasters(masters);
-    const items = (model.interviewBlocks || []).map(receiptItemFromBlock);
+    const items = (model.interviewBlocks || [])
+        .map(receiptItemFromBlock)
+        .sort((a, b) => compareInstructorNames(
+            instructorSortName(mastersByName, a.displayName, a.consultantKey),
+            instructorSortName(mastersByName, b.displayName, b.consultantKey)
+        ));
     if (!items.length) {
         return new Document({
             sections: [{

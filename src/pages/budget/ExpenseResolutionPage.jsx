@@ -5,12 +5,26 @@ import { api } from '../../lib/api';
 import { Download, Eye, FileSpreadsheet, Upload } from 'lucide-react';
 import { parseCareerBudgetWorkbook, emptyCareerModel } from '../../utils/expense/careerBudgetParser.js';
 import { parseEmploymentBudgetWorkbook, emptyEmploymentModel } from '../../utils/expense/employmentBudgetParser.js';
-import { toConsultantMaster } from '../../utils/expense/consultantMaster.js';
+import {
+    toConsultantMaster,
+    indexConsultantMasters,
+    instructorSortName,
+    compareInstructorNames,
+    findConsultantProfile
+} from '../../utils/expense/consultantMaster.js';
 import { downloadCareerExpenseDoc } from '../../utils/expense/careerExpenseDoc.js';
 import { downloadEmploymentExpenseDoc } from '../../utils/expense/employmentExpenseDoc.js';
 import { downloadCareerReceiptDoc } from '../../utils/expense/careerReceiptDoc.js';
 import { downloadEmploymentReceiptDoc } from '../../utils/expense/employmentReceiptDoc.js';
+import { dayLines, periodRangeLabel } from '../../utils/expense/docCommon.js';
 import { formatCurrency } from '../../utils/expenseFormat.js';
+
+const PREVIEW_TABS = [
+    { id: 'career-detail', label: '진로 상세내역', downloadLabel: '상세내역 Word 다운로드', kind: 'career' },
+    { id: 'career-receipt', label: '진로 영수증', downloadLabel: '영수증 Word 다운로드', kind: 'career' },
+    { id: 'employment-detail', label: '취업 상세내역', downloadLabel: '상세내역 Word 다운로드', kind: 'employment' },
+    { id: 'employment-receipt', label: '취업 영수증', downloadLabel: '영수증 Word 다운로드', kind: 'employment' }
+];
 
 function readFileBuffer(file) {
     return new Promise((resolve, reject) => {
@@ -19,6 +33,13 @@ function readFileBuffer(file) {
         reader.onerror = () => reject(reader.error || new Error('파일을 읽지 못했습니다.'));
         reader.readAsArrayBuffer(file);
     });
+}
+
+function sortBlocks(blocks, mastersByName) {
+    return [...(blocks || [])].sort((a, b) => compareInstructorNames(
+        instructorSortName(mastersByName, a.displayName, a.consultant),
+        instructorSortName(mastersByName, b.displayName, b.consultant)
+    ));
 }
 
 function BlockPreview({ title, blocks }) {
@@ -46,7 +67,7 @@ function BlockPreview({ title, blocks }) {
                         ({index + 1}) {block.displayName} 강사
                         {block.missingProfile ? (
                             <span style={{ marginLeft: 8, color: '#B45309', fontSize: 12, fontWeight: 700 }}>
-                                마스터 없음
+                                회원정보 없음
                             </span>
                         ) : null}
                     </div>
@@ -66,6 +87,42 @@ function BlockPreview({ title, blocks }) {
     );
 }
 
+function ReceiptPreview({ items }) {
+    if (!items.length) {
+        return (
+            <div style={{ padding: 28, textAlign: 'center', color: '#64748b' }}>
+                영수증으로 만들 세션이 없습니다.
+            </div>
+        );
+    }
+    return (
+        <div>
+            {items.map((item, index) => (
+                <div
+                    key={`${item.content}-${item.consultantKey}-${index}`}
+                    style={{ padding: '14px 18px', borderTop: index ? '1px solid #f1f5f9' : 'none' }}
+                >
+                    <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+                        {index + 1}. {item.name}
+                        {!item.profile ? (
+                            <span style={{ marginLeft: 8, color: '#B45309', fontSize: 12 }}>회원정보 없음</span>
+                        ) : null}
+                    </div>
+                    <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.55 }}>
+                        <div>내용: {item.content}</div>
+                        <div>지급액: {item.paymentLine}</div>
+                        <div>강의일시: {(item.scheduleLines || []).join(' / ') || '-'}</div>
+                        <div>장소: {item.place}</div>
+                        <div>생년월일: {item.birthDate} · 핸드폰: {item.tel}</div>
+                        <div>소속/주소: {item.affiliationAddress}</div>
+                        <div>통장: {item.bankAccount || '-'}</div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function ExpenseResolutionPage() {
     const { openSidebar } = useOutletContext();
     const [programName, setProgramName] = useState('혁신');
@@ -78,8 +135,11 @@ export default function ExpenseResolutionPage() {
     const [busy, setBusy] = useState('');
     const [error, setError] = useState('');
 
-    const hasCareer = careerModel.sessionCount > 0;
-    const hasEmployment = employmentModel.sessionCount > 0;
+    const mastersByName = useMemo(() => indexConsultantMasters(masters), [masters]);
+    const activeTab = PREVIEW_TABS.find((tab) => tab.id === previewMode) || PREVIEW_TABS[0];
+    const canDownload = activeTab.kind === 'career'
+        ? careerModel.sessionCount > 0
+        : employmentModel.sessionCount > 0;
 
     const summary = useMemo(() => ([
         { label: '진로 세션', value: careerModel.sessionCount },
@@ -87,6 +147,73 @@ export default function ExpenseResolutionPage() {
         { label: '취업 세션', value: employmentModel.sessionCount },
         { label: '취업 지급액', value: `₩${formatCurrency(employmentModel.totalAmount)}` }
     ]), [careerModel, employmentModel]);
+
+    const careerBlocks = useMemo(
+        () => sortBlocks(careerModel.interviewBlocks, mastersByName),
+        [careerModel.interviewBlocks, mastersByName]
+    );
+    const employmentInterview = useMemo(
+        () => sortBlocks(employmentModel.interviewBlocks, mastersByName),
+        [employmentModel.interviewBlocks, mastersByName]
+    );
+    const employmentKorean = useMemo(
+        () => sortBlocks(employmentModel.correctionBlocks?.korean, mastersByName),
+        [employmentModel.correctionBlocks, mastersByName]
+    );
+    const employmentEnglish = useMemo(
+        () => sortBlocks(employmentModel.correctionBlocks?.english, mastersByName),
+        [employmentModel.correctionBlocks, mastersByName]
+    );
+
+    const careerReceiptItems = useMemo(() => careerBlocks.map((block) => {
+        const profile = findConsultantProfile(mastersByName, block.displayName)
+            || findConsultantProfile(mastersByName, block.consultant);
+        return {
+            content: '진로컨설팅(진로개발)',
+            paymentLine: `총 ${block.sessionCount}세션 * 세션당 ₩${formatCurrency(block.rate)} = ₩${formatCurrency(block.amount)}`,
+            scheduleLines: dayLines(block.days),
+            consultantKey: block.consultant,
+            name: profile?.name || block.displayName,
+            profile,
+            place: profile?.placeInterview || profile?.place || '온라인 ZOOM',
+            birthDate: profile?.birthDate || '-',
+            tel: profile?.tel || '-',
+            affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-',
+            bankAccount: profile?.bankAccount || '-'
+        };
+    }), [careerBlocks, mastersByName]);
+
+    const employmentReceiptItems = useMemo(() => {
+        const periodSchedule = periodRangeLabel(employmentModel.periodLabel);
+        const rows = [
+            ...employmentInterview.map((block) => ({ block, content: '취업컨설팅(서류면접)', scheduleLines: dayLines(block.days), placeKey: 'interview' })),
+            ...employmentKorean.map((block) => ({ block, content: '취업컨설팅(서면첨삭(국문))', scheduleLines: [periodSchedule], placeKey: 'correction' })),
+            ...employmentEnglish.map((block) => ({ block, content: '취업컨설팅(서면첨삭(영문))', scheduleLines: [periodSchedule], placeKey: 'correction' }))
+        ].map(({ block, content, scheduleLines, placeKey }) => {
+            const profile = findConsultantProfile(mastersByName, block.displayName)
+                || findConsultantProfile(mastersByName, block.consultant);
+            return {
+                content,
+                paymentLine: `총 ${block.sessionCount}세션 * 세션당 ₩${formatCurrency(block.rate)} = ₩${formatCurrency(block.amount)}`,
+                scheduleLines,
+                consultantKey: block.consultant,
+                name: profile?.name || block.displayName,
+                profile,
+                place: placeKey === 'correction'
+                    ? (profile?.placeCorrection || profile?.place || '온라인 접수')
+                    : (profile?.placeInterview || profile?.place || '온라인 ZOOM'),
+                birthDate: profile?.birthDate || '-',
+                tel: profile?.tel || '-',
+                affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-',
+                bankAccount: profile?.bankAccount || '-'
+            };
+        });
+        return rows.sort((a, b) => {
+            const byName = compareInstructorNames(a.name, b.name);
+            if (byName) return byName;
+            return a.content.localeCompare(b.content, 'ko');
+        });
+    }, [employmentInterview, employmentKorean, employmentEnglish, employmentModel.periodLabel, mastersByName]);
 
     const handleParse = useCallback(async () => {
         if (!careerFile && !employmentFile) {
@@ -96,9 +223,10 @@ export default function ExpenseResolutionPage() {
         setBusy('parse');
         setError('');
         try {
-            // 로그인 후 consultants 마스터(인적/계좌·장소·단가)를 브라우저에서만 사용. 출석 파일은 서버로 올리지 않음.
-            const rawMasters = await api('/auth/consultants');
-            const nextMasters = (Array.isArray(rawMasters) ? rawMasters : []).map((user) => toConsultantMaster(user));
+            const rawUsers = await api('/users');
+            const nextMasters = (Array.isArray(rawUsers) ? rawUsers : [])
+                .filter((user) => user.role === 'consultant')
+                .map((user) => toConsultantMaster(user));
             setMasters(nextMasters);
 
             if (careerFile) {
@@ -122,15 +250,19 @@ export default function ExpenseResolutionPage() {
         }
     }, [careerFile, employmentFile]);
 
-    const handleDownload = async (kind) => {
-        setBusy(kind);
+    const handleDownload = async () => {
+        if (!canDownload) {
+            setError('먼저 출석부를 업로드하고 미리보기를 생성해 주세요.');
+            return;
+        }
+        setBusy('download');
         setError('');
         try {
             const options = { programName: programName.trim() || '혁신' };
-            if (kind === 'career-detail') await downloadCareerExpenseDoc(careerModel, options);
-            if (kind === 'career-receipt') await downloadCareerReceiptDoc(careerModel, masters, options);
-            if (kind === 'employment-detail') await downloadEmploymentExpenseDoc(employmentModel, options);
-            if (kind === 'employment-receipt') await downloadEmploymentReceiptDoc(employmentModel, masters, options);
+            if (previewMode === 'career-detail') await downloadCareerExpenseDoc(careerModel, options);
+            if (previewMode === 'career-receipt') await downloadCareerReceiptDoc(careerModel, masters, options);
+            if (previewMode === 'employment-detail') await downloadEmploymentExpenseDoc(employmentModel, options);
+            if (previewMode === 'employment-receipt') await downloadEmploymentReceiptDoc(employmentModel, masters, options);
         } catch (err) {
             console.error(err);
             setError(err?.message || '워드 파일을 만들지 못했습니다.');
@@ -186,8 +318,8 @@ export default function ExpenseResolutionPage() {
                 <div style={{ marginBottom: 24 }}>
                     <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>지출결의</h2>
                     <p style={{ color: '#64748b', fontSize: 14, maxWidth: 760, lineHeight: 1.6 }}>
-                        진로/취업 출석부 엑셀은 브라우저에서만 읽고, 상세내역·영수증 미리보기와 워드(.docx) 다운로드를 만듭니다.
-                        영수증 인적/계좌는 로그인 후 상담사 마스터(`GET /api/auth/consultants`)만 사용합니다.
+                        출석부 엑셀에서 지급액·강의일시를 만들고, 장소·성명·생년월일·핸드폰·소속·주소·통장은 회원관리 정보로 채웁니다.
+                        영수증은 강사 가나다순이며, 미리보기 탭에서 바로 Word를 내려받습니다.
                     </p>
                 </div>
 
@@ -227,28 +359,6 @@ export default function ExpenseResolutionPage() {
                         <Eye size={18} />
                         {busy === 'parse' ? '집계 중…' : '미리보기 생성'}
                     </button>
-                    {[
-                        { id: 'career-detail', label: '진로 상세 Word', enabled: hasCareer },
-                        { id: 'career-receipt', label: '진로 영수증 Word', enabled: hasCareer },
-                        { id: 'employment-detail', label: '취업 상세 Word', enabled: hasEmployment },
-                        { id: 'employment-receipt', label: '취업 영수증 Word', enabled: hasEmployment }
-                    ].map((action) => (
-                        <button
-                            key={action.id}
-                            type="button"
-                            disabled={!action.enabled || Boolean(busy)}
-                            onClick={() => handleDownload(action.id)}
-                            style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 8,
-                                background: '#fff', color: '#334155', border: '1px solid #cbd5e1',
-                                borderRadius: 12, padding: '11px 14px', fontWeight: 700,
-                                cursor: action.enabled ? 'pointer' : 'not-allowed'
-                            }}
-                        >
-                            <Download size={16} />
-                            {busy === action.id ? '저장 중…' : action.label}
-                        </button>
-                    ))}
                 </div>
 
                 {error && (
@@ -274,18 +384,13 @@ export default function ExpenseResolutionPage() {
 
                 <section style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, overflow: 'hidden' }}>
                     <div style={{
-                        display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 16px',
+                        display: 'flex', flexWrap: 'wrap', gap: 10, padding: '14px 16px',
                         borderBottom: '1px solid #f1f5f9', justifyContent: 'space-between', alignItems: 'center'
                     }}
                     >
-                        <div style={{ fontWeight: 800 }}>미리보기</div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {[
-                                { id: 'career-detail', label: '진로 상세내역' },
-                                { id: 'career-receipt', label: '진로 영수증' },
-                                { id: 'employment-detail', label: '취업 상세내역' },
-                                { id: 'employment-receipt', label: '취업 영수증' }
-                            ].map((tab) => (
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <div style={{ fontWeight: 800, marginRight: 4 }}>미리보기</div>
+                            {PREVIEW_TABS.map((tab) => (
                                 <button
                                     key={tab.id}
                                     type="button"
@@ -304,24 +409,58 @@ export default function ExpenseResolutionPage() {
                                 </button>
                             ))}
                         </div>
+                        <button
+                            type="button"
+                            disabled={!canDownload || Boolean(busy)}
+                            onClick={handleDownload}
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 8,
+                                background: canDownload ? '#00462A' : '#e2e8f0',
+                                color: canDownload ? '#fff' : '#94a3b8',
+                                border: 'none',
+                                borderRadius: 12,
+                                padding: '10px 14px',
+                                fontWeight: 800,
+                                cursor: canDownload ? 'pointer' : 'not-allowed'
+                            }}
+                        >
+                            <Download size={16} />
+                            {busy === 'download' ? '저장 중…' : activeTab.downloadLabel}
+                        </button>
                     </div>
 
-                    {previewMode.startsWith('career') && (
+                    {previewMode === 'career-detail' && (
                         <>
                             <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
-                                기간 {careerModel.periodLabel || '-'} · 상담사 마스터 {masters.length}명
+                                기간 {careerModel.periodLabel || '-'} · 회원관리 상담사 {masters.length}명
                             </div>
-                            <BlockPreview title="[진로개발 컨설팅]" blocks={careerModel.interviewBlocks} />
+                            <BlockPreview title="[진로개발 컨설팅]" blocks={careerBlocks} />
                         </>
                     )}
-                    {previewMode.startsWith('employment') && (
+                    {previewMode === 'career-receipt' && (
                         <>
                             <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
-                                기간 {employmentModel.periodLabel || '-'} · 상담사 마스터 {masters.length}명
+                                지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
                             </div>
-                            <BlockPreview title="[서류면접 컨설팅]" blocks={employmentModel.interviewBlocks} />
-                            <BlockPreview title="[서면첨삭 · 국문]" blocks={employmentModel.correctionBlocks.korean} />
-                            <BlockPreview title="[서면첨삭 · 영문]" blocks={employmentModel.correctionBlocks.english} />
+                            <ReceiptPreview items={careerReceiptItems} />
+                        </>
+                    )}
+                    {previewMode === 'employment-detail' && (
+                        <>
+                            <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
+                                기간 {employmentModel.periodLabel || '-'} · 회원관리 상담사 {masters.length}명
+                            </div>
+                            <BlockPreview title="[서류면접 컨설팅]" blocks={employmentInterview} />
+                            <BlockPreview title="[서면첨삭 · 국문]" blocks={employmentKorean} />
+                            <BlockPreview title="[서면첨삭 · 영문]" blocks={employmentEnglish} />
+                        </>
+                    )}
+                    {previewMode === 'employment-receipt' && (
+                        <>
+                            <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
+                                지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
+                            </div>
+                            <ReceiptPreview items={employmentReceiptItems} />
                         </>
                     )}
                 </section>

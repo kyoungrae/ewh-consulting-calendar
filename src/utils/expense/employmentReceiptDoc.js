@@ -14,11 +14,25 @@ import {
     blobDownload,
     fileStamp
 } from './docCommon.js';
-import { findConsultantProfile, formatBankAccount, indexConsultantMasters } from './consultantMaster.js';
+import {
+    findConsultantProfile,
+    formatBankAccount,
+    indexConsultantMasters,
+    instructorSortName,
+    compareInstructorNames
+} from './consultantMaster.js';
 
-function blocksToItems(model) {
+const CONTENT_ORDER = {
+    '취업컨설팅(서류면접)': 0,
+    '취업컨설팅(서면첨삭(국문))': 1,
+    '취업컨설팅(서면첨삭(영문))': 2
+};
+
+/** 출석부 블록 → 영수증 항목 (가나다·내용 순). 테스트/미리보기에서도 재사용. */
+export function blocksToItems(model, mastersByName) {
     const periodSchedule = periodRangeLabel(model.periodLabel);
     const items = [];
+    // 지급액·강의일시: 출석부 집계 블록에서만 채움
     for (const block of model.interviewBlocks || []) {
         items.push({
             content: '취업컨설팅(서류면접)',
@@ -52,22 +66,31 @@ function blocksToItems(model) {
             placeKey: 'correction'
         });
     }
-    return items;
+    // 강사 가나다순 (동일 강사는 서류면접 → 첨삭 국문 → 영문)
+    return items.sort((a, b) => {
+        const byName = compareInstructorNames(
+            instructorSortName(mastersByName, a.displayName, a.consultantKey),
+            instructorSortName(mastersByName, b.displayName, b.consultantKey)
+        );
+        if (byName) return byName;
+        return (CONTENT_ORDER[a.content] ?? 9) - (CONTENT_ORDER[b.content] ?? 9);
+    });
 }
 
 function buildReceiptSection(item, profile, logo) {
+    // 장소·성명·생년월일·핸드폰·소속·주소·통장: 회원관리 프로필
     const bank = formatBankAccount(profile?.bankAccount);
     const place = item.placeKey === 'correction'
-        ? (profile?.placeCorrection || '온라인 접수')
-        : (profile?.placeInterview || '온라인 ZOOM');
+        ? (profile?.placeCorrection || profile?.place || '온라인 접수')
+        : (profile?.placeInterview || profile?.place || '온라인 ZOOM');
     const name = profile?.name || item.displayName;
     const unique = profile?.uniqueNumber ? ` (${profile.uniqueNumber})` : '';
     const nameLine = `${name}${unique}`;
     const affiliationAddress = [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-';
-    const warning = (!profile || item.missingProfile)
+    const warning = !profile
         ? [new Paragraph({
             spacing: { after: 80 },
-            children: [run('⚠ 상담사 마스터에 인적/계좌 정보가 없습니다. 회원관리에서 보완해 주세요.', {
+            children: [run('⚠ 회원관리에 해당 강사 정보가 없습니다. 성명·계좌 등을 등록해 주세요.', {
                 bold: true,
                 size: 18,
                 color: 'B45309'
@@ -75,7 +98,7 @@ function buildReceiptSection(item, profile, logo) {
         })]
         : [];
 
-    // 샘플 영수증 행 순서: 내용 → 지급액 → 강의일시 → 장소 → 성명 → 생년월일 → 핸드폰 → 소속/주소 → 통장
+    // 지급액·강의일시(item.*)는 출석부, 나머지 인적/계좌는 회원관리
     const rows = [
         labelValueRow('내       용', item.content),
         labelValueRow('지  급  액', item.paymentLine),
@@ -100,7 +123,7 @@ function buildReceiptSection(item, profile, logo) {
 export async function buildEmploymentReceiptDocument(model, masters = []) {
     const logo = await loadLogoImage();
     const mastersByName = indexConsultantMasters(masters);
-    const items = blocksToItems(model);
+    const items = blocksToItems(model, mastersByName);
     if (!items.length) {
         return new Document({
             sections: [{

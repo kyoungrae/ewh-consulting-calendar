@@ -12,6 +12,12 @@ import {
     dayLines
 } from '../src/utils/expense/docCommon.js';
 import { buildEmploymentExpenseDocument } from '../src/utils/expense/employmentExpenseDoc.js';
+import { blocksToItems } from '../src/utils/expense/employmentReceiptDoc.js';
+import {
+    toConsultantMaster,
+    indexConsultantMasters,
+    instructorSortName
+} from '../src/utils/expense/consultantMaster.js';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const employmentFile = join(dir, 'fixtures/expense/employment-attendance-26.10.xlsx');
@@ -51,4 +57,22 @@ test('employment expense document mirrors sample section structure', async () =>
     assert.match(xml, /\(영문\)/);
     assert.match(xml, /총17세션\*세션당20,000원= 340,000원/);
     void text;
+});
+
+test('employment receipts are ordered by instructor name (가나다)', () => {
+    const masters = [
+        toConsultantMaster({ name: '한 나', role: 'consultant', uniqueNumber: 'A1' }),
+        toConsultantMaster({ name: '강 진', role: 'consultant', uniqueNumber: 'A2' }),
+        toConsultantMaster({ name: '김동은', role: 'consultant', uniqueNumber: 'A3' })
+    ];
+    const mastersByName = indexConsultantMasters(masters);
+    const model = parseEmploymentBudgetWorkbook(readFileSync(employmentFile), masters);
+    const items = blocksToItems(model, mastersByName);
+    const sortKey = (item) => instructorSortName(mastersByName, item.displayName, item.consultantKey);
+    const firstOf = (name) => items.findIndex((item) => sortKey(item) === name);
+    assert.ok(firstOf('강 진') >= 0);
+    assert.ok(firstOf('김동은') >= 0);
+    assert.ok(firstOf('한 나') >= 0);
+    assert.ok(firstOf('강 진') < firstOf('김동은'));
+    assert.ok(firstOf('김동은') < firstOf('한 나'));
 });

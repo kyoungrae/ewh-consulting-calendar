@@ -130,11 +130,20 @@ export function simpleTable(rows) {
 
 export async function loadLogoImage() {
     const url = new URL('../../assets/ewha-career-logo.png', import.meta.url);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('인재개발원 로고를 불러오지 못했습니다.');
-    const buffer = await response.arrayBuffer();
+    let data;
+    try {
+        const response = await fetch(url);
+        if (response.ok) data = await response.arrayBuffer();
+    } catch {
+        // Node 테스트 등 fetch(file:) 미지원 환경
+    }
+    if (!data) {
+        const { readFileSync } = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        data = readFileSync(fileURLToPath(url));
+    }
     return new ImageRun({
-        data: buffer,
+        data,
         transformation: { width: 280, height: 42 },
         type: 'png'
     });

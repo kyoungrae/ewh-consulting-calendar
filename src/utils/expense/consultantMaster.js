@@ -76,6 +76,17 @@ export function findConsultantProfile(mastersByName, displayName) {
     return mastersByName.get(key) || mastersByName.get(compact(displayName)) || null;
 }
 
+/** 영수증·미리보기용 강사명 (회원관리 성명 우선) */
+export function instructorSortName(mastersByName, displayName, consultantKey = '') {
+    const profile = findConsultantProfile(mastersByName, displayName)
+        || findConsultantProfile(mastersByName, consultantKey);
+    return profile?.name || displayName || consultantKey || '';
+}
+
+export function compareInstructorNames(a, b) {
+    return String(a || '').localeCompare(String(b || ''), 'ko');
+}
+
 export function formatBankAccount(value) {
     const text = String(value || '').trim();
     if (!text) return { bank: '-', account: '-', holder: '-' };
