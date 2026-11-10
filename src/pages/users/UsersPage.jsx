@@ -55,13 +55,14 @@ export default function UsersPage() {
     const [newConsultingFeeRows, setNewConsultingFeeRows] = useState([]);
     const [editConsultingFeeRows, setEditConsultingFeeRows] = useState([]);
 
-    const emptySensitiveFields = {
+    const emptyReceiptMasterFields = {
         uniqueNumber: '',
-        place: '',
         birthDate: '',
         affiliation: '',
         address: '',
-        bankAccount: ''
+        bankAccount: '',
+        placeInterview: '',
+        placeCorrection: ''
     };
 
     // 신규 사용자 폼 상태
@@ -72,7 +73,7 @@ export default function UsersPage() {
         name: '',
         tel: '',
         role: 'consultant',
-        ...emptySensitiveFields
+        ...emptyReceiptMasterFields
     });
 
     // 수정 폼 상태
@@ -130,11 +131,14 @@ export default function UsersPage() {
                 name: newUserForm.name,
                 tel: newUserForm.tel,
                 uniqueNumber: newUserForm.uniqueNumber,
-                place: newUserForm.place,
                 birthDate: newUserForm.birthDate,
                 affiliation: newUserForm.affiliation,
                 address: newUserForm.address,
                 bankAccount: newUserForm.bankAccount,
+                placeInterview: newUserForm.placeInterview,
+                placeCorrection: newUserForm.placeCorrection,
+                // 구 place 필드는 면접 장소로 맞춰 둠 (하위 호환)
+                place: newUserForm.placeInterview || newUserForm.placeCorrection || '',
                 role: newUserForm.role,
                 status: 'approved', // 관리자가 등록하면 바로 승인
                 consultingFeesByType:
@@ -152,7 +156,7 @@ export default function UsersPage() {
                 name: '',
                 tel: '',
                 role: 'consultant',
-                ...emptySensitiveFields
+                ...emptyReceiptMasterFields
             });
             alert('사용자가 등록되었습니다.');
         } catch (error) {
@@ -188,6 +192,7 @@ export default function UsersPage() {
                     return;
                 }
                 updateData.consultingFeesByType = consultantFeeRowsToPayload(editConsultingFeeRows);
+                updateData.place = updateData.placeInterview || updateData.placeCorrection || '';
             } else {
                 delete updateData.consultingFeesByType;
             }
@@ -630,6 +635,7 @@ export default function UsersPage() {
                             {editForm.role === 'consultant' && (
                                 <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
                                     <div className="text-sm font-bold text-emerald-900">영수증 마스터 정보</div>
+                                    <p className="text-xs text-emerald-800/80">관리자만 조회·수정합니다. DB에는 암호화되어 저장됩니다.</p>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="form-group mb-0">
                                             <label className="form-label">고유번호</label>
@@ -691,73 +697,6 @@ export default function UsersPage() {
                                         <option value="pending">대기중</option>
                                         <option value="approved">승인됨</option>
                                     </select>
-                                </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-gray-100">
-                                <h4 className="text-sm font-bold text-gray-800 mb-1">민감정보</h4>
-                                <p className="text-xs text-gray-500 mb-3">관리자만 조회·수정할 수 있습니다. 필요한 항목만 입력하세요.</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="form-group">
-                                        <label className="form-label">고유번호</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="고유번호"
-                                            value={editForm.uniqueNumber}
-                                            onChange={(e) => setEditForm({ ...editForm, uniqueNumber: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">장소</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="근무/활동 장소"
-                                            value={editForm.place}
-                                            onChange={(e) => setEditForm({ ...editForm, place: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">생년월일</label>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={editForm.birthDate}
-                                            onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">소속</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="소속"
-                                            value={editForm.affiliation}
-                                            onChange={(e) => setEditForm({ ...editForm, affiliation: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group sm:col-span-2">
-                                        <label className="form-label">주소</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="주소"
-                                            value={editForm.address}
-                                            onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group sm:col-span-2">
-                                        <label className="form-label">통장번호</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="은행명 / 계좌번호"
-                                            value={editForm.bankAccount}
-                                            onChange={(e) => setEditForm({ ...editForm, bankAccount: e.target.value })}
-                                            autoComplete="off"
-                                        />
-                                    </div>
                                 </div>
                             </div>
 
@@ -1013,72 +952,44 @@ export default function UsersPage() {
                                 </select>
                             </div>
 
-                            <div className="pt-2 border-t border-gray-100">
-                                <h4 className="text-sm font-bold text-gray-800 mb-1">민감정보</h4>
-                                <p className="text-xs text-gray-500 mb-3">관리자만 조회·수정할 수 있습니다. 필요한 항목만 입력하세요.</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="form-group">
-                                        <label className="form-label">고유번호</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="고유번호"
-                                            value={newUserForm.uniqueNumber}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, uniqueNumber: e.target.value })}
-                                        />
+                            {newUserForm.role === 'consultant' && (
+                                <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                                    <div className="text-sm font-bold text-emerald-900">영수증 마스터 정보</div>
+                                    <p className="text-xs text-emerald-800/80">관리자만 조회·수정합니다. DB에는 암호화되어 저장됩니다.</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">고유번호</label>
+                                            <input className="form-input" value={newUserForm.uniqueNumber} onChange={(e) => setNewUserForm({ ...newUserForm, uniqueNumber: e.target.value })} />
+                                        </div>
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">생년월일</label>
+                                            <input type="date" className="form-input" value={newUserForm.birthDate} onChange={(e) => setNewUserForm({ ...newUserForm, birthDate: e.target.value })} />
+                                        </div>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">장소</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="근무/활동 장소"
-                                            value={newUserForm.place}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, place: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">생년월일</label>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={newUserForm.birthDate}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, birthDate: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
+                                    <div className="form-group mb-0">
                                         <label className="form-label">소속</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="소속"
-                                            value={newUserForm.affiliation}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, affiliation: e.target.value })}
-                                        />
+                                        <input className="form-input" value={newUserForm.affiliation} onChange={(e) => setNewUserForm({ ...newUserForm, affiliation: e.target.value })} />
                                     </div>
-                                    <div className="form-group sm:col-span-2">
+                                    <div className="form-group mb-0">
                                         <label className="form-label">주소</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="주소"
-                                            value={newUserForm.address}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, address: e.target.value })}
-                                        />
+                                        <input className="form-input" value={newUserForm.address} onChange={(e) => setNewUserForm({ ...newUserForm, address: e.target.value })} />
                                     </div>
-                                    <div className="form-group sm:col-span-2">
-                                        <label className="form-label">통장번호</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            placeholder="은행명 / 계좌번호"
-                                            value={newUserForm.bankAccount}
-                                            onChange={(e) => setNewUserForm({ ...newUserForm, bankAccount: e.target.value })}
-                                            autoComplete="off"
-                                        />
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">통장 (은행·계좌·예금주)</label>
+                                        <input className="form-input" placeholder="국민·123-456·홍길동" value={newUserForm.bankAccount} onChange={(e) => setNewUserForm({ ...newUserForm, bankAccount: e.target.value })} autoComplete="off" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">면접 장소</label>
+                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={newUserForm.placeInterview} onChange={(e) => setNewUserForm({ ...newUserForm, placeInterview: e.target.value })} />
+                                        </div>
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">첨삭 장소</label>
+                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={newUserForm.placeCorrection} onChange={(e) => setNewUserForm({ ...newUserForm, placeCorrection: e.target.value })} />
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
                             {newUserForm.role === 'consultant' && (
                                 <ConsultantFeesByTypeFields

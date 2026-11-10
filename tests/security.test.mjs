@@ -39,6 +39,8 @@ test('sensitive member fields encrypt at rest and decrypt for authorized reads',
         tel: '010-1234-5678',
         uniqueNumber: 'U-1',
         place: '서울',
+        placeInterview: 'ECC',
+        placeCorrection: '온라인 접수',
         birthDate: '1990-01-01',
         affiliation: '소속',
         address: '주소',
@@ -47,12 +49,15 @@ test('sensitive member fields encrypt at rest and decrypt for authorized reads',
     assert.equal(sealed.name, '이름');
     assert.match(sealed.tel, /^enc:v1:/);
     assert.match(sealed.bankAccount, /^enc:v1:/);
+    assert.match(sealed.placeInterview, /^enc:v1:/);
     assert.notEqual(sealed.tel, '010-1234-5678');
     assert.notEqual(encryptField('010-1234-5678', piiKey), encryptField('010-1234-5678', piiKey));
     const opened = decryptUserFields(sealed, piiKey);
     assert.equal(opened.tel, '010-1234-5678');
     assert.equal(opened.bankAccount, '123-456');
     assert.equal(opened.uniqueNumber, 'U-1');
+    assert.equal(opened.placeInterview, 'ECC');
+    assert.equal(opened.placeCorrection, '온라인 접수');
     assert.equal(decryptField('legacy-plaintext', piiKey), 'legacy-plaintext');
     assert.equal(encryptField('', piiKey), '');
     const existing = 'enc:v1:AAECAwQFBgcICQoL:W_rqY-bf48AclitaLT3rlw:MmT4LvF7_rRZV4EP_A';

@@ -46,7 +46,8 @@ export async function verifyPassword(password, encoded) {
 
 /** DB에 평문으로 두면 안 되는 회원 개인정보 필드 (조회 키로 쓰지 않음) */
 export const SENSITIVE_USER_FIELDS = [
-    'tel', 'uniqueNumber', 'place', 'birthDate', 'affiliation', 'address', 'bankAccount',
+    'tel', 'uniqueNumber', 'place', 'placeInterview', 'placeCorrection',
+    'birthDate', 'affiliation', 'address', 'bankAccount',
 ];
 
 export function derivePiiKey(secret) {
