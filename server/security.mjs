@@ -1,9 +1,10 @@
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const derive = promisify(scrypt);
 export const SESSION_MS = 30 * 60 * 1000;
 export const newToken = () => randomBytes(32).toString('hex');
+const ENC_PREFIX = 'enc:v1:';
 
 export function httpError(status, message) {
     return Object.assign(new Error(message), { status });

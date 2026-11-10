@@ -21,7 +21,7 @@ test('Firebase password verification uses the returned UID and handles bad crede
 });
 
 test('production Firebase mode requires matching runtime credentials', () => {
-    const env = { NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(32) };
+    const env = { NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: 'test-pii-encryption-key-32chars!!' };
     assert.throws(() => readConfig(env), /Firebase authentication requires/);
     const account = { project_id: 'expected', client_email: 'svc@example.test', private_key: 'key' };
     const encoded = Buffer.from(JSON.stringify(account)).toString('base64');

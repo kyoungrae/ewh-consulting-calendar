@@ -42,6 +42,11 @@ function userFields(input) {
         out.email = out.email.toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw httpError(400, '이메일 형식이 올바르지 않습니다.');
     }
+    if (out.birthDate) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(out.birthDate)) throw httpError(400, '생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)');
+        const birth = new Date(`${out.birthDate}T00:00:00`);
+        if (Number.isNaN(birth.getTime())) throw httpError(400, '생년월일이 올바르지 않습니다.');
+    }
     if (out.role !== undefined && !['admin', 'consultant', 'tester'].includes(out.role)) throw httpError(400, '권한이 올바르지 않습니다.');
     if (out.status !== undefined && !['approved', 'pending', 'rejected', 'suspended'].includes(out.status)) throw httpError(400, '승인 상태가 올바르지 않습니다.');
     if (input.consultingFeesByType !== undefined) out.consultingFeesByType = fees(input.consultingFeesByType);
@@ -57,6 +62,12 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     const useBearer = config.sessionTransport === 'bearer';
     const useFirebase = config.authProvider === 'firebase';
     if (useFirebase && (!firebaseAuth || !firebaseDirectory)) throw new Error('Firebase auth and directory adapters are required.');
+    if (!Buffer.isBuffer(config.piiEncryptionKey) || config.piiEncryptionKey.length !== 32) {
+        throw new Error('piiEncryptionKey must be a 32-byte Buffer.');
+    }
+    const piiKey = config.piiEncryptionKey;
+    const seal = fields => encryptUserFields(fields, piiKey);
+    const present = (user, includePrivate = true) => safeUser(decryptUserFields(user, piiKey), includePrivate);
     // A dedicated collection avoids trusting legacy migrated MongoDB users.
     // It is initialized from Firebase during the controlled cutover and is the
     // authority for application access thereafter.
@@ -105,7 +116,7 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     });
     const snapshot = (req, user) => ({
         user: user ? { uid: user.uid, email: user.email, displayName: user.name } : null,
-        profile: user ? safeUser(user) : null,
+        profile: user ? present(user) : null,
         csrfToken: req.session.csrfToken,
         expiresAt: user ? req.session.expiresAt : null,
         ...(useBearer ? { sessionToken: req.sessionToken } : {}),
@@ -200,10 +211,10 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
     });
     app.get('/api/users', async (req, res) => {
         const users = useFirebase ? (req.user.role === 'consultant' ? [req.user] : await firebaseUsers.find({}).toArray()) : await db.collection('users').find(req.user.role === 'consultant' ? { uid: req.user.uid } : {}).toArray();
-        res.json(users.map(user => safeUser(user, req.user.role === 'admin' || req.user.uid === user.uid)));
+        res.json(users.map(user => present(user, req.user.role === 'admin' || req.user.uid === user.uid)));
     });
     app.post('/api/users', admin, async (req, res) => {
-        const fields = userFields(req.body);
+        const fields = seal(userFields(req.body));
         if (!fields.name || !fields.userId) throw httpError(400, '이름과 아이디를 입력해 주세요.');
         const uid = randomUUID();
         const now = new Date().toISOString();
@@ -234,14 +245,14 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
             user.passwordHash = await hashPassword(req.body.password);
             await db.collection('users').insertOne(user);
         }
-        res.status(201).json(safeUser(user));
+        res.status(201).json(present(user));
     });
     app.patch('/api/users/:id', async (req, res) => {
         const existing = useFirebase ? await firebaseUsers.findOne({ _id: req.params.id }) : await db.collection('users').findOne({ _id: req.params.id });
         if (!existing) throw httpError(404, '회원을 찾을 수 없습니다.');
         const isAdmin = req.user.role === 'admin';
         if (!isAdmin && (req.user.role !== 'consultant' || existing.uid !== req.user.uid || Object.keys(req.body).some(key => key !== 'consultingFeesByType'))) throw httpError(403, '본인의 유형별 강사료만 수정할 수 있습니다.');
-        const patch = isAdmin ? userFields(req.body) : { consultingFeesByType: fees(req.body.consultingFeesByType) };
+        const patch = isAdmin ? seal(userFields(req.body)) : { consultingFeesByType: fees(req.body.consultingFeesByType) };
         if (existing.uid === req.user.uid && ((patch.role && patch.role !== existing.role) || (patch.status && patch.status !== 'approved'))) throw httpError(400, '본인 계정의 권한이나 승인은 해제할 수 없습니다.');
         if (existing.authSyncPending) throw httpError(409, '계정 동기화가 중단되어 관리자 확인이 필요합니다.');
         if (useFirebase && patch.userId && patch.userId !== existing.userId && await firebaseUsers.findOne({ userId: patch.userId })) throw httpError(409, '이미 사용 중인 아이디입니다.');
@@ -282,12 +293,12 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
                 || (remote.authVersion || 0) !== nextVersion) throw new Error('Firebase user state could not be verified');
             const saved = await firebaseUsers.findOneAndUpdate({ _id: existing._id, authSyncPending: true, authVersion: nextVersion }, { $set: { ...patch, updatedAt, disabled: remote.disabled, tokensValidAfterTime: remote.tokensValidAfterTime, hasProfile: remote.hasProfile, authSyncPending: false } }, { returnDocument: 'after' });
             if (!saved) throw new Error('Local user lock was lost');
-            return res.json(safeUser(saved));
+            return res.json(present(saved));
         }
         const update = { $set: { ...patch, updatedAt: new Date().toISOString() } };
         if (invalidate) update.$inc = { authVersion: 1 };
         const user = await db.collection('users').findOneAndUpdate({ _id: existing._id }, update, { returnDocument: 'after' });
-        res.json(safeUser(user));
+        res.json(present(user));
     });
     app.delete('/api/users/:id', admin, async (req, res) => {
         const target = useFirebase ? await firebaseUsers.findOne({ _id: req.params.id }) : await db.collection('users').findOne({ _id: req.params.id });
