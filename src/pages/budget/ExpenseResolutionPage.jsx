@@ -10,14 +10,16 @@ import {
     indexConsultantMasters,
     instructorSortName,
     compareInstructorNames,
-    findConsultantProfile
+    findConsultantProfile,
+    formatBankAccount
 } from '../../utils/expense/consultantMaster.js';
 import { downloadCareerExpenseDoc } from '../../utils/expense/careerExpenseDoc.js';
 import { downloadEmploymentExpenseDoc } from '../../utils/expense/employmentExpenseDoc.js';
 import { downloadCareerReceiptDoc } from '../../utils/expense/careerReceiptDoc.js';
 import { downloadEmploymentReceiptDoc } from '../../utils/expense/employmentReceiptDoc.js';
-import { dayLines, periodRangeLabel } from '../../utils/expense/docCommon.js';
+import { dayLines, periodRangeLabel, moneyLine, formatBirthDate } from '../../utils/expense/docCommon.js';
 import { formatCurrency } from '../../utils/expenseFormat.js';
+import ewhaLogo from '../../assets/ewha-career-logo.png';
 
 const PREVIEW_TABS = [
     { id: 'career-detail', label: '진로 상세내역', downloadLabel: '상세내역 Word 다운로드', kind: 'career' },
@@ -87,7 +89,124 @@ function BlockPreview({ title, blocks }) {
     );
 }
 
-function ReceiptPreview({ items }) {
+function receiptLabel(text) {
+    return text.split('\n').map((line) => (
+        <div key={line}>{line}</div>
+    ));
+}
+
+function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
+    const bank = formatBankAccount(item.profile?.bankAccount);
+    const unique = item.profile?.uniqueNumber ? ` (${item.profile.uniqueNumber})` : '';
+    const nameLine = `${item.name}${unique}`;
+    const rows = [
+        { label: '내       용', value: item.content },
+        { label: '지  급  액', value: item.paymentLine },
+        { label: '강 의 일 시', value: (item.scheduleLines || []).length ? item.scheduleLines : ['-'] },
+        { label: '장       소', value: item.place || '-' },
+        { label: '성       명\n(고유번호)', value: nameLine },
+        { label: '생년월일', value: item.birthDate || '-' },
+        { label: '핸드폰번호', value: item.tel || '-' },
+        { label: '소속 및 주소', value: item.affiliationAddress || '-' },
+        {
+            label: '통 장 번 호',
+            value: [
+                `은 행 명: ${bank.bank}`,
+                `계좌번호: ${bank.account}`,
+                `예 금 주: ${bank.holder}`
+            ]
+        }
+    ];
+
+    return (
+        <article
+            style={{
+                background: '#fff',
+                border: '1px solid #cbd5e1',
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+                padding: '28px 32px 24px',
+                maxWidth: 720,
+                margin: '0 auto',
+                minHeight: 780,
+                display: 'flex',
+                flexDirection: 'column'
+            }}
+        >
+            <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>
+                {pageIndex + 1} / {totalPages}장
+            </div>
+            <div style={{ textAlign: 'center', marginBottom: 18 }}>
+                <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>{programLabel}</div>
+                <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginTop: 2 }}>강사비 지급내역</div>
+            </div>
+            {!item.profile ? (
+                <div style={{
+                    marginBottom: 12,
+                    padding: '8px 10px',
+                    background: '#FFFBEB',
+                    color: '#B45309',
+                    fontSize: 13,
+                    fontWeight: 700
+                }}
+                >
+                    회원관리에 해당 강사 정보가 없습니다. 성명·계좌 등을 등록해 주세요.
+                </div>
+            ) : null}
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <colgroup>
+                    <col style={{ width: '28%' }} />
+                    <col style={{ width: '72%' }} />
+                </colgroup>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={row.label}>
+                            <th
+                                style={{
+                                    border: '1px solid #111827',
+                                    background: '#F3F4F6',
+                                    padding: '10px 8px',
+                                    fontWeight: 800,
+                                    fontSize: 14,
+                                    color: '#111827',
+                                    textAlign: 'center',
+                                    verticalAlign: 'middle',
+                                    whiteSpace: 'pre-line',
+                                    lineHeight: 1.35
+                                }}
+                            >
+                                {receiptLabel(row.label)}
+                            </th>
+                            <td
+                                style={{
+                                    border: '1px solid #111827',
+                                    padding: '10px 12px',
+                                    fontSize: 14,
+                                    color: '#111827',
+                                    verticalAlign: 'middle',
+                                    lineHeight: 1.55,
+                                    wordBreak: 'keep-all'
+                                }}
+                            >
+                                {Array.isArray(row.value)
+                                    ? row.value.map((line) => <div key={line}>{line}</div>)
+                                    : row.value}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <div style={{ marginTop: 'auto', paddingTop: 28, textAlign: 'center' }}>
+                <img
+                    src={ewhaLogo}
+                    alt="이화여자대학교 인재개발원"
+                    style={{ width: 280, maxWidth: '80%', height: 'auto' }}
+                />
+            </div>
+        </article>
+    );
+}
+
+function ReceiptPreview({ items, programLabel }) {
     if (!items.length) {
         return (
             <div style={{ padding: 28, textAlign: 'center', color: '#64748b' }}>
@@ -96,28 +215,15 @@ function ReceiptPreview({ items }) {
         );
     }
     return (
-        <div>
+        <div style={{ background: '#EEF2F7', padding: '20px 16px 28px', display: 'grid', gap: 28 }}>
             {items.map((item, index) => (
-                <div
+                <ReceiptPage
                     key={`${item.content}-${item.consultantKey}-${index}`}
-                    style={{ padding: '14px 18px', borderTop: index ? '1px solid #f1f5f9' : 'none' }}
-                >
-                    <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
-                        {index + 1}. {item.name}
-                        {!item.profile ? (
-                            <span style={{ marginLeft: 8, color: '#B45309', fontSize: 12 }}>회원정보 없음</span>
-                        ) : null}
-                    </div>
-                    <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.55 }}>
-                        <div>내용: {item.content}</div>
-                        <div>지급액: {item.paymentLine}</div>
-                        <div>강의일시: {(item.scheduleLines || []).join(' / ') || '-'}</div>
-                        <div>장소: {item.place}</div>
-                        <div>생년월일: {item.birthDate} · 핸드폰: {item.tel}</div>
-                        <div>소속/주소: {item.affiliationAddress}</div>
-                        <div>통장: {item.bankAccount || '-'}</div>
-                    </div>
-                </div>
+                    item={item}
+                    programLabel={programLabel}
+                    pageIndex={index}
+                    totalPages={items.length}
+                />
             ))}
         </div>
     );
@@ -170,21 +276,25 @@ export default function ExpenseResolutionPage() {
             || findConsultantProfile(mastersByName, block.consultant);
         return {
             content: '진로컨설팅(진로개발)',
-            paymentLine: `총 ${block.sessionCount}세션 * 세션당 ₩${formatCurrency(block.rate)} = ₩${formatCurrency(block.amount)}`,
+            paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
             scheduleLines: dayLines(block.days),
             consultantKey: block.consultant,
             name: profile?.name || block.displayName,
             profile,
             place: profile?.placeInterview || profile?.place || '온라인 ZOOM',
-            birthDate: profile?.birthDate || '-',
+            birthDate: formatBirthDate(profile?.birthDate),
             tel: profile?.tel || '-',
-            affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-',
-            bankAccount: profile?.bankAccount || '-'
+            affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-'
         };
     }), [careerBlocks, mastersByName]);
 
     const employmentReceiptItems = useMemo(() => {
         const periodSchedule = periodRangeLabel(employmentModel.periodLabel);
+        const contentOrder = {
+            '취업컨설팅(서류면접)': 0,
+            '취업컨설팅(서면첨삭(국문))': 1,
+            '취업컨설팅(서면첨삭(영문))': 2
+        };
         const rows = [
             ...employmentInterview.map((block) => ({ block, content: '취업컨설팅(서류면접)', scheduleLines: dayLines(block.days), placeKey: 'interview' })),
             ...employmentKorean.map((block) => ({ block, content: '취업컨설팅(서면첨삭(국문))', scheduleLines: [periodSchedule], placeKey: 'correction' })),
@@ -194,7 +304,7 @@ export default function ExpenseResolutionPage() {
                 || findConsultantProfile(mastersByName, block.consultant);
             return {
                 content,
-                paymentLine: `총 ${block.sessionCount}세션 * 세션당 ₩${formatCurrency(block.rate)} = ₩${formatCurrency(block.amount)}`,
+                paymentLine: moneyLine(block.sessionCount, block.rate, block.amount, { spaced: true }),
                 scheduleLines,
                 consultantKey: block.consultant,
                 name: profile?.name || block.displayName,
@@ -202,16 +312,15 @@ export default function ExpenseResolutionPage() {
                 place: placeKey === 'correction'
                     ? (profile?.placeCorrection || profile?.place || '온라인 접수')
                     : (profile?.placeInterview || profile?.place || '온라인 ZOOM'),
-                birthDate: profile?.birthDate || '-',
+                birthDate: formatBirthDate(profile?.birthDate),
                 tel: profile?.tel || '-',
-                affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-',
-                bankAccount: profile?.bankAccount || '-'
+                affiliationAddress: [profile?.affiliation, profile?.address].filter(Boolean).join(' / ') || '-'
             };
         });
         return rows.sort((a, b) => {
             const byName = compareInstructorNames(a.name, b.name);
             if (byName) return byName;
-            return a.content.localeCompare(b.content, 'ko');
+            return (contentOrder[a.content] ?? 9) - (contentOrder[b.content] ?? 9);
         });
     }, [employmentInterview, employmentKorean, employmentEnglish, employmentModel.periodLabel, mastersByName]);
 
@@ -440,9 +549,9 @@ export default function ExpenseResolutionPage() {
                     {previewMode === 'career-receipt' && (
                         <>
                             <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
-                                지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
+                                한 사람당 1장 · 지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
                             </div>
-                            <ReceiptPreview items={careerReceiptItems} />
+                            <ReceiptPreview items={careerReceiptItems} programLabel="[진로컨설팅]" />
                         </>
                     )}
                     {previewMode === 'employment-detail' && (
@@ -458,9 +567,9 @@ export default function ExpenseResolutionPage() {
                     {previewMode === 'employment-receipt' && (
                         <>
                             <div style={{ padding: '12px 18px', color: '#64748b', fontSize: 13 }}>
-                                지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
+                                한 사람당 1장 · 지급액·강의일시=출석부 · 인적/계좌=회원관리 · 가나다순
                             </div>
-                            <ReceiptPreview items={employmentReceiptItems} />
+                            <ReceiptPreview items={employmentReceiptItems} programLabel="[취업컨설팅]" />
                         </>
                     )}
                 </section>
