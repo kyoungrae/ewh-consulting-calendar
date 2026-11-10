@@ -42,7 +42,7 @@ export function estimateYearMonth(matrix) {
     const joined = (matrix || []).slice(0, 12).flat().map(cellText).join(' | ');
     const patterns = [
         /(\d{2})\.(\d{1,2})\b/,
-        /(\d{4})\s*[.\/년]\s*(\d{1,2})/,
+        /(\d{4})\s*[./년]\s*(\d{1,2})/,
         /(\d{2})년\s*(\d{1,2})월/,
         /(\d{4})-(\d{2})/
     ];

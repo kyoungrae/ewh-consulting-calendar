@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../server/app.mjs';
 import { ensureIndexes } from '../server/db.mjs';
-import { hashPassword, SESSION_MS, derivePiiKey } from '../server/security.mjs';
+import { hashPassword, SESSION_MS, derivePiiKey, encryptField } from '../server/security.mjs';
 
 const uri = process.env.MONGODB_TEST_URI;
 let client, db, server, base;
@@ -19,6 +19,7 @@ before(async () => {
     await db.collection('users').insertMany(['admin', 'consultant', 'other', 'tester'].map(role => ({
         _id: role, uid: role, userId: role, name: role, email: `${role}@test.local`, role: role === 'other' ? 'consultant' : role,
         status: 'approved', passwordHash, authVersion: 0, consultingFeesByType: [{ typeCode: 'TEST', amount: 50000 }],
+        bankAccount: encryptField('123-456', derivePiiKey('test-pii-encryption-key-32chars!!')),
     })));
     server = createApp({ db, client, config: { origin, sessionSecret: 'test-secret'.repeat(6), piiEncryptionKey: derivePiiKey('test-pii-encryption-key-32chars!!'), database: db.databaseName, secure: false, production: false } }).listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -71,6 +72,9 @@ test('Mongo-backed API authentication, scope, imports and safe rollback', { skip
         assert.match(login.response.headers.get('set-cookie'), /HttpOnly/);
         assert.match(login.response.headers.get('set-cookie'), /SameSite=Strict/);
         assert.ok(login.data.expiresAt <= Date.now() + SESSION_MS);
+        const masterDirectory = await admin.request('/auth/consultants');
+        assert.equal(masterDirectory.data.find(user => user.uid === 'consultant').bankAccount, '123-456');
+        assert.equal(directory.data.find(user => user.uid === 'consultant').bankAccount, undefined);
         await consultant.login('consultant');
         await tester.login('tester');
     });

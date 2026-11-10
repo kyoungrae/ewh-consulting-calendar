@@ -59,6 +59,7 @@ test('Firebase API startup fails closed before user-state cutover is marked read
         MONGODB_DB: db.databaseName,
         AUTH_PROVIDER: 'firebase',
         SESSION_TRANSPORT: 'bearer',
+        PII_ENCRYPTION_KEY: 'test-pii-encryption-key-32chars!!',
         FIREBASE_WEB_API_KEY: 'test',
         FIREBASE_PROJECT_ID: 'test-project',
         FIREBASE_SERVICE_ACCOUNT_BASE64: Buffer.from(JSON.stringify({ project_id: 'test-project', client_email: 'test@example.test', private_key: 'unused' })).toString('base64'),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, verifyPassword, safeUser, originsMatch } from '../server/security.mjs';
+import { hashPassword, verifyPassword, safeUser, originsMatch, derivePiiKey, encryptField, decryptField, encryptUserFields, decryptUserFields } from '../server/security.mjs';
 import { normalizeSchedule, publicDocument } from '../server/schedules.mjs';
 import { readConfig } from '../server/config.mjs';
 
@@ -55,6 +55,9 @@ test('sensitive member fields encrypt at rest and decrypt for authorized reads',
     assert.equal(opened.uniqueNumber, 'U-1');
     assert.equal(decryptField('legacy-plaintext', piiKey), 'legacy-plaintext');
     assert.equal(encryptField('', piiKey), '');
+    const existing = 'enc:v1:AAECAwQFBgcICQoL:W_rqY-bf48AclitaLT3rlw:MmT4LvF7_rRZV4EP_A';
+    assert.equal(decryptField(existing, piiKey), '010-1234-5678');
+    assert.throws(() => decryptField(existing, derivePiiKey('another-pii-encryption-key-32chars!')), { status: 500 });
 });
 
 test('schedule dates normalize KST boundaries and reject object identifiers', () => {
