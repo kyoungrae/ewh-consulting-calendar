@@ -30,10 +30,16 @@ function fees(value) {
 }
 function userFields(input) {
     const out = {};
-    for (const key of ['userId', 'email', 'name', 'tel', 'role', 'status']) if (input[key] !== undefined) out[key] = text(input[key], key, ['name', 'userId'].includes(key));
+    const textKeys = ['userId', 'email', 'name', 'tel', 'role', 'status', 'uniqueNumber', 'place', 'birthDate', 'affiliation', 'address', 'bankAccount'];
+    for (const key of textKeys) if (input[key] !== undefined) out[key] = text(input[key], key, ['name', 'userId'].includes(key));
     if (out.email) {
         out.email = out.email.toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw httpError(400, '이메일 형식이 올바르지 않습니다.');
+    }
+    if (out.birthDate) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(out.birthDate)) throw httpError(400, '생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)');
+        const birth = new Date(`${out.birthDate}T00:00:00`);
+        if (Number.isNaN(birth.getTime())) throw httpError(400, '생년월일이 올바르지 않습니다.');
     }
     if (out.role !== undefined && !['admin', 'consultant', 'tester'].includes(out.role)) throw httpError(400, '권한이 올바르지 않습니다.');
     if (out.status !== undefined && !['approved', 'pending', 'rejected', 'suspended'].includes(out.status)) throw httpError(400, '승인 상태가 올바르지 않습니다.');

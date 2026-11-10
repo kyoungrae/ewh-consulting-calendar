@@ -1,6 +1,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
-const PROFILE_FIELDS = ['userId', 'name', 'tel', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt'];
+const PROFILE_FIELDS = [
+    'userId', 'name', 'tel',
+    'uniqueNumber', 'place', 'birthDate', 'affiliation', 'address', 'bankAccount',
+    'consultingFeePerSession', 'consultingFeesByType', 'createdAt'
+];
 
 // Explicit offline recovery never guesses whether an interrupted password,
 // create or deletion succeeded. It leaves the account suspended and requires

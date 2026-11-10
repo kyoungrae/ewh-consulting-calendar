@@ -26,9 +26,15 @@ export async function verifyPassword(password, encoded) {
     return timingSafeEqual(actual, Buffer.from(expected, 'hex'));
 }
 
+/** 관리자(또는 본인)에게만 노출하는 회원 프로필·민감정보 필드 */
+export const PRIVATE_USER_FIELDS = [
+    'uid', 'userId', 'email', 'name', 'tel', 'role', 'status',
+    'uniqueNumber', 'place', 'birthDate', 'affiliation', 'address', 'bankAccount',
+    'consultingFeePerSession', 'consultingFeesByType',
+    'createdAt', 'updatedAt', 'mustResetPassword', 'authSyncPending'
+];
+
 export function safeUser(user, includePrivate = true) {
-    const fields = includePrivate
-        ? ['uid', 'userId', 'email', 'name', 'tel', 'role', 'status', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'mustResetPassword', 'authSyncPending']
-        : ['uid', 'name', 'role', 'status'];
+    const fields = includePrivate ? PRIVATE_USER_FIELDS : ['uid', 'name', 'role', 'status'];
     return Object.fromEntries([['id', String(user._id)], ...fields.filter(key => user[key] !== undefined).map(key => [key, user[key]])]);
 }

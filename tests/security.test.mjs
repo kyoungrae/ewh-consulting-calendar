@@ -15,12 +15,19 @@ test('passwords use salted hashes; invalid and legacy passwords stay distinct', 
 });
 
 test('profiles never expose authentication data or another consultant fee', () => {
-    const user = { _id: 'user', uid: 'user', name: '이름', role: 'consultant', password: 'secret', passwordHash: 'secret', consultingFeePerSession: 50000, consultingFeesByType: [], authVersion: 3 };
+    const user = {
+        _id: 'user', uid: 'user', name: '이름', role: 'consultant', password: 'secret', passwordHash: 'secret',
+        consultingFeePerSession: 50000, consultingFeesByType: [], authVersion: 3,
+        bankAccount: '123-456', uniqueNumber: 'U-1', birthDate: '1990-01-01'
+    };
     const profile = safeUser(user);
     assert.equal(profile.passwordHash, undefined);
     assert.equal(profile.password, undefined);
     assert.equal(profile.authVersion, undefined);
+    assert.equal(profile.bankAccount, '123-456');
     assert.equal(safeUser(user, false).consultingFeePerSession, undefined);
+    assert.equal(safeUser(user, false).bankAccount, undefined);
+    assert.equal(safeUser(user, false).uniqueNumber, undefined);
 });
 
 test('schedule dates normalize KST boundaries and reject object identifiers', () => {
