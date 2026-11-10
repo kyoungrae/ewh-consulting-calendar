@@ -78,11 +78,12 @@ export function AdminRoute({ children }) {
 
 /**
  * 관리자(role: admin)만 접근 — 테스터는 제외
+ * 예산 산정·지출결의·회원 관리 등 민감 메뉴용
  */
 export function StrictAdminRoute({ children }) {
-    const { userProfile } = useAuth();
+    const { isStrictAdmin } = useAuth();
 
-    if (userProfile?.role !== 'admin') {
+    if (!isStrictAdmin) {
         return <Navigate to="/calendar" replace />;
     }
 
