@@ -124,23 +124,32 @@ function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
     return (
         <article
             style={{
+                position: 'relative',
                 background: '#fff',
                 border: '1px solid #cbd5e1',
                 boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
-                padding: '28px 32px 24px',
+                padding: '48px 40px',
                 maxWidth: 720,
                 margin: '0 auto',
-                minHeight: 780,
+                minHeight: 920,
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                justifyContent: 'center'
             }}
         >
-            <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>
+            <div style={{
+                position: 'absolute',
+                top: 14,
+                right: 18,
+                color: '#94a3b8',
+                fontSize: 12
+            }}
+            >
                 {pageIndex + 1} / {totalPages}장
             </div>
-            <div style={{ textAlign: 'center', marginBottom: 18 }}>
+            <div style={{ textAlign: 'center', marginBottom: 22 }}>
                 <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>{programLabel}</div>
-                <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginTop: 2 }}>강사비 지급내역</div>
+                <div style={{ fontWeight: 800, fontSize: 20, color: '#0f172a', marginTop: 4 }}>강사비 지급내역</div>
             </div>
             {!item.profile ? (
                 <div style={{
@@ -199,7 +208,6 @@ function ReceiptPage({ item, programLabel, pageIndex, totalPages }) {
                 </tbody>
             </table>
             <div style={{
-                marginTop: 'auto',
                 paddingTop: 28,
                 width: '100%',
                 display: 'flex',

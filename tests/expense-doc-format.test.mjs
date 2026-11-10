@@ -12,7 +12,10 @@ import {
     dayLines
 } from '../src/utils/expense/docCommon.js';
 import { buildEmploymentExpenseDocument } from '../src/utils/expense/employmentExpenseDoc.js';
-import { blocksToItems } from '../src/utils/expense/employmentReceiptDoc.js';
+import {
+    blocksToItems,
+    buildEmploymentReceiptDocument
+} from '../src/utils/expense/employmentReceiptDoc.js';
 import {
     toConsultantMaster,
     indexConsultantMasters,
@@ -57,6 +60,16 @@ test('employment expense document mirrors sample section structure', async () =>
     assert.match(xml, /\(영문\)/);
     assert.match(xml, /총17세션\*세션당20,000원= 340,000원/);
     void text;
+});
+
+test('employment receipt Word pages are vertically centered', async () => {
+    const model = parseEmploymentBudgetWorkbook(readFileSync(employmentFile));
+    const doc = await buildEmploymentReceiptDocument(model, []);
+    const { Packer } = await import('docx');
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
+    const xml = await zip.file('word/document.xml').async('string');
+    assert.match(xml, /<w:vAlign\b[^>]*w:val="center"/);
 });
 
 test('서면첨삭 receipt uses compact payment and month-range schedule', () => {

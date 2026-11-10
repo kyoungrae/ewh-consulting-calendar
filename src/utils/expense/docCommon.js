@@ -8,12 +8,22 @@ import {
     AlignmentType,
     BorderStyle,
     ImageRun,
-    VerticalAlign
+    VerticalAlign,
+    VerticalAlignSection
 } from 'docx';
 import { Packer } from 'docx';
 import { formatCurrency } from '../expenseFormat.js';
 
 export const PAGE_MARGIN = { top: 480, right: 480, bottom: 480, left: 480 };
+/** 영수증: 페이지 세로 가운데 배치 (샘플처럼 상·하 여백 균형) */
+export const RECEIPT_SECTION = {
+    properties: {
+        page: {
+            margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 }
+        },
+        verticalAlign: VerticalAlignSection.CENTER
+    }
+};
 export const FONT = 'Malgun Gothic';
 
 const BORDER = { style: BorderStyle.SINGLE, size: 8, color: '000000' };
@@ -152,7 +162,7 @@ export async function loadLogoImage() {
 export function logoParagraph(image) {
     return new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 280, after: 80 },
+        spacing: { before: 360, after: 0 },
         children: [image]
     });
 }

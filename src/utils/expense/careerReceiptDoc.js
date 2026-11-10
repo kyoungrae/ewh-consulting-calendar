@@ -1,6 +1,6 @@
 import { Document, Paragraph, AlignmentType, Table, WidthType } from 'docx';
 import {
-    PAGE_MARGIN,
+    RECEIPT_SECTION,
     p,
     run,
     moneyLine,
@@ -64,7 +64,7 @@ function buildReceiptSection(item, profile, logo) {
 
     return [
         p('[진로컨설팅]', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 40 } }),
-        p('강사비 지급내역', { bold: true, size: 28, align: AlignmentType.CENTER, spacing: { after: 160 } }),
+        p('강사비 지급내역', { bold: true, size: 32, align: AlignmentType.CENTER, spacing: { after: 240 } }),
         ...warning,
         new Table({ width: { size: 9200, type: WidthType.DXA }, rows }),
         logoParagraph(logo)
@@ -83,7 +83,7 @@ export async function buildCareerReceiptDocument(model, masters = []) {
     if (!items.length) {
         return new Document({
             sections: [{
-                properties: { page: { margin: PAGE_MARGIN } },
+                ...RECEIPT_SECTION,
                 children: [p('영수증으로 만들 진로 세션이 없습니다.', { size: 22 })]
             }]
         });
@@ -94,7 +94,7 @@ export async function buildCareerReceiptDocument(model, masters = []) {
             const profile = findConsultantProfile(mastersByName, item.displayName)
                 || findConsultantProfile(mastersByName, item.consultantKey);
             return {
-                properties: { page: { margin: PAGE_MARGIN } },
+                ...RECEIPT_SECTION,
                 children: buildReceiptSection(item, profile, logo)
             };
         })
