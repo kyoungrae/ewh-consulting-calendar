@@ -1,0 +1,220 @@
+import {
+    Paragraph,
+    TextRun,
+    Table,
+    TableRow,
+    TableCell,
+    WidthType,
+    AlignmentType,
+    BorderStyle,
+    ImageRun,
+    VerticalAlign,
+    VerticalAlignSection
+} from 'docx';
+import { Packer } from 'docx';
+import { formatCurrency } from '../expenseFormat.js';
+
+export const PAGE_MARGIN = { top: 480, right: 480, bottom: 480, left: 480 };
+/** A4 (210×297mm) in twips */
+export const A4_PAGE_SIZE = { width: 11906, height: 16838 };
+/** 좁은 여백 ≈ 1cm / 0.5in */
+export const RECEIPT_MARGIN = { top: 567, right: 720, bottom: 567, left: 720 };
+export const RECEIPT_TABLE_WIDTH = 10000;
+export const RECEIPT_LABEL_WIDTH = 2600;
+export const RECEIPT_VALUE_WIDTH = 7400;
+/** 표 본문 12pt (docx half-points) */
+export const RECEIPT_FONT_SIZE = 24;
+/** 행 최소 높이 (twips). 다줄 셀은 줄 수에 맞게 더 키움 */
+export const RECEIPT_ROW_MIN_HEIGHT = 420;
+
+/** 영수증: A4 · 좁은 여백 · 세로 가운데 (1인 1페이지) */
+export const RECEIPT_SECTION = {
+    properties: {
+        page: {
+            size: A4_PAGE_SIZE,
+            margin: RECEIPT_MARGIN
+        },
+        verticalAlign: VerticalAlignSection.CENTER
+    }
+};
+export const FONT = 'Malgun Gothic';
+
+const BORDER = { style: BorderStyle.SINGLE, size: 8, color: '000000' };
+export const BORDERS = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
+const NONE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+export const NO_BORDERS = { top: NONE, bottom: NONE, left: NONE, right: NONE };
+
+export function run(text, { bold = false, size = 22, color } = {}) {
+    return new TextRun({ text: String(text ?? ''), bold, size, font: FONT, color });
+}
+
+export function p(text, opts = {}) {
+    const { bold = false, size = 22, align = AlignmentType.LEFT, spacing = { after: 80 } } = opts;
+    return new Paragraph({
+        alignment: align,
+        spacing,
+        children: [run(text, { bold, size })]
+    });
+}
+
+/** detail: 총7세션*세션당80,000원= 560,000원 / receipt: 총 7세션*세션당 80,000원= 560,000원 */
+export function moneyLine(sessionCount, rate, amount, { spaced = false } = {}) {
+    const count = Number(sessionCount) || 0;
+    const rateText = formatCurrency(rate);
+    const amountText = formatCurrency(amount);
+    if (spaced) return `총 ${count}세션*세션당 ${rateText}원= ${amountText}원`;
+    return `총${count}세션*세션당${rateText}원= ${amountText}원`;
+}
+
+export function dayLines(days = []) {
+    return days.map((day) => {
+        const times = (day.times || []).join(', ');
+        const countLabel = day.count ? ` (${day.count}세션)` : '';
+        return times ? `${day.dayKey} – ${times}${countLabel}` : `${day.dayKey}${countLabel}`;
+    });
+}
+
+/** 26.10 -> 26년 10월 */
+export function periodMonthLabel(periodLabel = '') {
+    const match = String(periodLabel).match(/(\d{2})\.(\d{1,2})/);
+    if (!match) return periodLabel || '-';
+    return `${match[1]}년 ${Number(match[2])}월`;
+}
+
+/** 26.10 -> 26년 10/1~10/31 */
+export function periodRangeLabel(periodLabel = '') {
+    const match = String(periodLabel).match(/(\d{2})\.(\d{1,2})/);
+    if (!match) return periodLabel || '-';
+    const month = Number(match[2]);
+    const year = 2000 + Number(match[1]);
+    const last = new Date(year, month, 0).getDate();
+    return `${match[1]}년 ${month}/1~${month}/${last}`;
+}
+
+/** YYYY-MM-DD or Date-like -> 75.09.13 */
+export function formatBirthDate(value) {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1].slice(2)}.${iso[2]}.${iso[3]}`;
+    const dotted = text.match(/^(\d{2,4})[./](\d{1,2})[./](\d{1,2})/);
+    if (dotted) {
+        const yy = dotted[1].length === 4 ? dotted[1].slice(2) : dotted[1].padStart(2, '0');
+        return `${yy}.${String(dotted[2]).padStart(2, '0')}.${String(dotted[3]).padStart(2, '0')}`;
+    }
+    return text;
+}
+
+export function bankAccountLines(bank) {
+    return [
+        `은 행 명: ${bank?.bank || '-'}`,
+        `계좌번호: ${bank?.account || '-'}`,
+        `예 금 주: ${bank?.holder || '-'}`
+    ];
+}
+
+export function labelValueRow(label, value, {
+    labelWidth = RECEIPT_LABEL_WIDTH,
+    valueWidth = RECEIPT_VALUE_WIDTH,
+    minHeight = RECEIPT_ROW_MIN_HEIGHT,
+    fontSize = RECEIPT_FONT_SIZE
+} = {}) {
+    const lines = Array.isArray(value)
+        ? value
+        : String(value ?? '-').split('\n').filter((line, index, arr) => line || arr.length === 1);
+    const valueLines = lines.length ? lines : ['-'];
+    const labelLines = String(label ?? '').split('\n');
+    const rowHeight = Math.max(
+        minHeight,
+        valueLines.length * 260 + 100,
+        labelLines.length * 260 + 100
+    );
+    const valueParagraphs = valueLines.map((line) => new Paragraph({
+        spacing: { after: 0, before: 0, line: 276 },
+        children: [run(line || '-', { size: fontSize })]
+    }));
+    const labelParagraphs = labelLines.map((line) => new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 0, before: 0, line: 276 },
+        children: [run(line, { bold: true, size: fontSize })]
+    }));
+    return new TableRow({
+        height: { value: rowHeight, rule: 'atLeast' },
+        children: [
+            new TableCell({
+                borders: BORDERS,
+                width: { size: labelWidth, type: WidthType.DXA },
+                verticalAlign: VerticalAlign.CENTER,
+                shading: { fill: 'F3F4F6' },
+                children: labelParagraphs
+            }),
+            new TableCell({
+                borders: BORDERS,
+                width: { size: valueWidth, type: WidthType.DXA },
+                verticalAlign: VerticalAlign.CENTER,
+                children: valueParagraphs
+            })
+        ]
+    });
+}
+
+export function simpleTable(rows) {
+    return new Table({
+        width: { size: 9200, type: WidthType.DXA },
+        rows
+    });
+}
+
+/** 영수증 9행 라벨|값 표 */
+export function receiptTable(rows) {
+    return new Table({
+        width: { size: RECEIPT_TABLE_WIDTH, type: WidthType.DXA },
+        columnWidths: [RECEIPT_LABEL_WIDTH, RECEIPT_VALUE_WIDTH],
+        rows
+    });
+}
+
+export async function loadLogoImage() {
+    const url = new URL('../../assets/ewha-career-logo.png', import.meta.url);
+    let data;
+    try {
+        const response = await fetch(url);
+        if (response.ok) data = await response.arrayBuffer();
+    } catch {
+        // Node 테스트 등 fetch(file:) 미지원 환경
+    }
+    if (!data) {
+        const { readFileSync } = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        data = readFileSync(fileURLToPath(url));
+    }
+    return new ImageRun({
+        data,
+        transformation: { width: 280, height: 42 },
+        type: 'png'
+    });
+}
+
+export function logoParagraph(image) {
+    return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 360, after: 0 },
+        children: [image]
+    });
+}
+
+export async function blobDownload(doc, fileName) {
+    const blob = await Packer.toBlob(doc);
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+}
+
+export function fileStamp(prefix, periodLabel) {
+    const stamp = periodLabel || '기간';
+    return `${prefix} (${stamp}).docx`;
+}

@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-    hashPassword, verifyPassword, safeUser, derivePiiKey,
-    encryptField, decryptField, encryptUserFields, decryptUserFields,
-} from '../server/security.mjs';
+import { hashPassword, verifyPassword, safeUser, originsMatch } from '../server/security.mjs';
 import { normalizeSchedule, publicDocument } from '../server/schedules.mjs';
 import { readConfig } from '../server/config.mjs';
 
@@ -75,4 +72,12 @@ test('configuration rejects missing secrets and insecure HTTPS cookies', () => {
     assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32) }), /PII_ENCRYPTION_KEY/);
     assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: piiSecret, APP_ORIGIN: 'https://example.com', COOKIE_SECURE: 'false' }), /COOKIE_SECURE/);
     assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: piiSecret, APP_ORIGIN: 'https://example.com/' }), /origin/);
+});
+
+test('loopback localhost and 127.0.0.1 origins match for local CSRF/CORS', () => {
+    assert.equal(originsMatch('http://localhost:5173', 'http://localhost:5173'), true);
+    assert.equal(originsMatch('http://127.0.0.1:5173', 'http://localhost:5173'), true);
+    assert.equal(originsMatch('http://localhost:5173', 'http://127.0.0.1:5173'), true);
+    assert.equal(originsMatch('http://127.0.0.1:3000', 'http://localhost:5173'), false);
+    assert.equal(originsMatch('https://ewha.example', 'http://localhost:5173'), false);
 });
