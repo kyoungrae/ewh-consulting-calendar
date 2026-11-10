@@ -8,12 +8,13 @@ import {
     X,
     Megaphone,
     CreditCard,
-    CircleDollarSign
+    CircleDollarSign,
+    FileSpreadsheet
 } from 'lucide-react';
 import ewhaLogo from '../../assets/symbol-mark.png';
 
 export default function Sidebar({ isOpen, onClose }) {
-    const { userProfile, isAdmin, isTester } = useAuth();
+    const { userProfile, isAdmin, isStrictAdmin } = useAuth();
 
     const handleNavClick = () => {
         // 모바일에서 메뉴 클릭 시 사이드바 닫기
@@ -57,22 +58,31 @@ export default function Sidebar({ isOpen, onClose }) {
             path: '/budget',
             icon: CreditCard,
             label: '예산 관리',
-            roles: ['admin']
+            roles: ['admin'],
+            // 예산·지출결의·회원: 실제 관리자만 (테스터 제외)
+            strictAdminOnly: true
+        },
+        {
+            path: '/expense-resolution',
+            icon: FileSpreadsheet,
+            label: '지출결의',
+            roles: ['admin'],
+            strictAdminOnly: true
         },
         {
             path: '/users',
             icon: Users,
             label: '회원 관리',
-            roles: ['admin']
+            roles: ['admin'],
+            strictAdminOnly: true
         }
     ];
 
     const filteredMenuItems = menuItems.filter(item => {
-        // 테스터: 예산·회원 관리 메뉴 숨김
-        if (isTester && (item.path === '/budget' || item.path === '/users')) {
-            return false;
+        if (item.strictAdminOnly) {
+            return isStrictAdmin;
         }
-        if (item.roles.includes('admin') && isAdmin) return true; // isAdmin이면 admin 메뉴 허용
+        if (item.roles.includes('admin') && isAdmin) return true; // 테스터 포함 관리 메뉴
         return item.roles.includes(userProfile?.role);
     });
 

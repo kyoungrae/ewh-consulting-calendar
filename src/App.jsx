@@ -18,6 +18,7 @@ const CodesPage = lazy(() => import('./pages/codes/CodesPage'));
 const UsersPage = lazy(() => import('./pages/users/UsersPage'));
 const EventsPage = lazy(() => import('./pages/events/EventsPage'));
 const BudgetPage = lazy(() => import('./pages/budget/BudgetPage'));
+const ExpenseResolutionPage = lazy(() => import('./pages/budget/ExpenseResolutionPage'));
 const MyConsultingFeePage = lazy(() => import('./pages/profile/MyConsultingFeePage'));
 
 // A deployment can remove an old lazy-loaded chunk while a user still has the
@@ -120,6 +121,14 @@ function App() {
                 element={
                   <StrictAdminRoute>
                     <BudgetPage />
+                  </StrictAdminRoute>
+                }
+              />
+              <Route
+                path="/expense-resolution"
+                element={
+                  <StrictAdminRoute>
+                    <ExpenseResolutionPage />
                   </StrictAdminRoute>
                 }
               />
