@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, verifyPassword, safeUser } from '../server/security.mjs';
+import {
+    hashPassword, verifyPassword, safeUser, derivePiiKey,
+    encryptField, decryptField, encryptUserFields, decryptUserFields,
+} from '../server/security.mjs';
 import { normalizeSchedule, publicDocument } from '../server/schedules.mjs';
 import { readConfig } from '../server/config.mjs';
+
+const piiSecret = 'test-pii-encryption-key-32chars!!';
+const piiKey = derivePiiKey(piiSecret);
 
 test('passwords use salted hashes; invalid and legacy passwords stay distinct', async () => {
     const hash = await hashPassword('secure-password');
@@ -30,6 +36,30 @@ test('profiles never expose authentication data or another consultant fee', () =
     assert.equal(safeUser(user, false).uniqueNumber, undefined);
 });
 
+test('sensitive member fields encrypt at rest and decrypt for authorized reads', () => {
+    const sealed = encryptUserFields({
+        name: '이름',
+        tel: '010-1234-5678',
+        uniqueNumber: 'U-1',
+        place: '서울',
+        birthDate: '1990-01-01',
+        affiliation: '소속',
+        address: '주소',
+        bankAccount: '123-456',
+    }, piiKey);
+    assert.equal(sealed.name, '이름');
+    assert.match(sealed.tel, /^enc:v1:/);
+    assert.match(sealed.bankAccount, /^enc:v1:/);
+    assert.notEqual(sealed.tel, '010-1234-5678');
+    assert.notEqual(encryptField('010-1234-5678', piiKey), encryptField('010-1234-5678', piiKey));
+    const opened = decryptUserFields(sealed, piiKey);
+    assert.equal(opened.tel, '010-1234-5678');
+    assert.equal(opened.bankAccount, '123-456');
+    assert.equal(opened.uniqueNumber, 'U-1');
+    assert.equal(decryptField('legacy-plaintext', piiKey), 'legacy-plaintext');
+    assert.equal(encryptField('', piiKey), '');
+});
+
 test('schedule dates normalize KST boundaries and reject object identifiers', () => {
     const first = normalizeSchedule({ date: '2026-11-01T00:30', consultantId: 'consultant' });
     const second = normalizeSchedule({ date: '2026-10-31T15:30:00Z', consultantId: 'consultant' });
@@ -42,6 +72,7 @@ test('schedule dates normalize KST boundaries and reject object identifiers', ()
 
 test('configuration rejects missing secrets and insecure HTTPS cookies', () => {
     assert.throws(() => readConfig({}), /SESSION_SECRET/);
-    assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), APP_ORIGIN: 'https://example.com', COOKIE_SECURE: 'false' }), /COOKIE_SECURE/);
-    assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), APP_ORIGIN: 'https://example.com/' }), /origin/);
+    assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32) }), /PII_ENCRYPTION_KEY/);
+    assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: piiSecret, APP_ORIGIN: 'https://example.com', COOKIE_SECURE: 'false' }), /COOKIE_SECURE/);
+    assert.throws(() => readConfig({ SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: piiSecret, APP_ORIGIN: 'https://example.com/' }), /origin/);
 });

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { createApp } from '../server/app.mjs';
 import { ensureIndexes } from '../server/db.mjs';
+import { derivePiiKey } from '../server/security.mjs';
 
 const uri = process.env.MONGODB_TEST_URI;
 test('Firebase login and MongoDB user state enforce roles, revoke sessions and fail closed', { skip: !uri }, async () => {
@@ -76,7 +77,7 @@ test('Firebase login and MongoDB user state enforce roles, revoke sessions and f
             const user = await directory.get(uid);
             await db.collection('firebase_user_states').insertOne({ ...user, _id: uid, uid, authVersion: user.authVersion || 0 });
         }
-        server = createApp({ db, client, firebaseAuth, firebaseDirectory: directory, config: { origin, secure: true, sessionTransport: 'bearer', authProvider: 'firebase' } }).listen(0, '127.0.0.1');
+        server = createApp({ db, client, firebaseAuth, firebaseDirectory: directory, config: { origin, secure: true, sessionTransport: 'bearer', authProvider: 'firebase', piiEncryptionKey: derivePiiKey('test-pii-encryption-key-32chars!!') } }).listen(0, '127.0.0.1');
         await once(server, 'listening');
         const base = `http://127.0.0.1:${server.address().port}/api`;
         let token, csrf;

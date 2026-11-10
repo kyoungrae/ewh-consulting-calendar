@@ -46,7 +46,7 @@ test('IPv6 clients use the same subnet aggregation as direct requests', () => {
 });
 
 test('configured gateway signing secret must be sufficiently long', () => {
-    const env = { AUTH_PROVIDER: 'mongo', GATEWAY_HMAC_SECRET: 'short', SESSION_SECRET: 'x'.repeat(32) };
+    const env = { AUTH_PROVIDER: 'mongo', GATEWAY_HMAC_SECRET: 'short', SESSION_SECRET: 'x'.repeat(32), PII_ENCRYPTION_KEY: 'test-pii-encryption-key-32chars!!' };
     assert.throws(() => readConfig(env), /GATEWAY_HMAC_SECRET/);
     assert.equal(readConfig({ ...env, GATEWAY_HMAC_SECRET: secret }).gatewayHmacSecret, secret);
 });

@@ -58,10 +58,11 @@ Docker Desktop 또는 호환 Docker Engine과 Compose, Node.js 24를 사용합�
 cp .env.example .env
 openssl rand -hex 32
 openssl rand -hex 32
+openssl rand -hex 32
 openssl rand -base64 48
 ```
 
-생성한 값을 `.env`의 `SESSION_SECRET`, `MONGO_ROOT_PASSWORD`, `MONGO_REPLICA_KEY`에 각각 입력합니다. MongoDB 비밀번호는 URI에 안전한 hex 값을 권장합니다. 비밀 값은 `VITE_` 환경 변수에 넣지 않습니다.
+생성한 값을 `.env`의 `SESSION_SECRET`, `PII_ENCRYPTION_KEY`, `MONGO_ROOT_PASSWORD`, `MONGO_REPLICA_KEY`에 각각 입력합니다. `PII_ENCRYPTION_KEY`는 회원 개인정보(전화번호·고유번호·생년월일·소속·주소·계좌 등) DB 저장 시 AES-256-GCM 암호화에 쓰며 `SESSION_SECRET`과 분리합니다. MongoDB 비밀번호는 URI에 안전한 hex 값을 권장합니다. 비밀 값은 `VITE_` 환경 변수에 넣지 않습니다.
 
 로컬 확인에는 다음 설정을 사용합니다.
 

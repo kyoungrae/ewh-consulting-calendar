@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { createApp } from '../server/app.mjs';
 import { createFirebaseAuth } from '../server/firebase-auth.mjs';
 import { createFirebaseDirectory } from '../server/firebase-directory.mjs';
+import { derivePiiKey } from '../server/security.mjs';
 
 test('consultant name login verifies the linked Firebase password and account status', async () => {
     const profile = { name: '김테스트', role: 'consultant', status: 'approved' };
@@ -67,7 +68,7 @@ test('consultant name login verifies the linked Firebase password and account st
     const origin = 'http://localhost:5173';
     const server = createApp({
         db, client: {}, firebaseAuth, firebaseDirectory,
-        config: { origin, authProvider: 'firebase', sessionTransport: 'bearer', secure: false },
+        config: { origin, authProvider: 'firebase', sessionTransport: 'bearer', secure: false, piiEncryptionKey: derivePiiKey('test-pii-encryption-key-32chars!!') },
     }).listen(0, '127.0.0.1');
     try {
         await once(server, 'listening');
