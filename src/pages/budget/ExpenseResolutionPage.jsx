@@ -18,7 +18,8 @@ import { downloadEmploymentExpenseDoc } from '../../utils/expense/employmentExpe
 import { downloadCareerReceiptDoc } from '../../utils/expense/careerReceiptDoc.js';
 import {
     downloadEmploymentReceiptDoc,
-    blocksToItems as employmentReceiptBlocksToItems
+    blocksToItems as employmentReceiptBlocksToItems,
+    CORRECTION_PLACE
 } from '../../utils/expense/employmentReceiptDoc.js';
 import { dayLines, moneyLine, formatBirthDate } from '../../utils/expense/docCommon.js';
 import { formatCurrency } from '../../utils/expenseFormat.js';
@@ -327,7 +328,7 @@ export default function ExpenseResolutionPage() {
                 name: profile?.name || item.displayName,
                 profile,
                 place: item.placeKey === 'correction'
-                    ? (profile?.placeCorrection || profile?.place || '온라인 접수')
+                    ? CORRECTION_PLACE
                     : (profile?.placeInterview || profile?.place || '온라인 ZOOM'),
                 birthDate: formatBirthDate(profile?.birthDate),
                 tel: profile?.tel || '-',

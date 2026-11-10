@@ -14,7 +14,8 @@ import {
 import { buildEmploymentExpenseDocument } from '../src/utils/expense/employmentExpenseDoc.js';
 import {
     blocksToItems,
-    buildEmploymentReceiptDocument
+    buildEmploymentReceiptDocument,
+    CORRECTION_PLACE
 } from '../src/utils/expense/employmentReceiptDoc.js';
 import {
     toConsultantMaster,
@@ -87,6 +88,7 @@ test('서면첨삭 receipt uses compact payment and month-range schedule', () =>
     assert.match(correction.paymentLine, /^총\d+세션\*세션당[\d,]+원= [\d,]+원$/);
     assert.equal(correction.scheduleLines[0], '26년 10/1~10/31');
     assert.equal(correction.placeKey, 'correction');
+    assert.equal(CORRECTION_PLACE, '온라인 접수');
     const interview = items.find((item) => item.content.includes('서류면접'));
     assert.ok(interview);
     assert.match(interview.paymentLine, /^총 \d+세션\*세션당 [\d,]+원= [\d,]+원$/);

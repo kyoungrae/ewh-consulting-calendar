@@ -29,6 +29,9 @@ const CONTENT_ORDER = {
     '취업컨설팅(서면첨삭(영문))': 2
 };
 
+/** 서면첨삭 장소는 강사별 입력이 아니라 공통 고정 */
+export const CORRECTION_PLACE = '온라인 접수';
+
 /** 출석부 블록 → 영수증 항목 (가나다·내용 순). 테스트/미리보기에서도 재사용. */
 export function blocksToItems(model, mastersByName) {
     const periodSchedule = periodRangeLabel(model.periodLabel);
@@ -83,7 +86,7 @@ function buildReceiptSection(item, profile, logo) {
     // 장소·성명·생년월일·핸드폰·소속·주소·통장: 회원관리 프로필
     const bank = formatBankAccount(profile?.bankAccount);
     const place = item.placeKey === 'correction'
-        ? (profile?.placeCorrection || profile?.place || '온라인 접수')
+        ? CORRECTION_PLACE
         : (profile?.placeInterview || profile?.place || '온라인 ZOOM');
     const name = profile?.name || item.displayName;
     const unique = profile?.uniqueNumber ? ` (${profile.uniqueNumber})` : '';

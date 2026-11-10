@@ -61,8 +61,7 @@ export default function UsersPage() {
         affiliation: '',
         address: '',
         bankAccount: '',
-        placeInterview: '',
-        placeCorrection: ''
+        placeInterview: ''
     };
 
     // 신규 사용자 폼 상태
@@ -89,8 +88,7 @@ export default function UsersPage() {
         affiliation: '',
         address: '',
         bankAccount: '',
-        placeInterview: '',
-        placeCorrection: ''
+        placeInterview: ''
     });
 
     // 수정 모달 열기
@@ -108,8 +106,7 @@ export default function UsersPage() {
             affiliation: user.affiliation || '',
             address: user.address || '',
             bankAccount: user.bankAccount || '',
-            placeInterview: user.placeInterview || user.place || '',
-            placeCorrection: user.placeCorrection || user.place || ''
+            placeInterview: user.placeInterview || user.place || ''
         });
         setEditConsultingFeeRows(payloadToConsultingFeeRows(user));
         setIsModalOpen(true);
@@ -136,9 +133,8 @@ export default function UsersPage() {
                 address: newUserForm.address,
                 bankAccount: newUserForm.bankAccount,
                 placeInterview: newUserForm.placeInterview,
-                placeCorrection: newUserForm.placeCorrection,
-                // 구 place 필드는 면접 장소로 맞춰 둠 (하위 호환)
-                place: newUserForm.placeInterview || newUserForm.placeCorrection || '',
+                // 구 place 필드는 면접 장소로 맞춰 둠 (하위 호환). 서면첨삭 장소는 항상 '온라인 접수'.
+                place: newUserForm.placeInterview || '',
                 role: newUserForm.role,
                 status: 'approved', // 관리자가 등록하면 바로 승인
                 consultingFeesByType:
@@ -192,7 +188,7 @@ export default function UsersPage() {
                     return;
                 }
                 updateData.consultingFeesByType = consultantFeeRowsToPayload(editConsultingFeeRows);
-                updateData.place = updateData.placeInterview || updateData.placeCorrection || '';
+                updateData.place = updateData.placeInterview || '';
             } else {
                 delete updateData.consultingFeesByType;
             }
@@ -658,15 +654,10 @@ export default function UsersPage() {
                                         <label className="form-label">통장 (은행·계좌·예금주)</label>
                                         <input className="form-input" placeholder="국민·123-456·홍길동" value={editForm.bankAccount} onChange={(e) => setEditForm({ ...editForm, bankAccount: e.target.value })} />
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="form-group mb-0">
-                                            <label className="form-label">면접 장소</label>
-                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={editForm.placeInterview} onChange={(e) => setEditForm({ ...editForm, placeInterview: e.target.value })} />
-                                        </div>
-                                        <div className="form-group mb-0">
-                                            <label className="form-label">첨삭 장소</label>
-                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={editForm.placeCorrection} onChange={(e) => setEditForm({ ...editForm, placeCorrection: e.target.value })} />
-                                        </div>
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">면접 장소</label>
+                                        <input className="form-input" placeholder="ECC B306-1호 / 온라인 ZOOM" value={editForm.placeInterview} onChange={(e) => setEditForm({ ...editForm, placeInterview: e.target.value })} />
+                                        <p className="text-xs text-emerald-800/70 mt-1">서면첨삭 장소는 공통으로 「온라인 접수」입니다.</p>
                                     </div>
                                 </div>
                             )}
@@ -978,15 +969,10 @@ export default function UsersPage() {
                                         <label className="form-label">통장 (은행·계좌·예금주)</label>
                                         <input className="form-input" placeholder="국민·123-456·홍길동" value={newUserForm.bankAccount} onChange={(e) => setNewUserForm({ ...newUserForm, bankAccount: e.target.value })} autoComplete="off" />
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="form-group mb-0">
-                                            <label className="form-label">면접 장소</label>
-                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={newUserForm.placeInterview} onChange={(e) => setNewUserForm({ ...newUserForm, placeInterview: e.target.value })} />
-                                        </div>
-                                        <div className="form-group mb-0">
-                                            <label className="form-label">첨삭 장소</label>
-                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={newUserForm.placeCorrection} onChange={(e) => setNewUserForm({ ...newUserForm, placeCorrection: e.target.value })} />
-                                        </div>
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">면접 장소</label>
+                                        <input className="form-input" placeholder="ECC B306-1호 / 온라인 ZOOM" value={newUserForm.placeInterview} onChange={(e) => setNewUserForm({ ...newUserForm, placeInterview: e.target.value })} />
+                                        <p className="text-xs text-emerald-800/70 mt-1">서면첨삭 장소는 공통으로 「온라인 접수」입니다.</p>
                                     </div>
                                 </div>
                             )}
