@@ -26,7 +26,7 @@ MongoDB의 27017 포트는 호스트나 인터넷에 공개하지 않습니다. 
 
 전환은 기존 계정을 먼저 대조한 뒤 진행합니다. 이전 앱은 Firestore 비밀번호와 Firebase 비밀번호가 서로 다른 경우에도 어느 쪽이든 허용했으므로, Firebase 비밀번호가 없는 계정이나 이전에 Firestore 비밀번호를 쓰던 계정은 개별 복구가 필요합니다. `805246`에 MongoDB로 설정한 임시 비밀번호는 Firebase 비밀번호를 바꾸지 않았습니다. 기존 UID와 이메일을 자동으로 결합하거나 기존 계정의 비밀번호를 일괄 변경하지 않습니다.
 
-기존 `ewh-calendar-runtime-env`의 MongoDB·세션 설정은 그대로 유지합니다. Firebase 서비스 계정 JSON은 Jenkins에 별도 Secret file `ewh-calendar-firebase-admin`으로 등록합니다. Jenkins는 배포 시에만 이 파일을 메모리에서 base64로 변환해 후보 API에 전달합니다. 웹 API 키와 프로젝트 ID는 공개 설정인 `infra/jenkins/deploy.env`에 있습니다. 서비스 계정에는 Authentication 사용자 조회·생성·수정·삭제와 Firestore 사용자 프로필 읽기·쓰기에 필요한 권한만 부여하세요. 키 파일을 Git, 로그 또는 채팅에 넣지 않습니다.
+기존 `ewh-calendar-runtime-env`의 MongoDB·세션 설정은 그대로 유지하고, 32자 이상의 `PII_ENCRYPTION_KEY`도 이 Jenkins Secret file에 설정합니다. 이미 암호화된 개인정보가 있다면 반드시 기존에 사용한 키와 동일해야 합니다. 자세한 설정과 최초 키 생성 조건은 [Jenkins 수동 배포](docs/jenkins.md)를 참고하세요. Firebase 서비스 계정 JSON은 Jenkins에 별도 Secret file `ewh-calendar-firebase-admin`으로 등록합니다. Jenkins는 배포 시에만 이 파일을 메모리에서 base64로 변환해 후보 API에 전달합니다. 웹 API 키와 프로젝트 ID는 공개 설정인 `infra/jenkins/deploy.env`에 있습니다. 서비스 계정에는 Authentication 사용자 조회·생성·수정·삭제와 Firestore 사용자 프로필 읽기·쓰기에 필요한 권한만 부여하세요. 키 파일을 Git, 로그 또는 채팅에 넣지 않습니다.
 
 직접 서버를 실행할 때는 `AUTH_PROVIDER=firebase`, `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_BASE64`를 서버 환경에 설정합니다. Identity Toolkit API와 이메일/비밀번호 로그인이 활성화되어 있어야 합니다.
 
@@ -52,7 +52,7 @@ docker exec -i <app-container> node scripts/recover-firebase-sync.mjs --user-id 
 
 ## 맥북 프로에서 실행
 
-Docker Desktop 또는 호환 Docker Engine과 Compose, Node.js 24를 사용합니다. Apple Silicon에서도 동일한 Compose 파일을 사용합니다.
+Docker Desktop 또는 호환 Docker Engine과 Compose, Node.js 24를 사용합니다. Apple Silicon에서도 동일한 Compose 파일을 사용합니다. 다음 키 생성 명령은 새 환경을 최초로 설정하고 기존 암호화 데이터가 없을 때만 사용합니다. 기존 데이터를 사용하는 환경에서는 기존 키와 자격 증명을 유지합니다.
 
 ```bash
 cp .env.example .env
