@@ -72,7 +72,14 @@ export default function UsersPage() {
         tel: '',
         role: '',
         status: '',
-        password: '' // 비밀번호 변경용 필드 추가
+        password: '', // 비밀번호 변경용 필드 추가
+        uniqueNumber: '',
+        birthDate: '',
+        affiliation: '',
+        address: '',
+        bankAccount: '',
+        placeInterview: '',
+        placeCorrection: ''
     });
 
     // 수정 모달 열기
@@ -84,7 +91,14 @@ export default function UsersPage() {
             tel: user.tel || '',
             role: user.role || 'consultant',
             status: user.status || 'pending',
-            password: '' // 비밀번호 필드는 항상 비워서 시작
+            password: '', // 비밀번호 필드는 항상 비워서 시작
+            uniqueNumber: user.uniqueNumber || '',
+            birthDate: user.birthDate || '',
+            affiliation: user.affiliation || '',
+            address: user.address || '',
+            bankAccount: user.bankAccount || '',
+            placeInterview: user.placeInterview || user.place || '',
+            placeCorrection: user.placeCorrection || user.place || ''
         });
         setEditConsultingFeeRows(payloadToConsultingFeeRows(user));
         setIsModalOpen(true);
@@ -595,6 +609,44 @@ export default function UsersPage() {
                                     onChange={(e) => setEditForm({ ...editForm, tel: e.target.value })}
                                 />
                             </div>
+
+                            {editForm.role === 'consultant' && (
+                                <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                                    <div className="text-sm font-bold text-emerald-900">영수증 마스터 정보</div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">고유번호</label>
+                                            <input className="form-input" value={editForm.uniqueNumber} onChange={(e) => setEditForm({ ...editForm, uniqueNumber: e.target.value })} />
+                                        </div>
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">생년월일</label>
+                                            <input type="date" className="form-input" value={editForm.birthDate} onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })} />
+                                        </div>
+                                    </div>
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">소속</label>
+                                        <input className="form-input" value={editForm.affiliation} onChange={(e) => setEditForm({ ...editForm, affiliation: e.target.value })} />
+                                    </div>
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">주소</label>
+                                        <input className="form-input" value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} />
+                                    </div>
+                                    <div className="form-group mb-0">
+                                        <label className="form-label">통장 (은행·계좌·예금주)</label>
+                                        <input className="form-input" placeholder="국민·123-456·홍길동" value={editForm.bankAccount} onChange={(e) => setEditForm({ ...editForm, bankAccount: e.target.value })} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">면접 장소</label>
+                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={editForm.placeInterview} onChange={(e) => setEditForm({ ...editForm, placeInterview: e.target.value })} />
+                                        </div>
+                                        <div className="form-group mb-0">
+                                            <label className="form-label">첨삭 장소</label>
+                                            <input className="form-input" placeholder="온라인 ZOOM/접수" value={editForm.placeCorrection} onChange={(e) => setEditForm({ ...editForm, placeCorrection: e.target.value })} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group">

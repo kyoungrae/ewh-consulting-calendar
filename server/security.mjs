@@ -26,9 +26,28 @@ export async function verifyPassword(password, encoded) {
     return timingSafeEqual(actual, Buffer.from(expected, 'hex'));
 }
 
+/** 영수증·지출결의 마스터에 쓰는 상담사 인적/계좌 필드 */
+export const CONSULTANT_MASTER_FIELDS = [
+    'uid', 'name', 'tel', 'role', 'status',
+    'uniqueNumber', 'birthDate', 'affiliation', 'address', 'bankAccount',
+    'place', 'placeInterview', 'placeCorrection',
+    'consultingFeePerSession', 'consultingFeesByType', 'remark'
+];
+
 export function safeUser(user, includePrivate = true) {
     const fields = includePrivate
-        ? ['uid', 'userId', 'email', 'name', 'tel', 'role', 'status', 'consultingFeePerSession', 'consultingFeesByType', 'createdAt', 'updatedAt', 'mustResetPassword', 'authSyncPending']
+        ? ['uid', 'userId', 'email', 'name', 'tel', 'role', 'status',
+            'uniqueNumber', 'birthDate', 'affiliation', 'address', 'bankAccount',
+            'place', 'placeInterview', 'placeCorrection', 'remark',
+            'consultingFeePerSession', 'consultingFeesByType',
+            'createdAt', 'updatedAt', 'mustResetPassword', 'authSyncPending']
         : ['uid', 'name', 'role', 'status'];
     return Object.fromEntries([['id', String(user._id)], ...fields.filter(key => user[key] !== undefined).map(key => [key, user[key]])]);
+}
+
+export function consultantMasterUser(user) {
+    return Object.fromEntries([
+        ['id', String(user._id)],
+        ...CONSULTANT_MASTER_FIELDS.filter(key => user[key] !== undefined).map(key => [key, user[key]])
+    ]);
 }

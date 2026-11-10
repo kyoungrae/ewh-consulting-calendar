@@ -6,7 +6,7 @@ import { rateLimit } from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { hashPassword, verifyPassword, safeUser, httpError, SESSION_MS, newToken } from './security.mjs';
+import { hashPassword, verifyPassword, safeUser, consultantMasterUser, httpError, SESSION_MS, newToken } from './security.mjs';
 import { publicDocument, normalizeSchedule, withTransaction, writeChangeLog, importSchedules, rollbackImport } from './schedules.mjs';
 import { bearerSession } from './bearer-session.mjs';
 import { loginRateKey } from './gateway-rate.mjs';
@@ -30,7 +30,14 @@ function fees(value) {
 }
 function userFields(input) {
     const out = {};
-    for (const key of ['userId', 'email', 'name', 'tel', 'role', 'status']) if (input[key] !== undefined) out[key] = text(input[key], key, ['name', 'userId'].includes(key));
+    for (const key of ['userId', 'email', 'name', 'tel', 'role', 'status', 'uniqueNumber', 'place', 'placeInterview', 'placeCorrection', 'affiliation', 'address', 'bankAccount', 'remark']) {
+        if (input[key] !== undefined) out[key] = text(input[key], key, ['name', 'userId'].includes(key));
+    }
+    if (input.birthDate !== undefined) {
+        const value = text(input.birthDate, '생년월일');
+        if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw httpError(400, '생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.');
+        out.birthDate = value;
+    }
     if (out.email) {
         out.email = out.email.toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw httpError(400, '이메일 형식이 올바르지 않습니다.');
@@ -119,11 +126,17 @@ export function createApp({ db, client, config, sessionStore, firebaseAuth, fire
         if (useBearer) await saveSession(req);
         res.json(snapshot(req, user));
     });
-    app.get('/api/auth/consultants', async (_req, res) => {
+    app.get('/api/auth/consultants', async (req, res) => {
+        // 로그인 전 선택 목록은 공개 필드만, 관리자 세션에서는 영수증용 마스터(인적/계좌·장소·단가)까지 반환.
+        const sessionUser = await findSessionUser(req).catch(() => null);
+        const includeMaster = sessionUser?.role === 'admin';
         const consultants = useFirebase
             ? (await firebaseUsers.find({ role: 'consultant', status: 'approved', hasProfile: true, disabled: { $ne: true }, authSyncPending: { $ne: true } }).sort({ name: 1 }).toArray()).filter(user => normalizedEmail(user.name) !== normalizedEmail(user.email))
-            : await db.collection('users').find({ role: 'consultant', status: 'approved' }, { projection: { _id: 1, uid: 1, name: 1, role: 1 } }).sort({ name: 1 }).toArray();
-        res.json(consultants.map(user => safeUser(user, false)));
+            : await db.collection('users').find(
+                { role: 'consultant', status: 'approved' },
+                includeMaster ? undefined : { projection: { _id: 1, uid: 1, name: 1, role: 1, status: 1 } }
+            ).sort({ name: 1 }).toArray();
+        res.json(consultants.map(user => (includeMaster ? consultantMasterUser(user) : safeUser(user, false))));
     });
     const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: req => loginRateKey(req, config.gatewayHmacSecret), message: { error: '로그인 시도가 많습니다. 15분 후 다시 시도해 주세요.' } });
     app.post('/api/auth/login', loginLimit, async (req, res) => {
