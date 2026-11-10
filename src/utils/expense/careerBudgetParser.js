@@ -17,7 +17,7 @@ const ATTENDANCE_ALIASES = {
     consultant: ['상담사', '강사', '컨설턴트', '컨설턴트명'],
     datetime: ['컨설팅일자', '상담일시', '일시', '일자', '날짜'],
     category: ['상담분류', '분류', '구분', '유형'],
-    student: ['이름', '학생', '학생명', '성명'],
+    student: ['이름', '학생', '학생명'],
     university: ['대학'],
     major: ['학과'],
     grade: ['학년'],

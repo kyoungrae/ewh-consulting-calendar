@@ -131,13 +131,73 @@ export function findHeaderRow(matrix, aliasGroups, minHits = 2) {
     return null;
 }
 
+function isRateHeader(value) {
+    const key = compact(value);
+    if (!key) return false;
+    if (/지급액|총합|합계/.test(key)) return false;
+    return /1세션당|건당첨삭비|세션당.*비|첨삭비|단가/.test(key);
+}
+
+function isNameHeader(value) {
+    const key = compact(value);
+    return /^(이름|행레이블|상담사|강사|성명)$/.test(key);
+}
+
+function isCountHeader(value) {
+    const key = compact(value);
+    if (!key || /지급액/.test(key)) return false;
+    return /개수|횟수|건수|세션수|서류면접\(건\)|특화\(건\)|첨삭횟수/.test(key) || /\(건\)$/.test(key);
+}
+
+function isAmountHeader(value) {
+    const key = compact(value);
+    return /지급액/.test(key);
+}
+
+/**
+ * 실제 출석부 양식: 단가 헤더(1세션당/건당 첨삭비)를 찾고,
+ * 그 왼쪽의 이름/행레이블을 상담사명으로 사용 (학생 이름 열과 분리).
+ */
 export function findPaymentHeader(matrix) {
-    return findHeaderRow(matrix, {
-        name: ['상담사', '강사', '행레이블', '성명', '이름'],
-        rate: ['1세션당', '세션당', '컨설팅비', '단가', '강사료'],
-        count: ['개수', '횟수', '건수', '세션수'],
-        amount: ['지급액', '금액', '합계']
-    }, 2);
+    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 40); rowIndex += 1) {
+        const row = matrix[rowIndex] || [];
+        for (let rateCol = 0; rateCol < row.length; rateCol += 1) {
+            if (!isRateHeader(row[rateCol])) continue;
+            let nameCol = null;
+            for (let col = rateCol - 1; col >= Math.max(0, rateCol - 4); col -= 1) {
+                if (isNameHeader(row[col])) {
+                    nameCol = col;
+                    break;
+                }
+            }
+            if (nameCol == null) {
+                for (let col = rateCol - 1; col >= Math.max(0, rateCol - 2); col -= 1) {
+                    if (cellText(row[col]) === '') continue;
+                    nameCol = col;
+                    break;
+                }
+            }
+            if (nameCol == null) continue;
+
+            let countCol;
+            let amountCol;
+            for (let col = rateCol + 1; col < Math.min(row.length, rateCol + 5); col += 1) {
+                if (countCol == null && isCountHeader(row[col])) countCol = col;
+                if (amountCol == null && isAmountHeader(row[col])) amountCol = col;
+            }
+            // 진로 양식: 개수가 단가 왼쪽(행레이블 옆)인 경우
+            if (countCol == null) {
+                for (let col = nameCol + 1; col < rateCol; col += 1) {
+                    if (isCountHeader(row[col])) {
+                        countCol = col;
+                        break;
+                    }
+                }
+            }
+            return { rowIndex, indexes: { name: nameCol, rate: rateCol, count: countCol, amount: amountCol } };
+        }
+    }
+    return null;
 }
 
 export function parsePaymentRates(matrix) {
@@ -146,14 +206,14 @@ export function parsePaymentRates(matrix) {
     const rates = new Map();
     for (let i = header.rowIndex + 1; i < matrix.length; i += 1) {
         const row = matrix[i] || [];
-        const name = normalizeName(row[header.indexes.name]);
-        if (!name) continue;
-        // Avoid mistaking student-name columns: require a numeric rate nearby.
+        const rawName = cellText(row[header.indexes.name]);
+        const name = normalizeName(rawName);
+        if (!name || /^(총합계|합계|계)$/.test(name)) continue;
         const rate = parseAmount(row[header.indexes.rate]);
         if (rate == null || rate <= 0) continue;
-        const count = parseAmount(row[header.indexes.count]);
-        const amount = parseAmount(row[header.indexes.amount]);
-        rates.set(name, { rate, count, amount, displayName: cellText(row[header.indexes.name]) });
+        const count = header.indexes.count != null ? parseAmount(row[header.indexes.count]) : null;
+        const amount = header.indexes.amount != null ? parseAmount(row[header.indexes.amount]) : null;
+        rates.set(name, { rate, count, amount, displayName: rawName });
     }
     return rates;
 }

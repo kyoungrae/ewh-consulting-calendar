@@ -14,23 +14,24 @@ import {
 import { indexConsultantMasters } from './consultantMaster.js';
 
 const ATTENDANCE_ALIASES = {
-    no: ['no', '번호', '연번'],
+    no: ['번호', 'no', '연번'],
     consultant: ['상담사', '강사', '컨설턴트', '컨설턴트명'],
-    datetime: ['컨설팅일자', '상담일시', '일시', '일자', '날짜', '일자열'],
+    datetime: ['컨설팅일자', '상담일시', '신청일', '일시', '일자', '날짜'],
     category: ['상담분류', '분류', '구분', '유형']
 };
 
 function sheetKind(sheetName, matrix) {
     const hint = `${sheetName} ${cellText(matrix?.[0]?.[0])} ${cellText(matrix?.[1]?.[0])}`.toLowerCase();
     const compactHint = compact(hint);
-    if (/서면첨삭|첨삭/.test(compactHint)) {
-        if (/영문|english|eng/.test(compactHint)) return 'correctionEnglish';
-        if (/국문|korean|kor/.test(compactHint)) return 'correctionKorean';
-        return 'correctionKorean';
-    }
+    if (/서면첨삭|첨삭/.test(compactHint)) return 'correction';
     if (/서류면접|면접|서류/.test(compactHint)) return 'interview';
-    // default employment attendance sheet → interview
     return 'interview';
+}
+
+function correctionLanguage(category) {
+    const text = compact(category);
+    if (/영문|english|eng/.test(text)) return 'correctionEnglish';
+    return 'correctionKorean';
 }
 
 function parseAttendanceSessions(matrix, yearMonth) {
@@ -45,15 +46,19 @@ function parseAttendanceSessions(matrix, yearMonth) {
         const rawDate = row[header.indexes.datetime];
         if (!consultant && (rawDate == null || rawDate === '')) continue;
         const first = cellText(row[0]);
-        if (/^(합계|지급|단가|1세션)/.test(first) && !consultant) break;
+        if (/^(합계|지급|단가|1세션|행레이블)/.test(compact(first)) && !consultant) break;
+        // 출석 번호 열이 비고 오른쪽 지급표만 남은 구간은 건너뜀
+        if (!consultant) continue;
         const parsed = parseDateTime(rawDate, yearMonth);
-        if (!consultant || !parsed?.dayKey) continue;
+        if (!parsed?.dayKey) continue;
+        const category = cellText(row[header.indexes.category]);
         sessions.push({
             consultant,
             displayName: consultant,
             dayKey: parsed.dayKey,
             time: parsed.time || extractTime(cellText(rawDate)),
-            category: cellText(row[header.indexes.category])
+            category,
+            language: correctionLanguage(category)
         });
     }
     return sessions;
@@ -79,8 +84,19 @@ export function parseEmploymentBudgetWorkbook(buffer, masters = []) {
         yearMonth ||= estimateYearMonth(matrix);
         const kind = sheetKind(sheetName, matrix);
         const payments = parsePaymentRates(matrix);
-        for (const [key, value] of payments) buckets[kind].payments.set(key, value);
-        buckets[kind].sessions.push(...parseAttendanceSessions(matrix, yearMonth));
+        const sessions = parseAttendanceSessions(matrix, yearMonth);
+        if (kind === 'correction') {
+            for (const [key, value] of payments) {
+                buckets.correctionKorean.payments.set(key, value);
+                buckets.correctionEnglish.payments.set(key, value);
+            }
+            for (const session of sessions) {
+                buckets[session.language || 'correctionKorean'].sessions.push(session);
+            }
+            continue;
+        }
+        for (const [key, value] of payments) buckets.interview.payments.set(key, value);
+        buckets.interview.sessions.push(...sessions);
     }
 
     const interviewBlocks = buildConsultantBlocks(
